@@ -11,6 +11,7 @@ import WeeklyCalendar from './components/WeeklyCalendar';
 import ChatComponent from './components/ChatComponent';
 import PDFReplicator from './components/PDFReplicator';
 import RoleDashboard from './components/RoleDashboard';
+import GerenciaDashboard from './components/GerenciaDashboard';
 
 export default function App() {
   // Roles list
@@ -1537,6 +1538,15 @@ export default function App() {
           </button>
           {currentUser && (currentUser.rol === 'SuperAdmin' || currentUser.rol === 'Gerencia') && (
             <button
+              onClick={() => setCurrentTab('gerencia')}
+              className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all-300 cursor-pointer ${currentTab === 'gerencia' ? 'bg-blue-900 text-white shadow' : 'text-slate-650 hover:bg-slate-200/50'
+                }`}
+            >
+              Inteligencia BI
+            </button>
+          )}
+          {currentUser && (currentUser.rol === 'SuperAdmin' || currentUser.rol === 'Gerencia') && (
+            <button
               onClick={() => setCurrentTab('admin')}
               className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all-300 cursor-pointer ${currentTab === 'admin' ? 'bg-blue-900 text-white shadow' : 'text-slate-600 hover:bg-slate-200/50'
                 }`}
@@ -1604,6 +1614,14 @@ export default function App() {
             structuresStock={structuresStock}
             clients={clients}
             onUpdateAdicionales={handleUpdateOTAdicionales}
+            onOpenGerenciaDashboard={() => setCurrentTab('gerencia')}
+          />
+        )}
+
+        {currentTab === 'gerencia' && (currentUser?.rol === 'SuperAdmin' || currentUser?.rol === 'Gerencia') && (
+          <GerenciaDashboard
+            currentUser={currentUser}
+            onClose={() => setCurrentTab('dashboard')}
           />
         )}
 

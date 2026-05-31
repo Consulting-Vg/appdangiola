@@ -594,6 +594,11 @@ app.put('/api/ots/:id/status', async (req, res) => {
       detalles: `Se actualizó el estado de la OT a: ${estado}`
     });
 
+    // Auto-sync OT to Gerencia BI historical data if approved or completed
+    if (estado === 'Aprobada por Gerencia' || estado === 'Aprobada' || estado === 'Completada') {
+      await syncOtToVentasHistoricas(ot);
+    }
+
     res.json(ot);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1190,10 +1195,468 @@ app.post('/api/ar/upload-glb', express.raw({ type: 'application/octet-stream', l
   }
 });
 
+// Sync OT to ventas_historicas
+const syncOtToVentasHistoricas = async (ot) => {
+  try {
+    const existing = await db.getVentasHistoricas({ ot_id: ot.id });
+    if (existing && existing.length > 0) return;
+
+    const adicionales = typeof ot.adicionales === 'string' ? JSON.parse(ot.adicionales) : ot.adicionales || {};
+    const georef = typeof ot.georef === 'string' ? JSON.parse(ot.georef) : ot.georef || {};
+
+    const piso = adicionales.pisos?.si || false;
+    const tarima = adicionales.tarima?.si || adicionales.tarimas?.si || false;
+    const alfombra = adicionales.alfombras?.si || adicionales.alfombra?.si || false;
+    const cortina = adicionales.telas_cortinas?.si || adicionales.cortina?.si || false;
+    const tribuna = adicionales.tribuna?.si || false;
+    const sillas = adicionales.sillas?.si || false;
+
+    let localidad = georef.direccion ? georef.direccion.split(',')[1]?.trim() || georef.direccion.substring(0, 50) : null;
+    let provincia = georef.direccion ? georef.direccion.split(',')[2]?.trim() || 'Buenos Aires' : 'Buenos Aires';
+
+    await db.insertVentaHistorica({
+      fecha_alta: ot.fecha_creacion ? ot.fecha_creacion.substring(0, 10) : new Date().toISOString().substring(0, 10),
+      fecha_armado: ot.fecha_inicio,
+      fecha_desarme: ot.fecha_fin,
+      cliente_nombre: ot.cliente_nombre,
+      cliente_cuenta: ot.cliente_id ? String(ot.cliente_id) : null,
+      vendedor: ot.creado_por || 'Sistema',
+      carpa_raw: ot.modelo_estructura,
+      superficie_m2: parseFloat(ot.superficie) || (parseFloat(ot.frente) * parseFloat(ot.largo)) || 0,
+      localidad,
+      provincia,
+      latitud: georef.lat ? parseFloat(georef.lat) : null,
+      longitud: georef.lng ? parseFloat(georef.lng) : null,
+      piso,
+      tarima,
+      alfombra,
+      cortina,
+      tribuna,
+      sillas,
+      adicionales_raw: JSON.stringify(adicionales),
+      condicion_fiscal: 'Responsable Inscripto',
+      condicion_pago: 'Contado',
+      origen: 'sistema_actual',
+      ot_id: ot.id
+    });
+    console.log(`[Gerencia BI] Synced OT ${ot.ot_numero} to historical records.`);
+  } catch (err) {
+    console.error(`[Gerencia BI] Error syncing OT ${ot.id} to historical:`, err);
+  }
+};
+
 // Startup server
 const PORT = process.env.PORT || 5001;
+
+// ────────────────────────────────────────────────────────────────────────────
+// 7. GERENCIA BI — ENDPOINTS DEL DASHBOARD DE GERENCIA
+// ────────────────────────────────────────────────────────────────────────────
+
+// Helper: detectar adicionales desde texto libre del sistema anterior
+const parseAdicionalesFromText = (text) => {
+  if (!text) return { piso: false, tarima: false, alfombra: false, cortina: false, tribuna: false, sillas: false };
+  const t = text.toLowerCase();
+  return {
+    piso:     t.includes('piso') || t.includes('fenolico') || t.includes('fenólico'),
+    tarima:   t.includes('tarima') || t.includes('escenario'),
+    alfombra: t.includes('alfombra'),
+    cortina:  t.includes('cortina') || t.includes('lateral'),
+    tribuna:  t.includes('tribuna') || t.includes('grader'),
+    sillas:   t.includes('silla') || t.includes('butaca')
+  };
+};
+
+// GET /api/gerencia/ventas-historicas — con filtros opcionales por query string
+app.get('/api/gerencia/ventas-historicas', async (req, res) => {
+  try {
+    const { fecha_desde, fecha_hasta, vendedor, cliente } = req.query;
+    const rows = await db.getVentasHistoricas({ fecha_desde, fecha_hasta, vendedor, cliente });
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/gerencia/upload-historico — carga masiva de registros históricos (array JSON)
+app.post('/api/gerencia/upload-historico', async (req, res) => {
+  try {
+    const records = req.body;
+    if (!Array.isArray(records) || records.length === 0) {
+      return res.status(400).json({ error: 'Se esperaba un array de registros.' });
+    }
+    // Normalizar y enriquecer cada registro
+    const normalized = records.map(r => {
+      const adds = parseAdicionalesFromText(r.adicionales_raw || r.adicionales || '');
+      return {
+        fecha_alta:       r.fecha_alta || r['Alta'] || null,
+        fecha_armado:     r.fecha_armado || r['Armado'] || r['Fecha Armado'] || r['fecha_inicio'] || '',
+        fecha_desarme:    r.fecha_desarme || r['Desarme'] || r['Fecha Desarme'] || r['fecha_fin'] || '',
+        cliente_nombre:   r.cliente_nombre || r['Cliente'] || r['cliente'] || '',
+        cliente_cuenta:   r.cliente_cuenta || r['Cuenta'] || r['cuenta'] || null,
+        vendedor:         r.vendedor || r['Vendedor'] || null,
+        carpa_raw:        r.carpa_raw || r['Carpa'] || r['carpa'] || null,
+        superficie_m2:    parseFloat(r.superficie_m2 || r['Superficie'] || r['m2'] || 0) || null,
+        localidad:        r.localidad || r['Localidad'] || null,
+        provincia:        r.provincia || r['Provincia'] || null,
+        latitud:          parseFloat(r.latitud || r['Latitud'] || 0) || null,
+        longitud:         parseFloat(r.longitud || r['Longitud'] || 0) || null,
+        piso:             r.piso !== undefined ? !!r.piso : adds.piso,
+        tarima:           r.tarima !== undefined ? !!r.tarima : adds.tarima,
+        alfombra:         r.alfombra !== undefined ? !!r.alfombra : adds.alfombra,
+        cortina:          r.cortina !== undefined ? !!r.cortina : adds.cortina,
+        tribuna:          r.tribuna !== undefined ? !!r.tribuna : adds.tribuna,
+        sillas:           r.sillas !== undefined ? !!r.sillas : adds.sillas,
+        adicionales_raw:  r.adicionales_raw || r['Adicionales'] || r.adicionales || null,
+        condicion_fiscal: r.condicion_fiscal || r['Cond. Fiscal'] || r['CondicionFiscal'] || null,
+        condicion_pago:   r.condicion_pago || r['Cond. Pago'] || r['CondicionPago'] || null,
+        origen:           'historico',
+        ot_id:            null
+      };
+    }).filter(r => r.fecha_armado && r.cliente_nombre); // solo filas con datos mínimos
+
+    const results = await db.bulkInsertVentasHistoricas(normalized);
+    res.json({ insertados: results.length, total_enviados: records.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/gerencia/kpis — KPIs globales
+app.get('/api/gerencia/kpis', async (req, res) => {
+  try {
+    const { fecha_desde, fecha_hasta, vendedor, cliente } = req.query;
+    const rows = await db.getVentasHistoricas({ fecha_desde, fecha_hasta, vendedor, cliente });
+
+    const totalM2 = rows.reduce((s, r) => s + (parseFloat(r.superficie_m2) || 0), 0);
+    const totalEventos = rows.length;
+
+    // Top 3 Clientes por frecuencia
+    const clientCount = {};
+    rows.forEach(r => { clientCount[r.cliente_nombre] = (clientCount[r.cliente_nombre] || 0) + 1; });
+    const top3Clientes = Object.entries(clientCount).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([nombre, cantidad]) => ({ nombre, cantidad }));
+
+    // Top 3 Estructuras (post-split por |)
+    const estCount = {};
+    rows.forEach(r => {
+      const carpas = (r.carpa_raw || '').split('|').map(s => s.trim()).filter(Boolean);
+      carpas.forEach(c => { estCount[c] = (estCount[c] || 0) + 1; });
+    });
+    const top3Estructuras = Object.entries(estCount).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([nombre, cantidad]) => ({ nombre, cantidad }));
+
+    // Ticket medio en m2
+    const ticketMedio = totalEventos > 0 ? (totalM2 / totalEventos).toFixed(1) : 0;
+
+    // Adicionales usage rates
+    const adicionales = ['piso', 'tarima', 'alfombra', 'cortina', 'tribuna', 'sillas'];
+    const adicionalesStats = {};
+    adicionales.forEach(a => {
+      adicionalesStats[a] = rows.filter(r => r[a]).length;
+    });
+
+    res.json({ totalM2: totalM2.toFixed(1), totalEventos, ticketMedio, top3Clientes, top3Estructuras, adicionalesStats });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/gerencia/evolucion-mensual — cierres y m2 agrupados por mes
+app.get('/api/gerencia/evolucion-mensual', async (req, res) => {
+  try {
+    const { fecha_desde, fecha_hasta, vendedor, cliente } = req.query;
+    const rows = await db.getVentasHistoricas({ fecha_desde, fecha_hasta, vendedor, cliente });
+
+    const byMonth = {};
+    rows.forEach(r => {
+      const d = r.fecha_armado ? String(r.fecha_armado).substring(0, 7) : null;
+      if (!d) return;
+      if (!byMonth[d]) byMonth[d] = { mes: d, cierres: 0, m2: 0 };
+      byMonth[d].cierres++;
+      byMonth[d].m2 += parseFloat(r.superficie_m2) || 0;
+    });
+
+    const sorted = Object.values(byMonth).sort((a, b) => a.mes.localeCompare(b.mes));
+    res.json(sorted);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/gerencia/top-modelos — Top 10 modelos de carpa
+app.get('/api/gerencia/top-modelos', async (req, res) => {
+  try {
+    const { fecha_desde, fecha_hasta, vendedor, cliente } = req.query;
+    const rows = await db.getVentasHistoricas({ fecha_desde, fecha_hasta, vendedor, cliente });
+
+    const modelCount = {};
+    rows.forEach(r => {
+      const carpas = (r.carpa_raw || '').split('|').map(s => s.trim()).filter(Boolean);
+      carpas.forEach(c => {
+        const key = c.substring(0, 40); // truncar para normalizar
+        modelCount[key] = (modelCount[key] || 0) + 1;
+      });
+    });
+
+    const top10 = Object.entries(modelCount).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([nombre, cantidad]) => ({ nombre, cantidad }));
+    res.json(top10);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/gerencia/vendedores — lista de vendedores únicos
+app.get('/api/gerencia/vendedores', async (req, res) => {
+  try {
+    const rows = await db.getVentasHistoricas({});
+    const vendedores = [...new Set(rows.map(r => r.vendedor).filter(Boolean))].sort();
+    res.json(vendedores);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/gerencia/cliente-perfil/:nombre — Perfil completo de un cliente
+app.get('/api/gerencia/cliente-perfil/:nombre', async (req, res) => {
+  try {
+    const nombre = decodeURIComponent(req.params.nombre);
+    const rows = await db.getVentasHistoricas({ cliente: nombre });
+
+    if (rows.length === 0) return res.json({ encontrado: false, rows: [] });
+
+    // Ordenar por fecha de armado
+    const sorted = rows.sort((a, b) => (a.fecha_armado || '').localeCompare(b.fecha_armado || ''));
+
+    // Calcular días entre compras
+    const intervalos = [];
+    for (let i = 1; i < sorted.length; i++) {
+      const d1 = new Date(sorted[i - 1].fecha_armado);
+      const d2 = new Date(sorted[i].fecha_armado);
+      if (!isNaN(d1) && !isNaN(d2)) {
+        intervalos.push(Math.round((d2 - d1) / (1000 * 60 * 60 * 24)));
+      }
+    }
+    const cicloProm = intervalos.length > 0 ? Math.round(intervalos.reduce((s, v) => s + v, 0) / intervalos.length) : null;
+
+    // Última compra y días de inactividad
+    const ultimaFecha = sorted[sorted.length - 1]?.fecha_armado;
+    const diasInactividad = ultimaFecha ? Math.round((new Date() - new Date(ultimaFecha)) / (1000 * 60 * 60 * 24)) : null;
+
+    // Próxima venta estimada
+    const proximaVenta = cicloProm && ultimaFecha
+      ? new Date(new Date(ultimaFecha).getTime() + cicloProm * 24 * 60 * 60 * 1000).toISOString().substring(0, 10)
+      : null;
+
+    // Lead time promedio (días entre alta y armado)
+    const leadTimes = rows.filter(r => r.fecha_alta && r.fecha_armado).map(r =>
+      Math.round((new Date(r.fecha_armado) - new Date(r.fecha_alta)) / (1000 * 60 * 60 * 24))
+    ).filter(d => d > 0 && d < 365);
+    const leadTimeProm = leadTimes.length > 0 ? Math.round(leadTimes.reduce((s, v) => s + v, 0) / leadTimes.length) : 7;
+
+    // Inicio de armado sugerido
+    const inicioArmadoSugerido = proximaVenta
+      ? new Date(new Date(proximaVenta).getTime() - leadTimeProm * 24 * 60 * 60 * 1000).toISOString().substring(0, 10)
+      : null;
+
+    // Adicional preferido
+    const adicionales = ['piso', 'tarima', 'alfombra', 'cortina', 'tribuna', 'sillas'];
+    let adMax = null, adMaxCount = 0;
+    adicionales.forEach(a => {
+      const count = rows.filter(r => r[a]).length;
+      if (count > adMaxCount) { adMaxCount = count; adMax = a; }
+    });
+
+    // Vendedor más frecuente
+    const vendedorCount = {};
+    rows.forEach(r => { if (r.vendedor) vendedorCount[r.vendedor] = (vendedorCount[r.vendedor] || 0) + 1; });
+    const vendedorPrincipal = Object.entries(vendedorCount).sort((a, b) => b[1] - a[1])[0]?.[0] || null;
+
+    // Estructura más contratada
+    const estCount = {};
+    rows.forEach(r => {
+      (r.carpa_raw || '').split('|').map(s => s.trim()).filter(Boolean).forEach(c => {
+        estCount[c] = (estCount[c] || 0) + 1;
+      });
+    });
+    const estPrincipal = Object.entries(estCount).sort((a, b) => b[1] - a[1])[0]?.[0] || null;
+
+    res.json({
+      encontrado: true,
+      cliente_nombre: rows[0].cliente_nombre,
+      condicion_fiscal: rows[0].condicion_fiscal,
+      condicion_pago: rows[0].condicion_pago,
+      total_eventos: rows.length,
+      primera_compra: sorted[0]?.fecha_armado,
+      ultima_compra: ultimaFecha,
+      dias_inactividad: diasInactividad,
+      ciclo_promedio_dias: cicloProm,
+      proxima_venta_estimada: proximaVenta,
+      lead_time_promedio_dias: leadTimeProm,
+      inicio_armado_sugerido: inicioArmadoSugerido,
+      adicional_preferido: adMax,
+      vendedor_principal: vendedorPrincipal,
+      estructura_principal: estPrincipal,
+      intervalos,
+      rows: sorted
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/gerencia/auditoria-vendedor/:vendedor — Auditoría gerencial por vendedor
+app.get('/api/gerencia/auditoria-vendedor/:vendedor', async (req, res) => {
+  try {
+    const vendedor = decodeURIComponent(req.params.vendedor);
+    const rows = await db.getVentasHistoricas({ vendedor });
+
+    if (rows.length === 0) return res.json({ encontrado: false });
+
+    // Ticket medio m2
+    const totalM2 = rows.reduce((s, r) => s + (parseFloat(r.superficie_m2) || 0), 0);
+    const ticketMedio = rows.length > 0 ? (totalM2 / rows.length).toFixed(1) : 0;
+
+    // Estructura más vendida por este vendedor
+    const estCount = {};
+    rows.forEach(r => {
+      (r.carpa_raw || '').split('|').map(s => s.trim()).filter(Boolean).forEach(c => {
+        estCount[c] = (estCount[c] || 0) + 1;
+      });
+    });
+    const estructuraPrincipal = Object.entries(estCount).sort((a, b) => b[1] - a[1])[0]?.[0] || null;
+
+    // Matriz de Periodicidad: por cada cliente, último evento y semáforo
+    const clienteMap = {};
+    rows.forEach(r => {
+      if (!clienteMap[r.cliente_nombre]) {
+        clienteMap[r.cliente_nombre] = { cliente: r.cliente_nombre, ultimas: [], total: 0 };
+      }
+      clienteMap[r.cliente_nombre].ultimas.push(r.fecha_armado);
+      clienteMap[r.cliente_nombre].total++;
+    });
+
+    const hoy = new Date();
+    const matrizPeriodicidad = Object.values(clienteMap).map(c => {
+      const sorted = c.ultimas.sort();
+      const ultima = sorted[sorted.length - 1];
+      const dias = ultima ? Math.round((hoy - new Date(ultima)) / (1000 * 60 * 60 * 24)) : null;
+      let semaforo = 'verde';
+      if (dias === null || dias > 180) semaforo = 'rojo';
+      else if (dias > 90) semaforo = 'amarillo';
+      return { cliente: c.cliente, ultima_compra: ultima, dias_inactividad: dias, semaforo, total_compras: c.total };
+    }).sort((a, b) => (b.dias_inactividad || 9999) - (a.dias_inactividad || 9999));
+
+    res.json({
+      encontrado: true,
+      vendedor,
+      total_eventos: rows.length,
+      total_m2: totalM2.toFixed(1),
+      ticket_medio_m2: ticketMedio,
+      estructura_principal: estructuraPrincipal,
+      matriz_periodicidad: matrizPeriodicidad
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/gerencia/demanda-predictiva — Motor de planificación logística
+app.get('/api/gerencia/demanda-predictiva', async (req, res) => {
+  try {
+    const { horizonte = 'mes' } = req.query;
+    const rows = await db.getVentasHistoricas({});
+
+    // Determinar rango de días del horizonte
+    const horizonteDias = horizonte === 'semana' ? 7 : horizonte === 'trimestre' ? 90 : 30;
+    const hoy = new Date();
+    const limite = new Date(hoy.getTime() + horizonteDias * 24 * 60 * 60 * 1000);
+
+    // Agrupar por cliente y calcular ciclo de recompra
+    const clienteMap = {};
+    rows.forEach(r => {
+      if (!clienteMap[r.cliente_nombre]) clienteMap[r.cliente_nombre] = [];
+      clienteMap[r.cliente_nombre].push(r);
+    });
+
+    const predicciones = [];
+    for (const [cliente, eventos] of Object.entries(clienteMap)) {
+      if (eventos.length < 2) continue; // necesitamos al menos 2 eventos para calcular ciclo
+      const sorted = eventos.sort((a, b) => (a.fecha_armado || '').localeCompare(b.fecha_armado || ''));
+      const intervalos = [];
+      for (let i = 1; i < sorted.length; i++) {
+        const d1 = new Date(sorted[i - 1].fecha_armado);
+        const d2 = new Date(sorted[i].fecha_armado);
+        if (!isNaN(d1) && !isNaN(d2)) intervalos.push(Math.round((d2 - d1) / (1000 * 60 * 60 * 24)));
+      }
+      const ciclo = Math.round(intervalos.reduce((s, v) => s + v, 0) / intervalos.length);
+      const ultima = new Date(sorted[sorted.length - 1].fecha_armado);
+      const proxima = new Date(ultima.getTime() + ciclo * 24 * 60 * 60 * 1000);
+
+      if (proxima >= hoy && proxima <= limite) {
+        // Probabilidades de adicionales basadas en historial de este cliente
+        const total = eventos.length;
+        const adicionales = {};
+        ['piso', 'tarima', 'alfombra', 'cortina', 'tribuna', 'sillas'].forEach(a => {
+          adicionales[a] = Math.round((eventos.filter(e => e[a]).length / total) * 100);
+        });
+
+        // Carpas más probables (basado en última + más frecuente)
+        const estCount = {};
+        eventos.forEach(e => {
+          (e.carpa_raw || '').split('|').map(s => s.trim()).filter(Boolean).forEach(c => {
+            estCount[c] = (estCount[c] || 0) + 1;
+          });
+        });
+        const carpaEsperada = Object.entries(estCount).sort((a, b) => b[1] - a[1])[0]?.[0] || null;
+
+        predicciones.push({
+          cliente,
+          proxima_fecha: proxima.toISOString().substring(0, 10),
+          ciclo_dias: ciclo,
+          ultima_compra: sorted[sorted.length - 1].fecha_armado,
+          carpa_esperada: carpaEsperada,
+          adicionales_prob: adicionales,
+          confianza: intervalos.length >= 4 ? 'alta' : intervalos.length >= 2 ? 'media' : 'baja',
+          total_eventos_historicos: total
+        });
+      }
+    }
+
+    predicciones.sort((a, b) => a.proxima_fecha.localeCompare(b.proxima_fecha));
+
+    // Consolidar demanda de carpas
+    const demandaCarpas = {};
+    predicciones.forEach(p => {
+      if (p.carpa_esperada) {
+        if (!demandaCarpas[p.carpa_esperada]) demandaCarpas[p.carpa_esperada] = { modelo: p.carpa_esperada, cantidad: 0, clientes: [] };
+        demandaCarpas[p.carpa_esperada].cantidad++;
+        demandaCarpas[p.carpa_esperada].clientes.push(p.cliente);
+      }
+    });
+
+    // Consolidar prob. de adicionales
+    const adicionalesConsolidado = {};
+    ['piso', 'tarima', 'alfombra', 'cortina', 'tribuna', 'sillas'].forEach(a => {
+      const preds = predicciones.filter(p => p.adicionales_prob[a] > 0);
+      if (preds.length > 0) {
+        adicionalesConsolidado[a] = Math.round(preds.reduce((s, p) => s + p.adicionales_prob[a], 0) / preds.length);
+      } else {
+        adicionalesConsolidado[a] = 0;
+      }
+    });
+
+    res.json({
+      horizonte,
+      horizonte_dias: horizonteDias,
+      total_clientes_en_rango: predicciones.length,
+      predicciones,
+      demanda_carpas: Object.values(demandaCarpas).sort((a, b) => b.cantidad - a.cantidad),
+      adicionales_consolidado: adicionalesConsolidado
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Carpas D'Angiola ERP Backend API running on port ${PORT}`);
   cleanTempArFolder();
 });
-

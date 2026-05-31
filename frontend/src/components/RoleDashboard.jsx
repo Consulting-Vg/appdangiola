@@ -23,7 +23,8 @@ export default function RoleDashboard({
   onFetchChatAlerts,
   structuresStock = [],
   clients = [],
-  onUpdateAdicionales
+  onUpdateAdicionales,
+  onOpenGerenciaDashboard
 }) {
   const getModulesForUser = () => {
     if (!currentUser) {
@@ -1819,6 +1820,12 @@ export default function RoleDashboard({
                 </h2>
                 <p className="text-xs text-indigo-600 font-semibold">Vista 360° del Carpas D'Angiola.</p>
               </div>
+              <button
+                onClick={onOpenGerenciaDashboard}
+                className="bg-indigo-750 hover:bg-indigo-900 text-white rounded-2xl px-4 py-2.5 text-xs font-black uppercase tracking-wider shadow-sm transition-all-300 flex items-center gap-2 cursor-pointer shrink-0"
+              >
+                <span>📊 Inteligencia de Negocios (BI)</span>
+              </button>
             </div>
 
             {/* Sub-tab Navigation */}

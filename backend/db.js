@@ -31,7 +31,8 @@ const loadJsonDb = () => {
           ordenes_trabajo: [],
           chat_mensajes: [],
           usuarios: [],
-          log_transacciones: []
+          log_transacciones: [],
+          ventas_historicas: []
         };
       }
     } catch (err) {
@@ -46,7 +47,8 @@ const loadJsonDb = () => {
         ordenes_trabajo: [],
         chat_mensajes: [],
         usuarios: [],
-        log_transacciones: []
+        log_transacciones: [],
+        ventas_historicas: []
       };
     }
   }
@@ -752,6 +754,119 @@ export const db = {
       db.log_transacciones = [];
       saveJsonDb();
       return true;
+    }
+  },
+
+  // ─── VENTAS HISTÓRICAS (Dashboard de Gerencia BI) ───────────────────────────
+
+  getVentasHistoricas: async (filters = {}) => {
+    if (usePostgreSQL) {
+      let query = 'SELECT * FROM ventas_historicas WHERE 1=1';
+      const params = [];
+      let idx = 1;
+      if (filters.fecha_desde) { query += ` AND fecha_armado >= $${idx++}`; params.push(filters.fecha_desde); }
+      if (filters.fecha_hasta) { query += ` AND fecha_armado <= $${idx++}`; params.push(filters.fecha_hasta); }
+      if (filters.vendedor)    { query += ` AND LOWER(vendedor) LIKE LOWER($${idx++})`; params.push(`%${filters.vendedor}%`); }
+      if (filters.cliente)     { query += ` AND LOWER(cliente_nombre) LIKE LOWER($${idx++})`; params.push(`%${filters.cliente}%`); }
+      if (filters.ot_id)       { query += ` AND ot_id = $${idx++}`; params.push(filters.ot_id); }
+      query += ' ORDER BY fecha_armado DESC';
+      const res = await pool.query(query, params);
+      return res.rows;
+    } else {
+      const db = loadJsonDb();
+      let rows = db.ventas_historicas || [];
+      if (filters.fecha_desde) rows = rows.filter(r => r.fecha_armado >= filters.fecha_desde);
+      if (filters.fecha_hasta) rows = rows.filter(r => r.fecha_armado <= filters.fecha_hasta);
+      if (filters.vendedor)    rows = rows.filter(r => r.vendedor && r.vendedor.toLowerCase().includes(filters.vendedor.toLowerCase()));
+      if (filters.cliente)     rows = rows.filter(r => r.cliente_nombre && r.cliente_nombre.toLowerCase().includes(filters.cliente.toLowerCase()));
+      if (filters.ot_id)       rows = rows.filter(r => r.ot_id === filters.ot_id);
+      return rows.sort((a, b) => (b.fecha_armado || '').localeCompare(a.fecha_armado || ''));
+    }
+  },
+
+  insertVentaHistorica: async (venta) => {
+    if (usePostgreSQL) {
+      const res = await pool.query(
+        `INSERT INTO ventas_historicas
+          (fecha_alta, fecha_armado, fecha_desarme, cliente_nombre, cliente_cuenta, vendedor,
+           carpa_raw, superficie_m2, localidad, provincia, latitud, longitud,
+           piso, tarima, alfombra, cortina, tribuna, sillas, adicionales_raw,
+           condicion_fiscal, condicion_pago, origen, ot_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
+         RETURNING *`,
+        [
+          venta.fecha_alta || null, venta.fecha_armado, venta.fecha_desarme,
+          venta.cliente_nombre, venta.cliente_cuenta || null, venta.vendedor || null,
+          venta.carpa_raw || null, venta.superficie_m2 || null,
+          venta.localidad || null, venta.provincia || null,
+          venta.latitud || null, venta.longitud || null,
+          venta.piso || false, venta.tarima || false, venta.alfombra || false,
+          venta.cortina || false, venta.tribuna || false, venta.sillas || false,
+          venta.adicionales_raw || null, venta.condicion_fiscal || null,
+          venta.condicion_pago || null, venta.origen || 'historico', venta.ot_id || null
+        ]
+      );
+      return res.rows[0];
+    } else {
+      const db = loadJsonDb();
+      if (!db.ventas_historicas) db.ventas_historicas = [];
+      const nextId = db.ventas_historicas.length > 0 ? Math.max(...db.ventas_historicas.map(v => v.id)) + 1 : 1;
+      const newVenta = { id: nextId, ...venta, fecha_creacion: new Date().toISOString() };
+      db.ventas_historicas.push(newVenta);
+      saveJsonDb();
+      return newVenta;
+    }
+  },
+
+  bulkInsertVentasHistoricas: async (ventas) => {
+    if (usePostgreSQL) {
+      const client = await pool.connect();
+      const results = [];
+      try {
+        await client.query('BEGIN');
+        for (const venta of ventas) {
+          const res = await client.query(
+            `INSERT INTO ventas_historicas
+              (fecha_alta, fecha_armado, fecha_desarme, cliente_nombre, cliente_cuenta, vendedor,
+               carpa_raw, superficie_m2, localidad, provincia, latitud, longitud,
+               piso, tarima, alfombra, cortina, tribuna, sillas, adicionales_raw,
+               condicion_fiscal, condicion_pago, origen, ot_id)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
+             RETURNING *`,
+            [
+              venta.fecha_alta || null, venta.fecha_armado, venta.fecha_desarme,
+              venta.cliente_nombre, venta.cliente_cuenta || null, venta.vendedor || null,
+              venta.carpa_raw || null, venta.superficie_m2 || null,
+              venta.localidad || null, venta.provincia || null,
+              venta.latitud || null, venta.longitud || null,
+              venta.piso || false, venta.tarima || false, venta.alfombra || false,
+              venta.cortina || false, venta.tribuna || false, venta.sillas || false,
+              venta.adicionales_raw || null, venta.condicion_fiscal || null,
+              venta.condicion_pago || null, venta.origen || 'historico', venta.ot_id || null
+            ]
+          );
+          results.push(res.rows[0]);
+        }
+        await client.query('COMMIT');
+      } catch (err) {
+        await client.query('ROLLBACK');
+        throw err;
+      } finally {
+        client.release();
+      }
+      return results;
+    } else {
+      const db = loadJsonDb();
+      if (!db.ventas_historicas) db.ventas_historicas = [];
+      const results = [];
+      for (const venta of ventas) {
+        const nextId = db.ventas_historicas.length > 0 ? Math.max(...db.ventas_historicas.map(v => v.id)) + 1 : 1;
+        const newVenta = { id: nextId, ...venta, fecha_creacion: new Date().toISOString() };
+        db.ventas_historicas.push(newVenta);
+        results.push(newVenta);
+      }
+      saveJsonDb();
+      return results;
     }
   }
 };

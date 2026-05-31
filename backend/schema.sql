@@ -149,3 +149,37 @@ CREATE TABLE log_transacciones (
 
 CREATE INDEX idx_log_ot ON log_transacciones(ot_id);
 
+-- 10. Ventas Históricas (Dashboard de Gerencia BI)
+-- Esta tabla recibe los datos del sistema anterior (importación CSV)
+-- y también se auto-nutre de las nuevas OTs generadas en este sistema.
+CREATE TABLE IF NOT EXISTS ventas_historicas (
+    id SERIAL PRIMARY KEY,
+    fecha_alta DATE,
+    fecha_armado DATE NOT NULL,
+    fecha_desarme DATE NOT NULL,
+    cliente_nombre VARCHAR(255) NOT NULL,
+    cliente_cuenta VARCHAR(50),
+    vendedor VARCHAR(255),
+    carpa_raw TEXT,              -- Campo original con posibles | separadores
+    superficie_m2 DECIMAL(10,2),
+    localidad VARCHAR(100),
+    provincia VARCHAR(100),
+    latitud DECIMAL(9,6),
+    longitud DECIMAL(9,6),
+    piso BOOLEAN DEFAULT FALSE,
+    tarima BOOLEAN DEFAULT FALSE,
+    alfombra BOOLEAN DEFAULT FALSE,
+    cortina BOOLEAN DEFAULT FALSE,
+    tribuna BOOLEAN DEFAULT FALSE,
+    sillas BOOLEAN DEFAULT FALSE,
+    adicionales_raw TEXT,        -- texto libre original del sistema anterior
+    condicion_fiscal VARCHAR(50),
+    condicion_pago VARCHAR(50),
+    origen VARCHAR(20) DEFAULT 'historico', -- 'historico' o 'sistema_actual'
+    ot_id INT REFERENCES ordenes_trabajo(id) ON DELETE SET NULL,
+    fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_vh_fechas ON ventas_historicas(fecha_armado, fecha_desarme);
+CREATE INDEX IF NOT EXISTS idx_vh_cliente ON ventas_historicas(cliente_nombre);
+CREATE INDEX IF NOT EXISTS idx_vh_vendedor ON ventas_historicas(vendedor);
