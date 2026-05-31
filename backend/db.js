@@ -1,0 +1,757 @@
+import pg from 'pg';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const jsonDbPath = path.join(__dirname, 'data', 'db.json');
+
+// Configuration
+const connectionString = process.env.DATABASE_URL;
+let pool = null;
+let usePostgreSQL = false;
+let jsonDb = null;
+
+// Load JSON db helper
+const loadJsonDb = () => {
+  if (!jsonDb) {
+    try {
+      if (fs.existsSync(jsonDbPath)) {
+        const data = fs.readFileSync(jsonDbPath, 'utf8');
+        jsonDb = JSON.parse(data);
+      } else {
+        jsonDb = {
+          clientes: [],
+          estructuras_maestras: [],
+          base_arco: [],
+          base_modulo: [],
+          base_fijo: [],
+          inventario_accesorios: [],
+          ordenes_trabajo: [],
+          chat_mensajes: [],
+          usuarios: [],
+          log_transacciones: []
+        };
+      }
+    } catch (err) {
+      console.error("Error loading JSON database fallback:", err);
+      jsonDb = {
+        clientes: [],
+        estructuras_maestras: [],
+        base_arco: [],
+        base_modulo: [],
+        base_fijo: [],
+        inventario_accesorios: [],
+        ordenes_trabajo: [],
+        chat_mensajes: [],
+        usuarios: [],
+        log_transacciones: []
+      };
+    }
+  }
+  return jsonDb;
+};
+
+// Save JSON db helper
+const saveJsonDb = () => {
+  if (jsonDb) {
+    try {
+      fs.writeFileSync(jsonDbPath, JSON.stringify(jsonDb, null, 2), 'utf8');
+    } catch (err) {
+      console.error("Error saving JSON DB fallback:", err);
+    }
+  }
+};
+
+// Initialize connection
+const initDb = async () => {
+  if (connectionString) {
+    try {
+      pool = new pg.Pool({
+        connectionString,
+        ssl: connectionString.includes('render.com') || connectionString.includes('supabase')
+          ? { rejectUnauthorized: false }
+          : false
+      });
+      // Test connection
+      await pool.query('SELECT NOW()');
+      usePostgreSQL = true;
+      console.log('Connected to PostgreSQL successfully.');
+    } catch (err) {
+      console.warn('PostgreSQL connection failed. Falling back to local JSON database.', err.message);
+      usePostgreSQL = false;
+      loadJsonDb();
+    }
+  } else {
+    console.log('DATABASE_URL not set. Running in local JSON database mode.');
+    usePostgreSQL = false;
+    loadJsonDb();
+  }
+};
+
+// Run initialization immediately
+initDb();
+
+// Expose Repository API
+export const db = {
+  isPostgreSQL: () => usePostgreSQL,
+
+  // Reset database (used by Admin Dashboard)
+  resetDatabase: async (data) => {
+    if (usePostgreSQL) {
+      // Re-run schema or truncate tables and re-insert
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        
+        await client.query('TRUNCATE chat_mensajes, ordenes_trabajo, inventario_accesorios, base_fijo, base_modulo, base_arco, estructuras_maestras, clientes, usuarios, log_transacciones RESTART IDENTITY CASCADE');
+
+        // Seed structures
+        for (const est of data.estructuras_maestras) {
+          await client.query(
+            `INSERT INTO estructuras_maestras (id, modelo_estructura, arcos_totales, estructura_tipo, frente, largo_maximo, arcos_disponibles)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+            [est.id, est.modelo_estructura, est.arcos_totales, est.estructura_tipo, est.frente, est.largo_maximo, est.arcos_disponibles]
+          );
+        }
+
+        // Seed clients
+        for (const cl of data.clientes) {
+          await client.query(
+            `INSERT INTO clientes (id, cuenta, nombre, actividad, estado, observacion, domicilio, localidad, provincia, pais, telefono, email, cuit, vendedores, responsables, latitud, longitud)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
+            [cl.id, cl.cuenta, cl.nombre, cl.actividad, cl.estado, cl.observacion, cl.domicilio, cl.localidad, cl.provincia, cl.pais, cl.telefono, cl.email, cl.cuit, cl.vendedores, cl.responsables, cl.latitud, cl.longitud]
+          );
+        }
+
+        // Seed base_arco
+        for (const arc of data.base_arco) {
+          await client.query(
+            `INSERT INTO base_arco (id, producto, arco, modelo_estructura, sector, qty_fija_arco)
+             VALUES ($1, $2, $3, $4, $5, $6)`,
+            [arc.id, arc.producto, arc.arco, arc.modelo_estructura, arc.sector, arc.qty_fija_arco]
+          );
+        }
+
+        // Seed base_modulo
+        for (const mod of data.base_modulo) {
+          await client.query(
+            `INSERT INTO base_modulo (id, producto, modelo_estructura, sector, modulacion, stock_inicial, modulo_val)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+            [mod.id, mod.producto, mod.modelo_estructura, mod.sector, mod.modulacion, mod.stock_inicial, mod.modulo_val || null]
+          );
+        }
+
+        // Seed base_fijo
+        for (const fj of data.base_fijo) {
+          await client.query(
+            `INSERT INTO base_fijo (id, producto, modelo_estructura, sector, qty_fija_carpa)
+             VALUES ($1, $2, $3, $4, $5)`,
+            [fj.id, fj.producto, fj.modelo_estructura, fj.sector, fj.qty_fija_carpa]
+          );
+        }
+
+        // Seed accessories
+        for (const acc of data.inventario_accesorios) {
+          await client.query(
+            `INSERT INTO inventario_accesorios (id, categoria, nombre, color, tipo, medida, estado, stock_total)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+            [acc.id, acc.categoria, acc.nombre, acc.color, acc.tipo, acc.medida, acc.estado, acc.stock_total]
+          );
+        }
+
+        // Seed default users
+        if (data.usuarios && data.usuarios.length > 0) {
+          for (const user of data.usuarios) {
+            await client.query(
+              `INSERT INTO usuarios (id, username, nombre, password, rol, modulos)
+               VALUES ($1, $2, $3, $4, $5, $6)`,
+              [user.id, user.username, user.nombre, user.password, user.rol, user.modulos || '[]']
+            );
+          }
+        }
+
+        await client.query('COMMIT');
+        console.log("PostgreSQL database reset complete.");
+      } catch (err) {
+        await client.query('ROLLBACK');
+        console.error("PostgreSQL database reset failed, rolling back:", err);
+        throw err;
+      } finally {
+        client.release();
+      }
+    } else {
+      jsonDb = {
+        clientes: data.clientes || [],
+        estructuras_maestras: data.estructuras_maestras || [],
+        base_arco: data.base_arco || [],
+        base_modulo: data.base_modulo || [],
+        base_fijo: data.base_fijo || [],
+        inventario_accesorios: data.inventario_accesorios || [],
+        usuarios: data.usuarios || [],
+        ordenes_trabajo: [],
+        chat_mensajes: [],
+        log_transacciones: []
+      };
+      saveJsonDb();
+      console.log("Local JSON database reset complete.");
+    }
+  },
+
+  // Clients
+  getClients: async () => {
+    if (usePostgreSQL) {
+      const res = await pool.query('SELECT * FROM clientes ORDER BY nombre');
+      return res.rows;
+    } else {
+      return loadJsonDb().clientes.sort((a, b) => a.nombre.localeCompare(b.nombre));
+    }
+  },
+
+  saveClient: async (client) => {
+    if (usePostgreSQL) {
+      const res = await pool.query(
+        `INSERT INTO clientes (cuenta, nombre, actividad, estado, observacion, domicilio, localidad, provincia, pais, telefono, email, cuit, vendedores, responsables, latitud, longitud)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+         RETURNING *`,
+        [client.cuenta, client.nombre, client.actividad, client.estado, client.observacion, client.domicilio, client.localidad, client.provincia, client.pais, client.telefono, client.email, client.cuit, client.vendedores, client.responsables, client.latitud, client.longitud]
+      );
+      return res.rows[0];
+    } else {
+      const db = loadJsonDb();
+      const nextId = db.clientes.length > 0 ? Math.max(...db.clientes.map(c => c.id)) + 1 : 1;
+      const newClient = { id: nextId, ...client };
+      db.clientes.push(newClient);
+      saveJsonDb();
+      return newClient;
+    }
+  },
+
+  // Structures
+  getStructures: async () => {
+    if (usePostgreSQL) {
+      const res = await pool.query('SELECT * FROM estructuras_maestras');
+      return res.rows;
+    } else {
+      return loadJsonDb().estructuras_maestras;
+    }
+  },
+
+  getArches: async () => {
+    if (usePostgreSQL) {
+      const res = await pool.query('SELECT * FROM base_arco');
+      return res.rows;
+    } else {
+      return loadJsonDb().base_arco;
+    }
+  },
+
+  getModules: async () => {
+    if (usePostgreSQL) {
+      const res = await pool.query('SELECT * FROM base_modulo');
+      return res.rows;
+    } else {
+      return loadJsonDb().base_modulo;
+    }
+  },
+
+  getFijos: async () => {
+    if (usePostgreSQL) {
+      const res = await pool.query('SELECT * FROM base_fijo');
+      return res.rows;
+    } else {
+      return loadJsonDb().base_fijo;
+    }
+  },
+
+  // Accessories Stock
+  getAccessories: async () => {
+    if (usePostgreSQL) {
+      const res = await pool.query('SELECT * FROM inventario_accesorios');
+      return res.rows;
+    } else {
+      return loadJsonDb().inventario_accesorios;
+    }
+  },
+
+  updateAccessoryStock: async (id, delta) => {
+    if (usePostgreSQL) {
+      const res = await pool.query(
+        'UPDATE inventario_accesorios SET stock_total = stock_total + $1 WHERE id = $2 RETURNING *',
+        [delta, id]
+      );
+      return res.rows[0];
+    } else {
+      const db = loadJsonDb();
+      const item = db.inventario_accesorios.find(a => a.id === id);
+      if (item) {
+        item.stock_total += delta;
+        saveJsonDb();
+        return item;
+      }
+      return null;
+    }
+  },
+
+  // Work Orders (OTs)
+  getOTs: async () => {
+    if (usePostgreSQL) {
+      const res = await pool.query(`
+        SELECT ot.*, cl.nombre as cliente_nombre 
+        FROM ordenes_trabajo ot
+        JOIN clientes cl ON ot.cliente_id = cl.id
+        ORDER BY ot.fecha_creacion DESC
+      `);
+      return res.rows;
+    } else {
+      const db = loadJsonDb();
+      return db.ordenes_trabajo.map(ot => {
+        const client = db.clientes.find(c => c.id === ot.cliente_id);
+        return {
+          ...ot,
+          cliente_nombre: client ? client.nombre : 'Cliente Desconocido'
+        };
+      }).sort((a, b) => b.id - a.id);
+    }
+  },
+
+  saveOT: async (ot) => {
+    if (usePostgreSQL) {
+      const res = await pool.query(
+        `INSERT INTO ordenes_trabajo (
+          ot_numero, cliente_id, fecha_inicio, fecha_fin, modelo_estructura, 
+          estructura_tipo, frente, largo, superficie, modulacion_config, 
+          adicionales, georef, estado, panol_status, planta_status, creado_por
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+         RETURNING *`,
+        [
+          ot.ot_numero, ot.cliente_id, ot.fecha_inicio, ot.fecha_fin, ot.modelo_estructura,
+          ot.estructura_tipo, ot.frente, ot.largo, ot.superficie, JSON.stringify(ot.modulacion_config),
+          JSON.stringify(ot.adicionales), JSON.stringify(ot.georef), ot.estado || 'Pendiente',
+          JSON.stringify(ot.panol_status), JSON.stringify(ot.planta_status), ot.creado_por
+        ]
+      );
+      return res.rows[0];
+    } else {
+      const db = loadJsonDb();
+      const nextId = db.ordenes_trabajo.length > 0 ? Math.max(...db.ordenes_trabajo.map(o => o.id)) + 1 : 1;
+      const newOT = {
+        id: nextId,
+        ...ot,
+        fecha_creacion: new Date().toISOString()
+      };
+      db.ordenes_trabajo.push(newOT);
+      saveJsonDb();
+      return newOT;
+    }
+  },
+
+  updateOTStatus: async (id, status, usuario, rol) => {
+    if (usePostgreSQL) {
+      const getRes = await pool.query('SELECT adicionales FROM ordenes_trabajo WHERE id = $1', [id]);
+      let currentAdicionales = {};
+      if (getRes.rows[0]) {
+        currentAdicionales = typeof getRes.rows[0].adicionales === 'string'
+          ? JSON.parse(getRes.rows[0].adicionales)
+          : getRes.rows[0].adicionales || {};
+      }
+      if (status === 'Aprobada por Gerencia') {
+        currentAdicionales.aprobado_por = usuario || 'Sistema';
+      }
+      if (status === 'Completada') {
+        currentAdicionales.completado_por = usuario || 'Sistema';
+      }
+      const res = await pool.query(
+        'UPDATE ordenes_trabajo SET estado = $1, adicionales = $2 WHERE id = $3 RETURNING *',
+        [status, JSON.stringify(currentAdicionales), id]
+      );
+      return res.rows[0];
+    } else {
+      const db = loadJsonDb();
+      const ot = db.ordenes_trabajo.find(o => o.id === id);
+      if (ot) {
+        let currentAdicionales = typeof ot.adicionales === 'string'
+          ? JSON.parse(ot.adicionales)
+          : ot.adicionales || {};
+        if (status === 'Aprobada por Gerencia') {
+          currentAdicionales.aprobado_por = usuario || 'Sistema';
+        }
+        if (status === 'Completada') {
+          currentAdicionales.completado_por = usuario || 'Sistema';
+        }
+        ot.estado = status;
+        ot.adicionales = currentAdicionales;
+        saveJsonDb();
+        return ot;
+      }
+      return null;
+    }
+  },
+
+  updateOTChecklists: async (id, panol_status, planta_status, usuario, rol) => {
+    if (usePostgreSQL) {
+      const getRes = await pool.query('SELECT adicionales FROM ordenes_trabajo WHERE id = $1', [id]);
+      let currentAdicionales = {};
+      if (getRes.rows[0]) {
+        currentAdicionales = typeof getRes.rows[0].adicionales === 'string'
+          ? JSON.parse(getRes.rows[0].adicionales)
+          : getRes.rows[0].adicionales || {};
+      }
+      if (rol) {
+        currentAdicionales[`cargado_${rol.toLowerCase()}_por`] = usuario || 'Sistema';
+      }
+      const res = await pool.query(
+        'UPDATE ordenes_trabajo SET panol_status = $1, planta_status = $2, adicionales = $3 WHERE id = $4 RETURNING *',
+        [JSON.stringify(panol_status), JSON.stringify(planta_status), JSON.stringify(currentAdicionales), id]
+      );
+      return res.rows[0];
+    } else {
+      const db = loadJsonDb();
+      const ot = db.ordenes_trabajo.find(o => o.id === id);
+      if (ot) {
+        let currentAdicionales = typeof ot.adicionales === 'string'
+          ? JSON.parse(ot.adicionales)
+          : ot.adicionales || {};
+        if (rol) {
+          currentAdicionales[`cargado_${rol.toLowerCase()}_por`] = usuario || 'Sistema';
+        }
+        ot.panol_status = panol_status;
+        ot.planta_status = planta_status;
+        ot.adicionales = currentAdicionales;
+        saveJsonDb();
+        return ot;
+      }
+      return null;
+    }
+  },
+
+  updateOTAdicionales: async (id, adicionales, usuario, rol) => {
+    if (usePostgreSQL) {
+      const getRes = await pool.query('SELECT ot_numero, adicionales FROM ordenes_trabajo WHERE id = $1', [id]);
+      let currentAdicionales = {};
+      let ot_numero = '';
+      if (getRes.rows[0]) {
+        ot_numero = getRes.rows[0].ot_numero;
+        currentAdicionales = typeof getRes.rows[0].adicionales === 'string'
+          ? JSON.parse(getRes.rows[0].adicionales)
+          : getRes.rows[0].adicionales || {};
+      }
+      
+      // Prevent modification if already confirmed
+      if (currentAdicionales.chofer_llegada) {
+        adicionales.chofer_llegada = true;
+        adicionales.chofer_llegada_fecha = currentAdicionales.chofer_llegada_fecha;
+        adicionales.chofer_llegada_coords = currentAdicionales.chofer_llegada_coords;
+      }
+      
+      const updatedAdicionales = { ...currentAdicionales, ...adicionales };
+      if (rol) {
+        updatedAdicionales[`modificado_${rol.toLowerCase()}_por`] = usuario || 'Sistema';
+      }
+      
+      // If confirming arrival now
+      if (!currentAdicionales.chofer_llegada && adicionales.chofer_llegada) {
+        const coords = adicionales.chofer_llegada_coords || 'No disponible';
+        await pool.query(
+          'INSERT INTO log_transacciones (ot_id, ot_numero, usuario, rol, accion, detalles) VALUES ($1, $2, $3, $4, $5, $6)',
+          [id, ot_numero, usuario || 'Chofer', rol || 'Chofer', 'ENTREGA_CHOFER', `Llegada confirmada en destino. Coordenadas de entrega: ${coords}`]
+        );
+      }
+
+      const res = await pool.query(
+        'UPDATE ordenes_trabajo SET adicionales = $1 WHERE id = $2 RETURNING *',
+        [JSON.stringify(updatedAdicionales), id]
+      );
+      return res.rows[0];
+    } else {
+      const db = loadJsonDb();
+      const ot = db.ordenes_trabajo.find(o => o.id === id);
+      if (ot) {
+        let currentAdicionales = typeof ot.adicionales === 'string'
+          ? JSON.parse(ot.adicionales)
+          : ot.adicionales || {};
+        
+        // Prevent modification if already confirmed
+        if (currentAdicionales.chofer_llegada) {
+          adicionales.chofer_llegada = true;
+          adicionales.chofer_llegada_fecha = currentAdicionales.chofer_llegada_fecha;
+          adicionales.chofer_llegada_coords = currentAdicionales.chofer_llegada_coords;
+        }
+
+        const updatedAdicionales = { ...currentAdicionales, ...adicionales };
+        if (rol) {
+          updatedAdicionales[`modificado_${rol.toLowerCase()}_por`] = usuario || 'Sistema';
+        }
+
+        // If confirming arrival now
+        if (!currentAdicionales.chofer_llegada && adicionales.chofer_llegada) {
+          const coords = adicionales.chofer_llegada_coords || 'No disponible';
+          if (!db.log_transacciones) db.log_transacciones = [];
+          const newLog = {
+            id: db.log_transacciones.length + 1,
+            ot_id: id,
+            ot_numero: ot.ot_numero,
+            usuario: usuario || 'Chofer',
+            rol: rol || 'Chofer',
+            accion: 'ENTREGA_CHOFER',
+            detalles: `Llegada confirmada en destino. Coordenadas de entrega: ${coords}`,
+            fecha: new Date().toISOString()
+          };
+          db.log_transacciones.push(newLog);
+        }
+
+        ot.adicionales = updatedAdicionales;
+        saveJsonDb();
+        return ot;
+      }
+      return null;
+    }
+  },
+
+  updateOTConformation: async (id, modulacion_config, arcos_reservados, panol_status, planta_status, fijo_modelo_estructura, modulo_modelo_estructura, conformed_modulos_list, usuario, rol) => {
+    if (usePostgreSQL) {
+      const getRes = await pool.query('SELECT adicionales FROM ordenes_trabajo WHERE id = $1', [id]);
+      let currentAdicionales = {};
+      if (getRes.rows[0]) {
+        currentAdicionales = typeof getRes.rows[0].adicionales === 'string'
+          ? JSON.parse(getRes.rows[0].adicionales)
+          : getRes.rows[0].adicionales || {};
+      }
+      currentAdicionales.arcos_reservados = arcos_reservados;
+      if (fijo_modelo_estructura) {
+        currentAdicionales.fijo_modelo_estructura = fijo_modelo_estructura;
+      }
+      if (modulo_modelo_estructura) {
+        currentAdicionales.modulo_modelo_estructura = modulo_modelo_estructura;
+      }
+      if (conformed_modulos_list) {
+        currentAdicionales.conformed_modulos_list = conformed_modulos_list;
+      }
+      currentAdicionales.modulado_por = usuario || 'Sistema';
+
+      const res = await pool.query(
+        `UPDATE ordenes_trabajo 
+         SET modulacion_config = $1, adicionales = $2, panol_status = $3, planta_status = $4, estado = 'Aprobada'
+         WHERE id = $5 
+         RETURNING *`,
+        [
+          JSON.stringify(modulacion_config),
+          JSON.stringify(currentAdicionales),
+          JSON.stringify(panol_status),
+          JSON.stringify(planta_status),
+          id
+        ]
+      );
+      return res.rows[0];
+    } else {
+      const db = loadJsonDb();
+      const ot = db.ordenes_trabajo.find(o => o.id === id);
+      if (ot) {
+        let currentAdicionales = typeof ot.adicionales === 'string'
+          ? JSON.parse(ot.adicionales)
+          : ot.adicionales || {};
+        currentAdicionales.arcos_reservados = arcos_reservados;
+        if (fijo_modelo_estructura) {
+          currentAdicionales.fijo_modelo_estructura = fijo_modelo_estructura;
+        }
+        if (modulo_modelo_estructura) {
+          currentAdicionales.modulo_modelo_estructura = modulo_modelo_estructura;
+        }
+        if (conformed_modulos_list) {
+          currentAdicionales.conformed_modulos_list = conformed_modulos_list;
+        }
+        
+        currentAdicionales.modulado_por = usuario || 'Sistema';
+        
+        ot.modulacion_config = modulacion_config;
+        ot.adicionales = currentAdicionales;
+        ot.panol_status = panol_status;
+        ot.planta_status = planta_status;
+        ot.estado = 'Aprobada';
+        saveJsonDb();
+        return ot;
+      }
+      return null;
+    }
+  },
+
+  // Chat messages
+  getChatMessages: async (otId) => {
+    if (usePostgreSQL) {
+      const res = await pool.query('SELECT * FROM chat_mensajes WHERE ot_id = $1 ORDER BY fecha_envio ASC', [otId]);
+      return res.rows;
+    } else {
+      const db = loadJsonDb();
+      return db.chat_mensajes
+        .filter(m => m.ot_id === otId)
+        .sort((a, b) => new Date(a.fecha_envio) - new Date(b.fecha_envio));
+    }
+  },
+
+  getAllChatMessages: async () => {
+    if (usePostgreSQL) {
+      const res = await pool.query('SELECT * FROM chat_mensajes ORDER BY fecha_envio DESC');
+      return res.rows;
+    } else {
+      const db = loadJsonDb();
+      return (db.chat_mensajes || []).sort((a, b) => new Date(b.fecha_envio) - new Date(a.fecha_envio));
+    }
+  },
+
+  saveChatMessage: async (msg) => {
+    if (usePostgreSQL) {
+      const res = await pool.query(
+        'INSERT INTO chat_mensajes (ot_id, usuario, rol, mensaje) VALUES ($1, $2, $3, $4) RETURNING *',
+        [msg.ot_id, msg.usuario, msg.rol, msg.mensaje]
+      );
+      return res.rows[0];
+    } else {
+      const db = loadJsonDb();
+      if (!db.chat_mensajes) db.chat_mensajes = [];
+      const nextId = db.chat_mensajes.length > 0 ? Math.max(...db.chat_mensajes.map(m => m.id)) + 1 : 1;
+      const newMsg = {
+        id: nextId,
+        ot_id: parseInt(msg.ot_id),
+        usuario: msg.usuario,
+        rol: msg.rol,
+        mensaje: msg.mensaje,
+        fecha_envio: new Date().toISOString()
+      };
+      db.chat_mensajes.push(newMsg);
+      saveJsonDb();
+      return newMsg;
+    }
+  },
+
+  // Users Management Methods
+  getUsers: async () => {
+    if (usePostgreSQL) {
+      const res = await pool.query('SELECT id, username, nombre, password, rol, modulos, fecha_creacion FROM usuarios ORDER BY id');
+      return res.rows;
+    } else {
+      const db = loadJsonDb();
+      return db.usuarios || [];
+    }
+  },
+
+  getUserByUsername: async (username) => {
+    if (usePostgreSQL) {
+      const res = await pool.query('SELECT id, username, nombre, password, rol, modulos, fecha_creacion FROM usuarios WHERE username = $1', [username]);
+      return res.rows[0] || null;
+    } else {
+      const db = loadJsonDb();
+      return (db.usuarios || []).find(u => u.username === username) || null;
+    }
+  },
+
+  saveUser: async (user) => {
+    if (usePostgreSQL) {
+      const res = await pool.query(
+        `INSERT INTO usuarios (username, nombre, password, rol, modulos)
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING id, username, nombre, password, rol, modulos, fecha_creacion`,
+        [user.username, user.nombre, user.password, user.rol, user.modulos || '[]']
+      );
+      return res.rows[0];
+    } else {
+      const db = loadJsonDb();
+      if (!db.usuarios) db.usuarios = [];
+      const nextId = db.usuarios.length > 0 ? Math.max(...db.usuarios.map(u => u.id)) + 1 : 1;
+      const newUser = { id: nextId, username: user.username, nombre: user.nombre, password: user.password, rol: user.rol, modulos: user.modulos || '[]', fecha_creacion: new Date().toISOString() };
+      db.usuarios.push(newUser);
+      saveJsonDb();
+      return newUser;
+    }
+  },
+
+  updateUser: async (id, user) => {
+    if (usePostgreSQL) {
+      const res = await pool.query(
+        `UPDATE usuarios 
+         SET username = $1, nombre = $2, password = $3, rol = $4, modulos = $5
+         WHERE id = $6
+         RETURNING id, username, nombre, password, rol, modulos, fecha_creacion`,
+        [user.username, user.nombre, user.password, user.rol, user.modulos || '[]', id]
+      );
+      return res.rows[0];
+    } else {
+      const db = loadJsonDb();
+      if (!db.usuarios) db.usuarios = [];
+      const index = db.usuarios.findIndex(u => u.id === id);
+      if (index !== -1) {
+        db.usuarios[index] = { ...db.usuarios[index], ...user };
+        saveJsonDb();
+        return db.usuarios[index];
+      }
+      return null;
+    }
+  },
+
+  deleteUser: async (id) => {
+    if (usePostgreSQL) {
+      const res = await pool.query('DELETE FROM usuarios WHERE id = $1 RETURNING id, username, nombre, password, rol, modulos, fecha_creacion', [id]);
+      return res.rows[0];
+    } else {
+      const db = loadJsonDb();
+      if (!db.usuarios) db.usuarios = [];
+      const index = db.usuarios.findIndex(u => u.id === id);
+      if (index !== -1) {
+        const deleted = db.usuarios.splice(index, 1)[0];
+        saveJsonDb();
+        return deleted;
+      }
+      return null;
+    }
+  },
+
+  saveTransactionLog: async (log) => {
+    if (usePostgreSQL) {
+      const res = await pool.query(
+        'INSERT INTO log_transacciones (ot_id, ot_numero, usuario, rol, accion, detalles) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
+        [log.ot_id, log.ot_numero, log.usuario, log.rol, log.accion, log.detalles]
+      );
+      return res.rows[0];
+    } else {
+      const db = loadJsonDb();
+      if (!db.log_transacciones) db.log_transacciones = [];
+      const newLog = {
+        id: db.log_transacciones.length + 1,
+        ot_id: log.ot_id,
+        ot_numero: log.ot_numero,
+        usuario: log.usuario,
+        rol: log.rol,
+        accion: log.accion,
+        detalles: log.detalles,
+        fecha: new Date().toISOString()
+      };
+      db.log_transacciones.push(newLog);
+      saveJsonDb();
+      return newLog;
+    }
+  },
+
+  getTransactionLogs: async () => {
+    if (usePostgreSQL) {
+      const res = await pool.query('SELECT * FROM log_transacciones ORDER BY fecha DESC');
+      return res.rows;
+    } else {
+      const db = loadJsonDb();
+      return (db.log_transacciones || []).sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
+    }
+  },
+
+  clearOTs: async () => {
+    if (usePostgreSQL) {
+      await pool.query('TRUNCATE TABLE chat_mensajes, ordenes_trabajo, log_transacciones RESTART IDENTITY CASCADE');
+      return true;
+    } else {
+      const db = loadJsonDb();
+      db.ordenes_trabajo = [];
+      db.chat_mensajes = [];
+      db.log_transacciones = [];
+      saveJsonDb();
+      return true;
+    }
+  }
+};
