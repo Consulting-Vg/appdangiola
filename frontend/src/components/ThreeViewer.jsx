@@ -36,8 +36,11 @@ function createTriangleGeometry(w, h) {
 ───────────────────────────────────────────── */
 function getLonaMaterialProps(colorHex, internalLight) {
   const isGlass = colorHex === '#e2e8f0';
+  const isWhite = colorHex.toLowerCase() === '#ffffff' || colorHex.toLowerCase() === '#f8f5f0';
   const emissiveColor = internalLight === 'warm' ? '#b45309' : internalLight === 'cool' ? '#38bdf8' : '#000000';
-  const emissiveIntensity = internalLight !== 'off' ? 0.48 : 0;
+  
+  // Non-white opaque fabrics (like black) should NOT have emissive glow in the dark
+  const emissiveIntensity = (internalLight !== 'off' && (isGlass || isWhite)) ? 0.15 : 0;
 
   if (isGlass) {
     return {
@@ -48,7 +51,7 @@ function getLonaMaterialProps(colorHex, internalLight) {
       metalness: 0.1,
       side: 2,
       emissive: emissiveColor,
-      emissiveIntensity: emissiveIntensity * 0.2,
+      emissiveIntensity: emissiveIntensity,
     };
   }
 
@@ -63,8 +66,11 @@ function getLonaMaterialProps(colorHex, internalLight) {
 
 function getLateralMaterialProps(colorHex, internalLight) {
   const isGlass = colorHex === '#e2e8f0';
+  const isWhite = colorHex.toLowerCase() === '#ffffff' || colorHex.toLowerCase() === '#f8f5f0';
   const emissiveColor = internalLight === 'warm' ? '#b45309' : internalLight === 'cool' ? '#38bdf8' : '#000000';
-  const emissiveIntensity = internalLight !== 'off' ? 0.24 : 0;
+  
+  // Non-white opaque fabrics (like black) should NOT have emissive glow in the dark
+  const emissiveIntensity = (internalLight !== 'off' && (isGlass || isWhite)) ? 0.12 : 0;
 
   if (isGlass) {
     return {
@@ -128,7 +134,7 @@ function TiedCurtainDrape({ position, colorName, internalLight, legHeight }) {
 
   const emissiveColor = internalLight === 'warm' ? '#b45309'
     : internalLight === 'cool' ? '#38bdf8' : '#000000';
-  const emissiveIntensity = internalLight !== 'off' ? 0.35 : 0;
+  const emissiveIntensity = (internalLight !== 'off' && isWhite) ? 0.12 : 0;
 
   const halfH = legHeight / 2;
 
@@ -192,10 +198,11 @@ function PagodaModel({ url, showCurtains, curtainColor, internalLight }) {
             color: '#f1f5f9', metalness: 1.0, roughness: 0.22,
           });
         } else if (child.material) {
-          if (internalLight !== 'off') {
+          const isWhiteMaterial = !child.material.color || (child.material.color.r > 0.8 && child.material.color.g > 0.8 && child.material.color.b > 0.8);
+          if (internalLight !== 'off' && isWhiteMaterial) {
             const emitColor = internalLight === 'warm' ? '#b45309' : '#38bdf8';
             child.material.emissive = new THREE.Color(emitColor);
-            child.material.emissiveIntensity = 0.5;
+            child.material.emissiveIntensity = 0.15;
           } else {
             child.material.emissive = new THREE.Color('#000000');
             child.material.emissiveIntensity = 0;
