@@ -128,8 +128,8 @@ export default function RoleDashboard({
     if (isNaN(l2) || isNaN(g2)) return "0.0";
 
     // Base de operaciones (Burzaco - Juan XXIII 2980)
-    const lat1 = -34.8427;
-    const lon1 = -58.4069;
+    const lat1 = -34.83473863535278;
+    const lon1 = -58.42446638785623;
 
     const R = 6371; // radio de la tierra en km
     const dLat = ((l2 - lat1) * Math.PI) / 180;
@@ -176,13 +176,18 @@ export default function RoleDashboard({
     const lng = geo?.lng;
     const kms = calculateKms(lat, lng);
     const gpsLink = (lat && lng)
-      ? `https://www.google.com/maps/dir/?api=1&origin=-34.8427,-58.4069&destination=${lat},${lng}&travelmode=driving`
+      ? `https://www.google.com/maps/dir/?api=1&origin=-34.83473863535278,-58.42446638785623&destination=${lat},${lng}&travelmode=driving`
       : '';
 
     const matchingClient = clients?.find(c => c.id === ot.cliente_id);
 
+    const splitDireccion = doc.splitTextToSize(`Dirección Entrega: ${direccion}`, 100);
+    const clientBoxHeight = Math.max(28, 16 + (splitDireccion.length * 5));
+    const tableStartY = 60 + clientBoxHeight + 2;
+    const itemsStartY = tableStartY + 8;
+
     let currentPage = 1;
-    let y = 98; // Starting position for items list
+    let y = itemsStartY; // Starting position for items list
 
     const drawHeader = (pageNum) => {
       // Draw outer box for the Remito header
@@ -218,7 +223,7 @@ export default function RoleDashboard({
       doc.setFontSize(7.5);
       doc.setTextColor(60, 60, 60);
       doc.text("Fábrica y Alquiler de Estructuras y Carpas Modulares", 32, 27);
-      doc.text("Administración: Lomas de Zamora, Buenos Aires", 32, 31);
+      doc.text("Administración: Juan XXIII 2980, Parque Industrial, Burzaco", 32, 31);
       doc.text("Teléfono: +54 11 4244-1234 | www.carpasdangiola.com", 32, 35);
       doc.text("IVA RESPONSABLE INSCRIPTO", 32, 39);
 
@@ -247,7 +252,7 @@ export default function RoleDashboard({
 
       // Client and Delivery Info Box
       doc.setFillColor(245, 247, 250);
-      doc.rect(15, 60, 180, 28, 'FD');
+      doc.rect(15, 60, 180, clientBoxHeight, 'FD');
       doc.setDrawColor(210, 215, 223);
 
       doc.setFont('Helvetica', 'bold');
@@ -259,8 +264,13 @@ export default function RoleDashboard({
       doc.setFontSize(8);
       doc.setTextColor(0, 0, 0);
       doc.text(`Cliente: ${ot.cliente_nombre}`, 18, 71);
-      doc.text(`Dirección Entrega: ${direccion}`, 18, 76);
-      doc.text(`OT Referencia: ${ot.ot_numero}  |  Estado: ${ot.estado}`, 18, 81);
+      
+      let currentY = 76;
+      splitDireccion.forEach((lineText) => {
+        doc.text(lineText, 18, currentY);
+        currentY += 4.5;
+      });
+      doc.text(`OT Referencia: ${ot.ot_numero}  |  Estado: ${ot.estado}`, 18, currentY);
 
       // Distance and route info inside client box (on the right)
       doc.setFont('Helvetica', 'bold');
@@ -311,7 +321,7 @@ export default function RoleDashboard({
     };
 
     drawHeader(currentPage);
-    drawTableHeaders(90);
+    drawTableHeaders(tableStartY);
 
     doc.setFont('Helvetica', 'normal');
     doc.setFontSize(8);
@@ -333,8 +343,8 @@ export default function RoleDashboard({
         currentPage++;
 
         drawHeader(currentPage);
-        drawTableHeaders(90);
-        y = 98;
+        drawTableHeaders(tableStartY);
+        y = itemsStartY;
         doc.setFont('Helvetica', 'normal');
         doc.setFontSize(8);
         doc.setTextColor(0, 0, 0);
@@ -1499,7 +1509,7 @@ export default function RoleDashboard({
                     const kms = calculateKms(lat, lng);
                     const adObj = typeof ot.adicionales === 'string' ? JSON.parse(ot.adicionales) : ot.adicionales || {};
                     const gpsLink = (lat && lng)
-                      ? `https://www.google.com/maps/dir/?api=1&origin=-34.8427,-58.4069&destination=${lat},${lng}&travelmode=driving`
+                      ? `https://www.google.com/maps/dir/?api=1&origin=-34.83473863535278,-58.42446638785623&destination=${lat},${lng}&travelmode=driving`
                       : null;
 
                     return (
@@ -1672,7 +1682,7 @@ export default function RoleDashboard({
                     const kms = calculateKms(lat, lng);
                     const adObj = typeof ot.adicionales === 'string' ? JSON.parse(ot.adicionales) : ot.adicionales || {};
                     const gpsLink = (lat && lng)
-                      ? `https://www.google.com/maps/dir/?api=1&origin=-34.8427,-58.4069&destination=${lat},${lng}&travelmode=driving`
+                      ? `https://www.google.com/maps/dir/?api=1&origin=-34.83473863535278,-58.42446638785623&destination=${lat},${lng}&travelmode=driving`
                       : null;
 
                     return (
@@ -1820,12 +1830,6 @@ export default function RoleDashboard({
                 </h2>
                 <p className="text-xs text-indigo-600 font-semibold">Vista 360° del Carpas D'Angiola.</p>
               </div>
-              <button
-                onClick={onOpenGerenciaDashboard}
-                className="bg-indigo-750 hover:bg-indigo-900 text-white rounded-2xl px-4 py-2.5 text-xs font-black uppercase tracking-wider shadow-sm transition-all-300 flex items-center gap-2 cursor-pointer shrink-0"
-              >
-                <span>📊 Inteligencia de Negocios (BI)</span>
-              </button>
             </div>
 
             {/* Sub-tab Navigation */}
@@ -1847,6 +1851,12 @@ export default function RoleDashboard({
                   }`}
               >
                 Stock de Estructuras
+              </button>
+              <button
+                onClick={onOpenGerenciaDashboard}
+                className={`px-4 py-2 text-xs font-black uppercase tracking-widest border-b-2 transition-all-300 border-transparent text-cyan-600 hover:text-cyan-800 hover:border-cyan-400 flex items-center gap-1.5`}
+              >
+                VigIA — BI Console
               </button>
             </div>
 

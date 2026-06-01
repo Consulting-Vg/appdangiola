@@ -868,5 +868,23 @@ export const db = {
       saveJsonDb();
       return results;
     }
+  },
+
+  clearVentasHistoricas: async () => {
+    if (usePostgreSQL) {
+      const client = await pool.connect();
+      try {
+        const res = await client.query('DELETE FROM ventas_historicas');
+        return res.rowCount;
+      } finally {
+        client.release();
+      }
+    } else {
+      const db = loadJsonDb();
+      const count = (db.ventas_historicas || []).length;
+      db.ventas_historicas = [];
+      saveJsonDb();
+      return count;
+    }
   }
 };

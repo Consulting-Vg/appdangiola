@@ -19,7 +19,8 @@ if (!fs.existsSync(tempArDir)) {
 
 const app = express();
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 // Serve temporary AR files statically
 app.use('/api/temp-ar', express.static(tempArDir));
@@ -1266,6 +1267,119 @@ const parseAdicionalesFromText = (text) => {
   };
 };
 
+
+// CSV Line parser that respects quoted values with commas
+const parseCSVLine = (line) => {
+  const result = [];
+  let current = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i];
+    if (char === '"') {
+      inQuotes = !inQuotes;
+    } else if (char === ',' && !inQuotes) {
+      result.push(current.trim());
+      current = '';
+    } else {
+      current += char;
+    }
+  }
+  result.push(current.trim());
+  return result;
+};
+
+// Helper: Parse clientes.csv from the workspace root
+const parseClientesCSV = () => {
+  try {
+    const csvPath = path.resolve(__dirname, '../clientes.csv');
+    if (!fs.existsSync(csvPath)) {
+      console.warn(`[Gerencia BI] clientes.csv not found at \${csvPath}`);
+      return null;
+    }
+    const content = fs.readFileSync(csvPath, 'utf-8');
+    const lines = content.split(/\r?\n/);
+    if (lines.length < 2) return [];
+
+    const headers = parseCSVLine(lines[0]);
+    
+    // Normalize headers to find indexes case-insensitively
+    const nombreIdx = headers.findIndex(h => h.toLowerCase() === 'nombre');
+    const cuentaIdx = headers.findIndex(h => h.toLowerCase() === 'cuenta');
+    const cuitIdx = headers.findIndex(h => h.toLowerCase() === 'cuit');
+    const domicilioIdx = headers.findIndex(h => h.toLowerCase() === 'domicilio');
+    const localidadIdx = headers.findIndex(h => h.toLowerCase() === 'localidad');
+    const provinciaIdx = headers.findIndex(h => h.toLowerCase() === 'provincia');
+    const telefonoIdx = headers.findIndex(h => h.toLowerCase() === 'teléfono' || h.toLowerCase() === 'telefono');
+    const emailIdx = headers.findIndex(h => h.toLowerCase() === 'email_1' || h.toLowerCase() === 'email');
+    const estadoIdx = headers.findIndex(h => h.toLowerCase() === 'estado');
+    const observacionIdx = headers.findIndex(h => h.toLowerCase() === 'observación' || h.toLowerCase() === 'observacion');
+    const vendedoresIdx = headers.findIndex(h => h.toLowerCase() === 'vendedores');
+    const responsablesIdx = headers.findIndex(h => h.toLowerCase() === 'responsables');
+    const latIdx = headers.findIndex(h => h.toLowerCase() === 'latitud');
+    const lngIdx = headers.findIndex(h => h.toLowerCase() === 'longitud');
+
+    const clients = [];
+    for (let i = 1; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (!line) continue;
+      const cells = parseCSVLine(line);
+      const nombre = cells[nombreIdx] || '';
+      if (!nombre) continue;
+
+      clients.push({
+        nombre: nombre,
+        cuenta: cells[cuentaIdx] || `CL-\${i}`,
+        cuit: cells[cuitIdx] || '',
+        domicilio: cells[domicilioIdx] || '',
+        localidad: cells[localidadIdx] || '',
+        provincia: cells[provinciaIdx] || '',
+        telefono: cells[telefonoIdx] || '',
+        email: cells[emailIdx] || '',
+        estado: cells[estadoIdx] || '',
+        observacion: cells[observacionIdx] || '',
+        vendedores: cells[vendedoresIdx] || '',
+        responsables: cells[responsablesIdx] || '',
+        latitud: parseFloat(cells[latIdx]) || null,
+        longitud: parseFloat(cells[lngIdx]) || null
+      });
+    }
+    return clients;
+  } catch (err) {
+    console.error('[Gerencia BI] Error parsing clientes.csv:', err);
+    return null;
+  }
+};
+
+// GET /api/gerencia/clientes-csv — lista de clientes cargada directamente del archivo clientes.csv
+app.get('/api/gerencia/clientes-csv', async (req, res) => {
+  try {
+    let clients = parseClientesCSV();
+    if (!clients) {
+      console.log('[Gerencia BI] Falling back to database for clientes-csv');
+      const dbClients = await db.getClients();
+      clients = dbClients.map(c => ({
+        nombre: c.nombre,
+        cuenta: c.cuenta,
+        cuit: c.cuit,
+        domicilio: c.domicilio,
+        localidad: c.localidad,
+        provincia: c.provincia,
+        telefono: c.telefono,
+        email: c.email,
+        estado: c.estado,
+        observacion: c.observacion,
+        vendedores: c.vendedores,
+        responsables: c.responsables,
+        latitud: c.latitud,
+        longitud: c.longitud
+      }));
+    }
+    res.json(clients);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/gerencia/ventas-historicas — con filtros opcionales por query string
 app.get('/api/gerencia/ventas-historicas', async (req, res) => {
   try {
@@ -1279,6 +1393,10 @@ app.get('/api/gerencia/ventas-historicas', async (req, res) => {
 
 // POST /api/gerencia/upload-historico — carga masiva de registros históricos (array JSON)
 app.post('/api/gerencia/upload-historico', async (req, res) => {
+  const userRole = req.headers['x-user-role'];
+  if (userRole !== 'SuperAdmin') {
+    return res.status(403).json({ error: 'Acceso denegado. Solo el SuperAdmin puede realizar esta acción.' });
+  }
   try {
     const records = req.body;
     if (!Array.isArray(records) || records.length === 0) {
@@ -1316,6 +1434,20 @@ app.post('/api/gerencia/upload-historico', async (req, res) => {
 
     const results = await db.bulkInsertVentasHistoricas(normalized);
     res.json({ insertados: results.length, total_enviados: records.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/gerencia/delete-historico — vaciar todos los registros históricos
+app.delete('/api/gerencia/delete-historico', async (req, res) => {
+  const userRole = req.headers['x-user-role'];
+  if (userRole !== 'SuperAdmin') {
+    return res.status(403).json({ error: 'Acceso denegado. Solo el SuperAdmin puede realizar esta acción.' });
+  }
+  try {
+    const eliminados = await db.clearVentasHistoricas();
+    res.json({ mensaje: 'Todos los registros históricos fueron eliminados.', eliminados });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1420,7 +1552,59 @@ app.get('/api/gerencia/cliente-perfil/:nombre', async (req, res) => {
     const nombre = decodeURIComponent(req.params.nombre);
     const rows = await db.getVentasHistoricas({ cliente: nombre });
 
-    if (rows.length === 0) return res.json({ encontrado: false, rows: [] });
+    // First find the client details from CSV/DB to provide profile context even if there are no history records
+    let csvClients = parseClientesCSV();
+    let clientInfo = null;
+    if (csvClients) {
+      clientInfo = csvClients.find(c => c.nombre.toLowerCase() === nombre.toLowerCase());
+    }
+    if (!clientInfo) {
+      const dbClients = await db.getClients();
+      const matched = dbClients.find(c => c.nombre.toLowerCase() === nombre.toLowerCase());
+      if (matched) {
+        clientInfo = {
+          nombre: matched.nombre,
+          cuenta: matched.cuenta,
+          cuit: matched.cuit,
+          domicilio: matched.domicilio,
+          localidad: matched.localidad,
+          provincia: matched.provincia,
+          telefono: matched.telefono,
+          email: matched.email,
+          estado: matched.estado,
+          observacion: matched.observacion,
+          vendedores: matched.vendedores,
+          responsables: matched.responsables,
+          latitud: matched.latitud,
+          longitud: matched.longitud
+        };
+      }
+    }
+
+    if (rows.length === 0) {
+      if (clientInfo) {
+        return res.json({
+          encontrado: true,
+          cliente_nombre: clientInfo.nombre,
+          condicion_fiscal: 'Responsable Inscripto',
+          condicion_pago: 'Cuenta Corriente',
+          total_eventos: 0,
+          primera_compra: null,
+          ultima_compra: null,
+          dias_inactividad: null,
+          ciclo_promedio_dias: null,
+          proxima_venta_estimada: null,
+          lead_time_promedio_dias: null,
+          inicio_armado_sugerido: null,
+          adicional_preferido: null,
+          vendedor_principal: clientInfo.vendedores || 'Sin vendedor asignado',
+          estructura_principal: 'Sin estructura predominante',
+          intervalos: [],
+          rows: []
+        });
+      }
+      return res.json({ encontrado: false, rows: [] });
+    }
 
     // Ordenar por fecha de armado
     const sorted = rows.sort((a, b) => (a.fecha_armado || '').localeCompare(b.fecha_armado || ''));
@@ -1467,7 +1651,7 @@ app.get('/api/gerencia/cliente-perfil/:nombre', async (req, res) => {
     // Vendedor más frecuente
     const vendedorCount = {};
     rows.forEach(r => { if (r.vendedor) vendedorCount[r.vendedor] = (vendedorCount[r.vendedor] || 0) + 1; });
-    const vendedorPrincipal = Object.entries(vendedorCount).sort((a, b) => b[1] - a[1])[0]?.[0] || null;
+    const vendedorPrincipal = Object.entries(vendedorCount).sort((a, b) => b[1] - a[1])[0]?.[0] || (clientInfo ? clientInfo.vendedores : null);
 
     // Estructura más contratada
     const estCount = {};
@@ -1481,8 +1665,8 @@ app.get('/api/gerencia/cliente-perfil/:nombre', async (req, res) => {
     res.json({
       encontrado: true,
       cliente_nombre: rows[0].cliente_nombre,
-      condicion_fiscal: rows[0].condicion_fiscal,
-      condicion_pago: rows[0].condicion_pago,
+      condicion_fiscal: rows[0].condicion_fiscal || 'Responsable Inscripto',
+      condicion_pago: rows[0].condicion_pago || 'Cuenta Corriente',
       total_eventos: rows.length,
       primera_compra: sorted[0]?.fecha_armado,
       ultima_compra: ultimaFecha,
@@ -1564,10 +1748,19 @@ app.get('/api/gerencia/demanda-predictiva', async (req, res) => {
     const { horizonte = 'mes' } = req.query;
     const rows = await db.getVentasHistoricas({});
 
-    // Determinar rango de días del horizonte
-    const horizonteDias = horizonte === 'semana' ? 7 : horizonte === 'trimestre' ? 90 : 30;
+    // Determinar función de filtrado según horizonte
+    let filterFn;
     const hoy = new Date();
-    const limite = new Date(hoy.getTime() + horizonteDias * 24 * 60 * 60 * 1000);
+    let horizonteDias = 30;
+    if (horizonte === 'marzo') {
+      filterFn = (proxima) => proxima.getMonth() === 2; // Marzo (index 2)
+    } else if (horizonte === 'diciembre') {
+      filterFn = (proxima) => proxima.getMonth() === 11; // Diciembre (index 11)
+    } else {
+      horizonteDias = horizonte === 'semana' ? 7 : horizonte === 'trimestre' ? 90 : 30;
+      const limite = new Date(hoy.getTime() + horizonteDias * 24 * 60 * 60 * 1000);
+      filterFn = (proxima) => proxima >= hoy && proxima <= limite;
+    }
 
     // Agrupar por cliente y calcular ciclo de recompra
     const clienteMap = {};
@@ -1590,7 +1783,7 @@ app.get('/api/gerencia/demanda-predictiva', async (req, res) => {
       const ultima = new Date(sorted[sorted.length - 1].fecha_armado);
       const proxima = new Date(ultima.getTime() + ciclo * 24 * 60 * 60 * 1000);
 
-      if (proxima >= hoy && proxima <= limite) {
+      if (filterFn(proxima)) {
         // Probabilidades de adicionales basadas en historial de este cliente
         const total = eventos.length;
         const adicionales = {};

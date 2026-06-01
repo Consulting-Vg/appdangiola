@@ -1542,7 +1542,7 @@ export default function App() {
               className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all-300 cursor-pointer ${currentTab === 'gerencia' ? 'bg-blue-900 text-white shadow' : 'text-slate-650 hover:bg-slate-200/50'
                 }`}
             >
-              Inteligencia BI
+              VigIA
             </button>
           )}
           {currentUser && (currentUser.rol === 'SuperAdmin' || currentUser.rol === 'Gerencia') && (
@@ -1618,9 +1618,9 @@ export default function App() {
           />
         )}
 
-        {currentTab === 'gerencia' && (currentUser?.rol === 'SuperAdmin' || currentUser?.rol === 'Gerencia') && (
+        {currentTab === 'gerencia' && (currentUser?.rol === 'SuperAdmin' || currentUser?.rol === 'Gerencia' || userRole === 'SuperAdmin' || userRole === 'Gerencia') && (
           <GerenciaDashboard
-            currentUser={currentUser}
+            currentUser={currentUser || { nombre: userName, rol: userRole }}
             onClose={() => setCurrentTab('dashboard')}
           />
         )}
