@@ -36,11 +36,6 @@ function createTriangleGeometry(w, h) {
 ───────────────────────────────────────────── */
 function getLonaMaterialProps(colorHex, internalLight) {
   const isGlass = colorHex === '#e2e8f0';
-  const isWhite = colorHex.toLowerCase() === '#ffffff' || colorHex.toLowerCase() === '#f8f5f0';
-  const emissiveColor = internalLight === 'warm' ? '#b45309' : internalLight === 'cool' ? '#38bdf8' : '#000000';
-  
-  // Non-white opaque fabrics (like black) should NOT have emissive glow in the dark
-  const emissiveIntensity = (internalLight !== 'off' && (isGlass || isWhite)) ? 0.15 : 0;
 
   if (isGlass) {
     return {
@@ -50,8 +45,6 @@ function getLonaMaterialProps(colorHex, internalLight) {
       roughness: 0.05,
       metalness: 0.1,
       side: 2,
-      emissive: emissiveColor,
-      emissiveIntensity: emissiveIntensity,
     };
   }
 
@@ -59,18 +52,11 @@ function getLonaMaterialProps(colorHex, internalLight) {
     color: colorHex,
     roughness: 0.65,
     side: 2,
-    emissive: emissiveColor,
-    emissiveIntensity: emissiveIntensity,
   };
 }
 
 function getLateralMaterialProps(colorHex, internalLight) {
   const isGlass = colorHex === '#e2e8f0';
-  const isWhite = colorHex.toLowerCase() === '#ffffff' || colorHex.toLowerCase() === '#f8f5f0';
-  const emissiveColor = internalLight === 'warm' ? '#b45309' : internalLight === 'cool' ? '#38bdf8' : '#000000';
-  
-  // Non-white opaque fabrics (like black) should NOT have emissive glow in the dark
-  const emissiveIntensity = (internalLight !== 'off' && (isGlass || isWhite)) ? 0.12 : 0;
 
   if (isGlass) {
     return {
@@ -80,8 +66,6 @@ function getLateralMaterialProps(colorHex, internalLight) {
       roughness: 0.05,
       metalness: 0.1,
       side: 2,
-      emissive: emissiveColor,
-      emissiveIntensity: emissiveIntensity,
     };
   }
 
@@ -91,9 +75,91 @@ function getLateralMaterialProps(colorHex, internalLight) {
     opacity: 0.85,
     roughness: 0.65,
     side: 2,
-    emissive: emissiveColor,
-    emissiveIntensity: emissiveIntensity,
   };
+}
+
+/* ─────────────────────────────────────────────
+   Hanging Lamp inside Tent
+───────────────────────────────────────────── */
+function HangingLamp({ position, color = '#ffb347', intensity = 3.5, distance = 25 }) {
+  return (
+    <group position={position}>
+      {/* Cable */}
+      <mesh position={[0, -0.175, 0]}>
+        <cylinderGeometry args={[0.008, 0.008, 0.35, 6]} />
+        <meshStandardMaterial color="#0f172a" roughness={0.8} />
+      </mesh>
+      {/* Socket */}
+      <mesh position={[0, -0.36, 0]}>
+        <cylinderGeometry args={[0.03, 0.035, 0.05, 8]} />
+        <meshStandardMaterial color="#475569" metalness={0.5} roughness={0.4} />
+      </mesh>
+      {/* Bulb */}
+      <mesh position={[0, -0.4, 0]}>
+        <sphereGeometry args={[0.045, 12, 12]} />
+        <meshBasicMaterial color={color} />
+      </mesh>
+      {/* Point Light */}
+      <pointLight
+        position={[0, -0.4, 0]}
+        color={color}
+        intensity={intensity}
+        distance={distance}
+        decay={1.2}
+        castShadow
+        shadow-mapSize-width={512}
+        shadow-mapSize-height={512}
+        shadow-bias={-0.001}
+      />
+    </group>
+  );
+}
+
+/* ─────────────────────────────────────────────
+   Outdoor Spotlight
+───────────────────────────────────────────── */
+function OutdoorSpotlight({ position, targetObject, color = '#fffaed', intensity = 8 }) {
+  const lightRef = useRef();
+
+  useEffect(() => {
+    if (lightRef.current && targetObject) {
+      lightRef.current.target = targetObject;
+    }
+  }, [targetObject]);
+
+  return (
+    <group position={position}>
+      {/* Spotlight support/base */}
+      <mesh castShadow position={[0, 0.05, 0]}>
+        <cylinderGeometry args={[0.12, 0.12, 0.1, 8]} />
+        <meshStandardMaterial color="#334155" metalness={0.5} roughness={0.5} />
+      </mesh>
+      {/* Light head */}
+      <mesh castShadow position={[0, 0.2, 0]} rotation={[Math.PI / 6, 0, 0]}>
+        <cylinderGeometry args={[0.08, 0.06, 0.2, 8]} />
+        <meshStandardMaterial color="#1e293b" metalness={0.6} roughness={0.3} />
+      </mesh>
+      {/* Glowing lens */}
+      <mesh position={[0, 0.28, 0.02]}>
+        <sphereGeometry args={[0.05, 8, 8]} />
+        <meshBasicMaterial color={color} />
+      </mesh>
+      {/* SpotLight source */}
+      <spotLight
+        ref={lightRef}
+        position={[0, 0.28, 0.02]}
+        color={color}
+        intensity={intensity}
+        angle={Math.PI / 4}
+        penumbra={0.5}
+        distance={30}
+        castShadow
+        shadow-mapSize-width={512}
+        shadow-mapSize-height={512}
+        shadow-bias={-0.001}
+      />
+    </group>
+  );
 }
 
 /* ─────────────────────────────────────────────
@@ -131,16 +197,11 @@ function TiedCurtainDrape({ position, colorName, internalLight, legHeight }) {
   const hex = CURTAIN_COLOR_MAP[colorName] || '#f8f5f0';
   const isWhite = !colorName || colorName === 'Blanco';
   const opacity = isWhite ? 0.88 : 0.95;
-
-  const emissiveColor = internalLight === 'warm' ? '#b45309'
-    : internalLight === 'cool' ? '#38bdf8' : '#000000';
-  const emissiveIntensity = (internalLight !== 'off' && isWhite) ? 0.12 : 0;
-
   const halfH = legHeight / 2;
 
   return (
     <group position={position}>
-      {/* Top gathered section (tapering down to cinch point) */}
+      {/* Top gathered section */}
       <mesh position={[0, 3 * legHeight / 4, 0]} castShadow receiveShadow>
         <cylinderGeometry args={[0.15, 0.06, halfH, 10, 1]} />
         <meshStandardMaterial
@@ -149,8 +210,6 @@ function TiedCurtainDrape({ position, colorName, internalLight, legHeight }) {
           transparent
           opacity={opacity}
           side={2}
-          emissive={emissiveColor}
-          emissiveIntensity={emissiveIntensity}
         />
       </mesh>
 
@@ -158,13 +217,13 @@ function TiedCurtainDrape({ position, colorName, internalLight, legHeight }) {
       <mesh position={[0, legHeight / 2, 0]} castShadow receiveShadow>
         <cylinderGeometry args={[0.07, 0.07, 0.04, 10, 1]} />
         <meshStandardMaterial
-          color={isWhite ? '#a16207' : '#ffffff'} // Gold/brass tie for white curtains, white tie for colored ones
+          color={isWhite ? '#a16207' : '#ffffff'}
           roughness={0.3}
           metalness={isWhite ? 0.8 : 0.1}
         />
       </mesh>
 
-      {/* Bottom flared section (flaring out to the ground) */}
+      {/* Bottom flared section */}
       <mesh position={[0, legHeight / 4, 0]} castShadow receiveShadow>
         <cylinderGeometry args={[0.06, 0.18, halfH, 10, 1]} />
         <meshStandardMaterial
@@ -173,8 +232,6 @@ function TiedCurtainDrape({ position, colorName, internalLight, legHeight }) {
           transparent
           opacity={opacity}
           side={2}
-          emissive={emissiveColor}
-          emissiveIntensity={emissiveIntensity}
         />
       </mesh>
     </group>
@@ -184,8 +241,9 @@ function TiedCurtainDrape({ position, colorName, internalLight, legHeight }) {
 /* ─────────────────────────────────────────────
    Pagoda 3D GLTF Model Component
  ───────────────────────────────────────────── */
-function PagodaModel({ url, showCurtains, curtainColor, internalLight }) {
+function PagodaModel({ url, showCurtains, curtainColor, internalLight, environment, outdoorLights }) {
   const { scene } = useGLTF(url);
+  const [spotTarget, setSpotTarget] = useState(null);
 
   useEffect(() => {
     scene.traverse((child) => {
@@ -198,31 +256,47 @@ function PagodaModel({ url, showCurtains, curtainColor, internalLight }) {
             color: '#f1f5f9', metalness: 1.0, roughness: 0.22,
           });
         } else if (child.material) {
-          const isWhiteMaterial = !child.material.color || (child.material.color.r > 0.8 && child.material.color.g > 0.8 && child.material.color.b > 0.8);
-          if (internalLight !== 'off' && isWhiteMaterial) {
-            const emitColor = internalLight === 'warm' ? '#b45309' : '#38bdf8';
-            child.material.emissive = new THREE.Color(emitColor);
-            child.material.emissiveIntensity = 0.15;
-          } else {
-            child.material.emissive = new THREE.Color('#000000');
-            child.material.emissiveIntensity = 0;
-          }
+          child.material.emissive = new THREE.Color('#000000');
+          child.material.emissiveIntensity = 0;
           child.material.roughness = 0.65;
           child.material.needsUpdate = true;
         }
       }
     });
-  }, [scene, internalLight]);
+  }, [scene]);
 
   return (
     <group>
       <primitive object={scene} scale={[1.2, 1.2, 1.2]} position={[0, -0.2, 0]} />
+      
+      {/* Target for spotlights */}
+      <object3D ref={setSpotTarget} position={[0, 1.2, 0]} />
+
       {showCurtains && (
         <>
           <TiedCurtainDrape position={[1.05, 0, 1.05]} colorName={curtainColor} internalLight={internalLight} legHeight={1.9} />
           <TiedCurtainDrape position={[-1.05, 0, 1.05]} colorName={curtainColor} internalLight={internalLight} legHeight={1.9} />
           <TiedCurtainDrape position={[1.05, 0, -1.05]} colorName={curtainColor} internalLight={internalLight} legHeight={1.9} />
           <TiedCurtainDrape position={[-1.05, 0, -1.05]} colorName={curtainColor} internalLight={internalLight} legHeight={1.9} />
+        </>
+      )}
+
+      {internalLight !== 'off' && (
+        <HangingLamp
+          position={[0, 2.6, 0]}
+          color={internalLight === 'warm' ? '#ffb347' : '#dbeafe'}
+          intensity={4.0}
+          distance={15}
+        />
+      )}
+
+      {/* ── Outdoor reflectores for Pagoda ── */}
+      {environment === 'noche' && outdoorLights && (
+        <>
+          <OutdoorSpotlight position={[-3, 0, -3]} targetObject={spotTarget} />
+          <OutdoorSpotlight position={[3, 0, -3]} targetObject={spotTarget} />
+          <OutdoorSpotlight position={[-3, 0, 3]} targetObject={spotTarget} />
+          <OutdoorSpotlight position={[3, 0, 3]} targetObject={spotTarget} />
         </>
       )}
     </group>
@@ -234,7 +308,7 @@ function PagodaModel({ url, showCurtains, curtainColor, internalLight }) {
 ───────────────────────────────────────────── */
 function TentStructure({
   structureRef, modules, legHeight, colors, showLaterales, width = 10,
-  showCurtains, curtainColor, internalLight,
+  showCurtains, curtainColor, internalLight, environment, outdoorLights,
 }) {
   const ridgeOffset = width * 0.18;
   const ridgeHeight = parseFloat(legHeight) + ridgeOffset;
@@ -251,12 +325,12 @@ function TentStructure({
   const totalLength = currentZ;
   const lateralColor = colors.lateral || '#ffffff';
 
-  // Emissive glow for internal lighting
-  const emissiveColor = internalLight === 'warm' ? '#b45309' : internalLight === 'cool' ? '#38bdf8' : '#000000';
-  const emissiveIntensity = internalLight !== 'off' ? 0.48 : 0;
+  const [spotTarget, setSpotTarget] = useState(null);
 
   return (
     <group ref={structureRef} position={[-width / 2, 0, -totalLength / 2]}>
+      {/* Target for spotlights */}
+      <object3D ref={setSpotTarget} position={[width / 2, parseFloat(legHeight) / 2 || 1.5, totalLength / 2]} />
 
       {/* ── Portal frames ── */}
       {Array.from({ length: modules.length + 1 }).map((_, i) => {
@@ -379,6 +453,33 @@ function TentStructure({
           </group>
         );
       })}
+
+      {/* ── Internal Hanging Lamps ── */}
+      {internalLight !== 'off' && modulesWithOffsets.map((m, index) => {
+        const modLength = m.largo;
+        const zMid = m.zStart + modLength / 2;
+        const lampColor = internalLight === 'warm' ? '#ffb347' : '#dbeafe';
+
+        return (
+          <HangingLamp
+            key={`lamp-${index}`}
+            position={[width / 2, ridgeHeight, zMid]}
+            color={lampColor}
+            intensity={3.5}
+            distance={Math.max(width, 15) * 1.5}
+          />
+        );
+      })}
+
+      {/* ── Outdoor Spotlights ── */}
+      {environment === 'noche' && outdoorLights && (
+        <>
+          <OutdoorSpotlight position={[-3, 0, -2]} targetObject={spotTarget} />
+          <OutdoorSpotlight position={[width + 3, 0, -2]} targetObject={spotTarget} />
+          <OutdoorSpotlight position={[-3, 0, totalLength + 2]} targetObject={spotTarget} />
+          <OutdoorSpotlight position={[width + 3, 0, totalLength + 2]} targetObject={spotTarget} />
+        </>
+      )}
     </group>
   );
 }
@@ -506,6 +607,14 @@ export default function ThreeViewer({
   // Curtains — default from OT config, but user can toggle
   const [showCurtains, setShowCurtains]     = useState(telasCortinas?.si ?? false);
 
+  // Outdoor reflectores & AR selection states
+  const [outdoorLights, setOutdoorLights]       = useState(true);
+  const [showArModal, setShowArModal]           = useState(false);
+  const [arEnv, setArEnv]                       = useState('dia');
+  const [arInternalLight, setArInternalLight]   = useState('off');
+  const [arOutdoorLights, setArOutdoorLights]   = useState(true);
+  const [arExportPlatform, setArExportPlatform] = useState(null);
+
   const structureRef = useRef();
   const controlsRef  = useRef();
   const containerRef = useRef();
@@ -526,9 +635,12 @@ export default function ThreeViewer({
   // Curtain color from OT, fallback to Blanco
   const curtainColor = telasCortinas?.color || 'Blanco';
 
-  // Reset internal light when leaving night mode
+  // Reset internal and outdoor lights when leaving night mode
   useEffect(() => {
-    if (environment !== 'noche') setInternalLight('off');
+    if (environment !== 'noche') {
+      setInternalLight('off');
+      setOutdoorLights(true);
+    }
   }, [environment]);
 
   // Sync showCurtains default with OT prop changes
@@ -561,25 +673,55 @@ export default function ThreeViewer({
   const sunIntensity     = environment === 'noche' ? 0.4  : environment === 'dia' ? 2.4  : 1.8;
 
   // ── AR Export ──
-  const handleExportAR = async (platform) => {
+  const triggerExportPagoda = (platform) => {
+    setArLoading(platform);
+    if (platform === 'ios') {
+      const link = document.createElement('a');
+      link.href = '/4mtspagoda.usdz'; link.rel = 'ar'; link.download = '4mtspagoda.usdz';
+      const img = document.createElement('img'); img.alt = 'AR Quick Look';
+      img.style.width = '0px'; img.style.height = '0px';
+      link.appendChild(img); document.body.appendChild(link); link.click();
+      setTimeout(() => { document.body.removeChild(link); setArLoading(null); }, 1500);
+    } else {
+      const modelUrl = window.location.origin + '/4mtspagoda.glb';
+      window.location.href = `intent://arvr.google.com/scene-viewer/1.0?file=${encodeURIComponent(modelUrl)}&mode=ar_only#Intent;scheme=https;package=com.google.ar.core;action=android.intent.action.VIEW;S.browser_fallback_url=${encodeURIComponent(window.location.origin)};end;`;
+      setArLoading(null);
+    }
+  };
+
+  const handleExportAR = (platform) => {
     if (isPagoda) {
-      setArLoading(platform);
-      if (platform === 'ios') {
-        const link = document.createElement('a');
-        link.href = '/4mtspagoda.usdz'; link.rel = 'ar'; link.download = '4mtspagoda.usdz';
-        const img = document.createElement('img'); img.alt = 'AR Quick Look';
-        img.style.width = '0px'; img.style.height = '0px';
-        link.appendChild(img); document.body.appendChild(link); link.click();
-        setTimeout(() => { document.body.removeChild(link); setArLoading(null); }, 1500);
-      } else {
-        const modelUrl = window.location.origin + '/4mtspagoda.glb';
-        window.location.href = `intent://arvr.google.com/scene-viewer/1.0?file=${encodeURIComponent(modelUrl)}&mode=ar_only#Intent;scheme=https;package=com.google.ar.core;action=android.intent.action.VIEW;S.browser_fallback_url=${encodeURIComponent(window.location.origin)};end;`;
-        setArLoading(null);
-      }
+      triggerExportPagoda(platform);
       return;
     }
+    setArExportPlatform(platform);
+    // Initialize AR options modal matching the current screen visualizer settings
+    setArEnv(environment === 'noche' ? 'noche' : 'dia');
+    setArInternalLight(internalLight);
+    setArOutdoorLights(outdoorLights);
+    setShowArModal(true);
+  };
+
+  const runExportAR = async (platform, options) => {
+    const { env, internal, outdoor } = options;
     if (!structureRef.current) { alert('La estructura 3D no está inicializada.'); return; }
+    
     setArLoading(platform);
+    setShowArModal(false);
+
+    // Save previous state to restore once export is complete
+    const prevEnv = environment;
+    const prevLight = internalLight;
+    const prevOutdoor = outdoorLights;
+
+    // Apply temporary AR settings to re-render the 3D scene before exporting
+    setEnvironment(env);
+    setInternalLight(internal);
+    setOutdoorLights(outdoor);
+
+    // Wait for the scene to re-render in 3D
+    await new Promise((resolve) => setTimeout(resolve, 350));
+
     try {
       if (platform === 'ios') {
         const { USDZExporter } = await import('three/examples/jsm/exporters/USDZExporter.js');
@@ -590,9 +732,23 @@ export default function ThreeViewer({
             const link = document.createElement('a'); link.href = url; link.download = 'carpa-dangiola.usdz'; link.rel = 'ar';
             const img = document.createElement('img'); img.alt = 'AR'; img.style.width = '0'; link.appendChild(img);
             document.body.appendChild(link); link.click();
-            setTimeout(() => { document.body.removeChild(link); URL.revokeObjectURL(url); setArLoading(null); }, 3000);
+            setTimeout(() => {
+              document.body.removeChild(link);
+              URL.revokeObjectURL(url);
+              // Restore state
+              setEnvironment(prevEnv);
+              setInternalLight(prevLight);
+              setOutdoorLights(prevOutdoor);
+              setArLoading(null);
+            }, 3000);
           },
-          (e) => { alert('Error USDZ: ' + e.message); setArLoading(null); },
+          (e) => {
+            alert('Error USDZ: ' + e.message);
+            setEnvironment(prevEnv);
+            setInternalLight(prevLight);
+            setOutdoorLights(prevOutdoor);
+            setArLoading(null);
+          },
           { quickLookCompatible: true }
         );
       } else {
@@ -601,17 +757,40 @@ export default function ThreeViewer({
           structureRef.current,
           async (buf) => {
             try {
-              const res = await fetch('/api/ar/upload-glb', { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: new Blob([buf], { type: 'application/octet-stream' }) });
+              const res = await fetch('/api/ar/upload-glb', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/octet-stream' },
+                body: new Blob([buf], { type: 'application/octet-stream' })
+              });
               if (!res.ok) throw new Error('Servidor: ' + res.status);
               const { url } = await res.json();
               window.location.href = `intent://arvr.google.com/scene-viewer/1.0?file=${encodeURIComponent(url)}&mode=ar_only#Intent;scheme=https;package=com.google.ar.core;action=android.intent.action.VIEW;S.browser_fallback_url=${encodeURIComponent(window.location.href)};end;`;
-            } catch (e) { alert('Error GLB: ' + e.message); } finally { setArLoading(null); }
+            } catch (e) {
+              alert('Error GLB: ' + e.message);
+            } finally {
+              setEnvironment(prevEnv);
+              setInternalLight(prevLight);
+              setOutdoorLights(prevOutdoor);
+              setArLoading(null);
+            }
           },
-          (e) => { alert('Error exportando GLB: ' + e.message); setArLoading(null); },
+          (e) => {
+            alert('Error exportando GLB: ' + e.message);
+            setEnvironment(prevEnv);
+            setInternalLight(prevLight);
+            setOutdoorLights(prevOutdoor);
+            setArLoading(null);
+          },
           { binary: true }
         );
       }
-    } catch (e) { alert('Error cargando exportador AR: ' + e.message); setArLoading(null); }
+    } catch (e) {
+      alert('Error cargando exportador AR: ' + e.message);
+      setEnvironment(prevEnv);
+      setInternalLight(prevLight);
+      setOutdoorLights(prevOutdoor);
+      setArLoading(null);
+    }
   };
 
   const handleModuleColor         = (i, c) => { const n = [...colors.modules]; n[i] = c; setColors({ ...colors, modules: n }); };
@@ -694,18 +873,6 @@ export default function ThreeViewer({
               <shadowMaterial opacity={environment === 'noche' ? 0.6 : environment === 'dia' ? 0.4 : 0.25} />
             </mesh>
 
-            {/* Internal point light inside tent */}
-            {internalLight !== 'off' && (
-              <pointLight
-                position={[0, parseFloat(legHeight) * 0.8, 0]}
-                color={internalLight === 'warm' ? '#ffb347' : '#dbeafe'}
-                intensity={4.0}
-                distance={Math.max(width, 15) * 1.8}
-                decay={1.4}
-                castShadow
-              />
-            )}
-
             <group position={[0, tentYOffset, tentZOffset]} scale={[tentScale, tentScale, tentScale]}>
               <Center disableY>
                 {isPagoda ? (
@@ -715,6 +882,8 @@ export default function ThreeViewer({
                       showCurtains={showCurtains}
                       curtainColor={curtainColor}
                       internalLight={internalLight}
+                      environment={environment}
+                      outdoorLights={outdoorLights}
                     />
                   </Suspense>
                 ) : (
@@ -728,6 +897,8 @@ export default function ThreeViewer({
                     showCurtains={showCurtains}
                     curtainColor={curtainColor}
                     internalLight={internalLight}
+                    environment={environment}
+                    outdoorLights={outdoorLights}
                   />
                 )}
               </Center>
@@ -799,6 +970,21 @@ export default function ThreeViewer({
             {environment === 'noche' ? '🌙 Modo Noche' : environment === 'dia' ? '☀️ Modo Día' : '🏢 Modo Estudio'}
           </button>
 
+          {/* Reflectores Toggle — only in night mode */}
+          {environment === 'noche' && (
+            <button
+              type="button"
+              onClick={() => setOutdoorLights(!outdoorLights)}
+              className={`px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider shadow-md hover:shadow-lg active:scale-[0.97] transition-all duration-300 cursor-pointer ${
+                outdoorLights
+                  ? 'bg-emerald-600 text-white border border-emerald-700'
+                  : 'bg-white/90 border border-slate-200 text-slate-550 hover:bg-white'
+              }`}
+            >
+              {outdoorLights ? '🔦 Reflectores ON' : '🔦 Reflectores OFF'}
+            </button>
+          )}
+
           {/* Internal Light Toggle — only in night mode */}
           {environment === 'noche' && (
             <button
@@ -807,7 +993,7 @@ export default function ThreeViewer({
               className={`px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider shadow-md hover:shadow-lg active:scale-[0.97] transition-all duration-300 cursor-pointer ${
                 internalLight === 'warm' ? 'bg-amber-600 text-white'
                 : internalLight === 'cool' ? 'bg-cyan-600 text-white'
-                : 'bg-white/90 border border-slate-200 text-slate-500 hover:bg-white'
+                : 'bg-white/90 border border-slate-200 text-slate-550 hover:bg-white'
               }`}
             >
               {internalLight === 'warm' ? '🔥 Luz Cálida' : internalLight === 'cool' ? '❄️ Luz Fría' : '💡 Sin Luz Interna'}
@@ -1018,12 +1204,224 @@ export default function ThreeViewer({
           </>
         ) : null}
 
+        {/* Ambiente e Iluminación */}
+        <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 shadow-sm space-y-4">
+          <h3 className="text-xs uppercase tracking-widest font-black text-slate-400">Ambiente e Iluminación</h3>
+          
+          <div className="space-y-1.5">
+            <span className="text-[10px] uppercase tracking-widest font-black text-slate-400 block">Entorno Visual</span>
+            <div className="grid grid-cols-3 gap-1">
+              {[
+                { id: 'neutral', label: 'Estudio', icon: '🏢' },
+                { id: 'dia', label: 'Día', icon: '☀️' },
+                { id: 'noche', label: 'Noche', icon: '🌙' }
+              ].map((env) => (
+                <button
+                  key={env.id}
+                  type="button"
+                  onClick={() => setEnvironment(env.id)}
+                  className={`py-1.5 rounded-lg text-[10px] font-bold uppercase transition-all duration-200 active:scale-95 cursor-pointer ${
+                    environment === env.id
+                      ? 'bg-slate-800 text-white shadow-sm'
+                      : 'bg-white border border-slate-200 text-slate-650 hover:bg-slate-100'
+                  }`}
+                >
+                  {env.icon} {env.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {environment === 'noche' && (
+            <div className="space-y-3 pt-3 border-t border-slate-200/60 animate-fade-in">
+              <div className="space-y-1.5">
+                <span className="text-[10px] uppercase tracking-widest font-black text-slate-400 block">Iluminación Exterior</span>
+                <button
+                  type="button"
+                  onClick={() => setOutdoorLights(!outdoorLights)}
+                  className={`w-full py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all duration-200 active:scale-95 cursor-pointer flex items-center justify-center gap-1.5 ${
+                    outdoorLights
+                      ? 'bg-emerald-600 text-white shadow animate-fade-in'
+                      : 'bg-white border border-slate-200 text-slate-650 hover:bg-slate-100'
+                  }`}
+                >
+                  🔦 {outdoorLights ? 'Reflectores Activos' : 'Reflectores Apagados'}
+                </button>
+              </div>
+
+              <div className="space-y-1.5">
+                <span className="text-[10px] uppercase tracking-widest font-black text-slate-400 block">Luz Interior</span>
+                <div className="grid grid-cols-3 gap-1">
+                  {[
+                    { id: 'off', label: 'Apagada', icon: '❌' },
+                    { id: 'warm', label: 'Cálida', icon: '🔥' },
+                    { id: 'cool', label: 'Fría', icon: '❄️' }
+                  ].map((mode) => (
+                    <button
+                      key={mode.id}
+                      type="button"
+                      onClick={() => setInternalLight(mode.id)}
+                      className={`py-2 rounded-lg text-[10px] font-bold uppercase transition-all duration-200 active:scale-95 cursor-pointer ${
+                        internalLight === mode.id
+                          ? mode.id === 'warm'
+                            ? 'bg-amber-600 text-white shadow-sm'
+                            : mode.id === 'cool'
+                            ? 'bg-cyan-600 text-white shadow-sm'
+                            : 'bg-slate-700 text-white shadow-sm'
+                          : 'bg-white border border-slate-200 text-slate-650 hover:bg-slate-100'
+                      }`}
+                    >
+                      {mode.icon} {mode.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
         {/* Realidad Aumentada */}
         <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 shadow-sm space-y-2">
           <h3 className="text-xs uppercase tracking-widest font-black text-slate-400">Realidad Aumentada (AR)</h3>
           <ARPanel onExport={handleExportAR} arLoading={arLoading} />
         </div>
       </div>
+
+      {/* ── AR Settings Modal ── */}
+      {showArModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in">
+          <div className="bg-white border border-slate-200 rounded-[2.5rem] w-full max-w-md p-6 overflow-y-auto shadow-2xl relative space-y-5 animate-scale-up">
+            
+            {/* Close Button */}
+            <button
+              onClick={() => setShowArModal(false)}
+              className="absolute right-6 top-6 p-1.5 rounded-full hover:bg-slate-100 transition-all duration-200"
+            >
+              <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+
+            {/* Header */}
+            <div className="space-y-1.5 pr-8">
+              <h3 className="text-sm font-black uppercase text-blue-900 tracking-wider Poppins flex items-center gap-1.5">
+                📱 Configurar Proyección AR
+              </h3>
+              <p className="text-[11px] text-slate-500 font-semibold leading-relaxed">
+                Personaliza el entorno y la iluminación de la carpa antes de abrir la cámara en tu celular.
+              </p>
+            </div>
+
+            {/* Options */}
+            <div className="space-y-4">
+              
+              {/* Ambiente */}
+              <div className="space-y-1.5">
+                <label className="text-[10px] uppercase tracking-widest font-black text-slate-400 block">Ambiente del Espacio</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setArEnv('dia')}
+                    className={`py-3 rounded-2xl text-xs font-black uppercase tracking-wider transition-all duration-200 flex items-center justify-center gap-1.5 ${
+                      arEnv === 'dia'
+                        ? 'bg-blue-900 text-white shadow-md'
+                        : 'bg-slate-50 border border-slate-200 text-slate-650 hover:bg-slate-100'
+                    }`}
+                  >
+                    ☀️ Día (Luz Natural)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setArEnv('noche')}
+                    className={`py-3 rounded-2xl text-xs font-black uppercase tracking-wider transition-all duration-200 flex items-center justify-center gap-1.5 ${
+                      arEnv === 'noche'
+                        ? 'bg-indigo-950 text-white shadow-md'
+                        : 'bg-slate-50 border border-slate-200 text-slate-650 hover:bg-slate-100'
+                    }`}
+                  >
+                    🌙 Noche (Espacio Oscuro)
+                  </button>
+                </div>
+              </div>
+
+              {/* Night configurations */}
+              {arEnv === 'noche' && (
+                <div className="space-y-4 pt-3 border-t border-slate-100 animate-fade-in">
+                  
+                  {/* Reflectores Exteriores */}
+                  <div className="flex items-center justify-between p-3 bg-slate-50 border border-slate-200 rounded-2xl">
+                    <div className="space-y-0.5">
+                      <span className="text-xs font-extrabold text-slate-800 uppercase block">Reflectores de Jardín</span>
+                      <span className="text-[9px] text-slate-450 font-semibold leading-none">Simula focos en el pasto hacia la carpa</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setArOutdoorLights(!arOutdoorLights)}
+                      className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all duration-200 ${
+                        arOutdoorLights
+                          ? 'bg-emerald-600 text-white shadow-sm'
+                          : 'bg-white border border-slate-250 text-slate-500'
+                      }`}
+                    >
+                      {arOutdoorLights ? 'Encendidos ✓' : 'Apagados ✗'}
+                    </button>
+                  </div>
+
+                  {/* Luz Interior */}
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] uppercase tracking-widest font-black text-slate-400 block">Luces Colgantes Interiores</label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {[
+                        { id: 'off', label: 'Sin Luz', icon: '❌' },
+                        { id: 'warm', label: 'Cálida', icon: '🔥' },
+                        { id: 'cool', label: 'Fría', icon: '❄️' }
+                      ].map((mode) => (
+                        <button
+                          key={mode.id}
+                          type="button"
+                          onClick={() => setArInternalLight(mode.id)}
+                          className={`py-2.5 rounded-xl text-[10px] font-bold uppercase transition-all duration-200 ${
+                            arInternalLight === mode.id
+                              ? mode.id === 'warm'
+                                ? 'bg-amber-600 text-white shadow-sm'
+                                : mode.id === 'cool'
+                                ? 'bg-cyan-600 text-white shadow-sm'
+                                : 'bg-slate-700 text-white shadow-sm'
+                              : 'bg-slate-50 border border-slate-200 text-slate-650 hover:bg-slate-100'
+                          }`}
+                        >
+                          {mode.icon} {mode.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                </div>
+              )}
+
+            </div>
+
+            {/* Actions */}
+            <div className="flex gap-2 pt-3 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setShowArModal(false)}
+                className="flex-1 py-3 text-xs font-black uppercase tracking-widest bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl border border-slate-200 transition-all duration-200 active:scale-98"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => runExportAR(arExportPlatform, { env: arEnv, internal: arInternalLight, outdoor: arOutdoorLights })}
+                className="flex-1 py-3 text-xs font-black uppercase tracking-widest bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-2xl shadow-md transition-all duration-200 active:scale-98"
+              >
+                Ver en AR 🚀
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
     </div>
   );
 }
