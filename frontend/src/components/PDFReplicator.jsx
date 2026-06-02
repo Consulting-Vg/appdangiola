@@ -169,8 +169,16 @@ export default function PDFReplicator({ ot, explosion }) {
       const name = item.producto || item.nombre || '';
       const qty = item.qty !== undefined ? item.qty : (item.cantidad !== undefined ? item.cantidad : 1);
       const sector = item.sector || '';
+      const obs = item.obs || '';
 
-      const enrichedItem = { producto: name, qty, sector };
+      // Determine provenance
+      let provenance = "Desde Depósito";
+      const match = obs.match(/transferencia de (OT-\d+)/i);
+      if (match) {
+        provenance = `Transf. directo desde ${match[1]}`;
+      }
+
+      const enrichedItem = { producto: name, qty, sector, provenance };
 
       if (isLona(name)) {
         lonasItems.push(enrichedItem);
@@ -183,12 +191,26 @@ export default function PDFReplicator({ ot, explosion }) {
       } else if (sector === 'Pañol') {
         panolItems.push(enrichedItem);
       } else {
-        // Fallback based on database checklist division
         panolItems.push(enrichedItem);
       }
     };
 
-    if (explosion) {
+    const panol = typeof ot.panol_status === 'string' ? JSON.parse(ot.panol_status) : ot.panol_status;
+    const planta = typeof ot.planta_status === 'string' ? JSON.parse(ot.planta_status) : ot.planta_status;
+    
+    const checklistItems = [];
+    if (panol?.items?.length > 0 || planta?.items?.length > 0) {
+      if (panol?.items) {
+        panol.items.forEach(i => checklistItems.push({ ...i, sector: 'Pañol' }));
+      }
+      if (planta?.items) {
+        planta.items.forEach(i => checklistItems.push({ ...i, sector: 'Planta' }));
+      }
+    }
+
+    if (checklistItems.length > 0) {
+      checklistItems.forEach(processItem);
+    } else if (explosion) {
       if (explosion.arcos) explosion.arcos.forEach(processItem);
       if (explosion.modulos) explosion.modulos.forEach(processItem);
       if (explosion.fijos) explosion.fijos.forEach(processItem);
@@ -222,15 +244,21 @@ export default function PDFReplicator({ ot, explosion }) {
 
       rect(startX, yPage2, 180, boxH);
       text("PRODUCTO / COMPONENTE", startX + 4, yPage2 + 4, 8, 'bold', primaryColor);
-      text("CANTIDAD", startX + 120, yPage2 + 4, 8, 'bold', primaryColor);
-      text("CARGADO (CHECK)", startX + 150, yPage2 + 4, 8, 'bold', primaryColor);
+      text("CANTIDAD", startX + 110, yPage2 + 4, 8, 'bold', primaryColor);
+      text("PROCEDENCIA / ORIGEN", startX + 130, yPage2 + 4, 8, 'bold', primaryColor);
       line(startX, yPage2 + 6, startX + 180, yPage2 + 6, 0.2);
 
       let itemY = yPage2 + 10;
       items.forEach(item => {
         text(String(item.producto).toUpperCase(), startX + 4, itemY, 7, 'normal');
-        text(String(item.qty), startX + 120, itemY, 8, 'bold');
-        text("[  ]", startX + 160, itemY, 8, 'normal');
+        text(String(item.qty), startX + 110, itemY, 8, 'bold');
+        
+        const provText = item.provenance || "Desde Depósito";
+        const isTransferred = provText.includes('directo');
+        doc.setFont('Helvetica', isTransferred ? 'bold' : 'normal');
+        text(String(provText), startX + 130, itemY, 7, isTransferred ? 'bold' : 'normal', isTransferred ? [217, 70, 239] : [71, 85, 105]);
+        doc.setFont('Helvetica', 'normal');
+        
         itemY += 5;
       });
 

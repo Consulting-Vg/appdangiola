@@ -319,11 +319,11 @@ default_users = [
     {"id": 1, "username": "admin", "nombre": "Super Administrador", "password": "admin", "rol": "SuperAdmin", "modulos": '["Comercial", "Operaciones", "Almacen"]'},
     {"id": 2, "username": "mariana", "nombre": "Mariana D´Angiola", "password": "comercial", "rol": "Comercial", "modulos": '["Comercial"]'},
     {"id": 3, "username": "luis", "nombre": "Luis Navarro", "password": "operaciones", "rol": "Operaciones", "modulos": '["Operaciones"]'},
-    {"id": 4, "username": "gomez", "nombre": "Gómez (Planta)", "password": "planta", "rol": "Planta", "modulos": '["Almacen"]'},
-    {"id": 5, "username": "fabian", "nombre": "Fabián (Pañol)", "password": "panol", "rol": "Pañol", "modulos": '["Almacen"]'},
-    {"id": 6, "username": "lonas", "nombre": "Lonas Staff", "password": "lonas", "rol": "Lonas", "modulos": '["Almacen"]'},
-    {"id": 7, "username": "pisos", "nombre": "Pisos Staff", "password": "pisos", "rol": "Pisos", "modulos": '["Almacen"]'},
-    {"id": 8, "username": "telas", "nombre": "Telas Staff", "password": "telas", "rol": "Telas", "modulos": '["Almacen"]'},
+    {"id": 4, "username": "gomez", "nombre": "Gómez (Planta)", "password": "planta", "rol": "Operario", "modulos": '["Almacen"]'},
+    {"id": 5, "username": "fabian", "nombre": "Fabián (Pañol)", "password": "panol", "rol": "Operario", "modulos": '["Almacen"]'},
+    {"id": 6, "username": "lonas", "nombre": "Lonas Staff", "password": "lonas", "rol": "Operario", "modulos": '["Almacen"]'},
+    {"id": 7, "username": "pisos", "nombre": "Pisos Staff", "password": "pisos", "rol": "Operario", "modulos": '["Almacen"]'},
+    {"id": 8, "username": "telas", "nombre": "Telas Staff", "password": "telas", "rol": "Operario", "modulos": '["Almacen"]'},
     {"id": 9, "username": "chofer", "nombre": "Chofer de Despacho", "password": "chofer", "rol": "Chofer", "modulos": '["Chofer"]'}
 ]
 for user in default_users:

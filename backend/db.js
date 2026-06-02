@@ -32,7 +32,9 @@ const loadJsonDb = () => {
           chat_mensajes: [],
           usuarios: [],
           log_transacciones: [],
-          ventas_historicas: []
+          ventas_historicas: [],
+          personal: [],
+          recursos: []
         };
       }
     } catch (err) {
@@ -48,10 +50,14 @@ const loadJsonDb = () => {
         chat_mensajes: [],
         usuarios: [],
         log_transacciones: [],
-        ventas_historicas: []
+        ventas_historicas: [],
+        personal: [],
+        recursos: []
       };
     }
   }
+  if (!jsonDb.personal) jsonDb.personal = [];
+  if (!jsonDb.recursos) jsonDb.recursos = [];
   return jsonDb;
 };
 
@@ -80,6 +86,8 @@ const initDb = async () => {
       await pool.query('SELECT NOW()');
       usePostgreSQL = true;
       console.log('Connected to PostgreSQL successfully.');
+      // Auto migration to add usuario_id column
+      await pool.query('ALTER TABLE personal ADD COLUMN IF NOT EXISTS usuario_id INTEGER REFERENCES usuarios(id) ON DELETE SET NULL');
     } catch (err) {
       console.warn('PostgreSQL connection failed. Falling back to local JSON database.', err.message);
       usePostgreSQL = false;
@@ -107,7 +115,7 @@ export const db = {
       try {
         await client.query('BEGIN');
         
-        await client.query('TRUNCATE chat_mensajes, ordenes_trabajo, inventario_accesorios, base_fijo, base_modulo, base_arco, estructuras_maestras, clientes, usuarios, log_transacciones RESTART IDENTITY CASCADE');
+        await client.query('TRUNCATE chat_mensajes, ordenes_desarme, ordenes_trabajo, inventario_accesorios, base_fijo, base_modulo, base_arco, estructuras_maestras, clientes, usuarios, log_transacciones, personal, recursos RESTART IDENTITY CASCADE');
 
         // Seed structures
         for (const est of data.estructuras_maestras) {
@@ -194,7 +202,10 @@ export const db = {
         usuarios: data.usuarios || [],
         ordenes_trabajo: [],
         chat_mensajes: [],
-        log_transacciones: []
+        log_transacciones: [],
+        ordenes_desarme: [],
+        personal: [],
+        recursos: []
       };
       saveJsonDb();
       console.log("Local JSON database reset complete.");
@@ -324,14 +335,16 @@ export const db = {
         `INSERT INTO ordenes_trabajo (
           ot_numero, cliente_id, fecha_inicio, fecha_fin, modelo_estructura, 
           estructura_tipo, frente, largo, superficie, modulacion_config, 
-          adicionales, georef, estado, panol_status, planta_status, creado_por
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+          adicionales, georef, estado, panol_status, planta_status, creado_por,
+          fecha_evento, observaciones
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
          RETURNING *`,
         [
           ot.ot_numero, ot.cliente_id, ot.fecha_inicio, ot.fecha_fin, ot.modelo_estructura,
           ot.estructura_tipo, ot.frente, ot.largo, ot.superficie, JSON.stringify(ot.modulacion_config),
           JSON.stringify(ot.adicionales), JSON.stringify(ot.georef), ot.estado || 'Pendiente',
-          JSON.stringify(ot.panol_status), JSON.stringify(ot.planta_status), ot.creado_por
+          JSON.stringify(ot.panol_status), JSON.stringify(ot.planta_status), ot.creado_por,
+          ot.fecha_evento || null, ot.observaciones || null
         ]
       );
       return res.rows[0];
@@ -745,17 +758,130 @@ export const db = {
 
   clearOTs: async () => {
     if (usePostgreSQL) {
-      await pool.query('TRUNCATE TABLE chat_mensajes, ordenes_trabajo, log_transacciones RESTART IDENTITY CASCADE');
+      await pool.query('TRUNCATE TABLE chat_mensajes, ordenes_desarme, ordenes_trabajo, log_transacciones RESTART IDENTITY CASCADE');
       return true;
     } else {
       const db = loadJsonDb();
       db.ordenes_trabajo = [];
       db.chat_mensajes = [];
       db.log_transacciones = [];
+      db.ordenes_desarme = [];
       saveJsonDb();
       return true;
     }
   },
+
+  deleteOT: async (id) => {
+    if (usePostgreSQL) {
+      const res = await pool.query('DELETE FROM ordenes_trabajo WHERE id = $1 RETURNING id', [id]);
+      return res.rowCount > 0;
+    } else {
+      const db = loadJsonDb();
+      if (!db.ordenes_trabajo) db.ordenes_trabajo = [];
+      const idx = db.ordenes_trabajo.findIndex(o => o.id === id);
+      if (idx !== -1) {
+        db.ordenes_trabajo.splice(idx, 1);
+        if (db.chat_mensajes) {
+          db.chat_mensajes = db.chat_mensajes.filter(m => m.ot_id !== id);
+        }
+        if (db.ordenes_desarme) {
+          db.ordenes_desarme = db.ordenes_desarme.filter(d => d.ot_origen_id !== id && d.ot_id !== id);
+        }
+        saveJsonDb();
+        return true;
+      }
+      return false;
+    }
+  },
+
+  updateOTLogistica: async (id, data, usuario, rol) => {
+    if (usePostgreSQL) {
+      const res = await pool.query(
+        `UPDATE ordenes_trabajo 
+         SET fecha_fin = $1, fecha_traslado = $2, fecha_comienzo_armado = $3, fecha_comienzo_desarmado = $4, fecha_retorno = $5
+         WHERE id = $6 RETURNING *`,
+        [
+          data.fecha_fin,
+          data.fecha_traslado || null,
+          data.fecha_comienzo_armado || null,
+          data.fecha_comienzo_desarmado || null,
+          data.fecha_retorno || null,
+          id
+        ]
+      );
+      return res.rows[0];
+    } else {
+      const db = loadJsonDb();
+      const ot = db.ordenes_trabajo.find(o => o.id === id);
+      if (ot) {
+        ot.fecha_fin = data.fecha_fin;
+        ot.fecha_traslado = data.fecha_traslado || null;
+        ot.fecha_comienzo_armado = data.fecha_comienzo_armado || null;
+        ot.fecha_comienzo_desarmado = data.fecha_comienzo_desarmado || null;
+        ot.fecha_retorno = data.fecha_retorno || null;
+        saveJsonDb();
+        return ot;
+      }
+      return null;
+    }
+  },
+
+  saveDesarme: async (desarme) => {
+    if (usePostgreSQL) {
+      const res = await pool.query(
+        `INSERT INTO ordenes_desarme (ot_origen_id, retorno_completo, destinos, remitos, creado_por)
+         VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+        [
+          desarme.ot_origen_id,
+          desarme.retorno_completo,
+          JSON.stringify(desarme.destinos),
+          JSON.stringify(desarme.remitos),
+          desarme.creado_por
+        ]
+      );
+      return res.rows[0];
+    } else {
+      const db = loadJsonDb();
+      if (!db.ordenes_desarme) db.ordenes_desarme = [];
+      const nextId = db.ordenes_desarme.length > 0 ? Math.max(...db.ordenes_desarme.map(d => d.id)) + 1 : 1;
+      const newDesarme = {
+        id: nextId,
+        ...desarme,
+        fecha_creacion: new Date().toISOString()
+      };
+      db.ordenes_desarme.push(newDesarme);
+      saveJsonDb();
+      return newDesarme;
+    }
+  },
+
+  getDesarmeByOT: async (otId) => {
+    if (usePostgreSQL) {
+      const res = await pool.query(
+        `SELECT * FROM ordenes_desarme WHERE ot_origen_id = $1 ORDER BY id DESC LIMIT 1`,
+        [otId]
+      );
+      return res.rows[0] || null;
+    } else {
+      const db = loadJsonDb();
+      if (!db.ordenes_desarme) db.ordenes_desarme = [];
+      const match = db.ordenes_desarme.find(d => d.ot_origen_id === otId);
+      return match || null;
+    }
+  },
+
+  getAllDesarmes: async () => {
+    if (usePostgreSQL) {
+      const res = await pool.query(
+        `SELECT * FROM ordenes_desarme ORDER BY id DESC`
+      );
+      return res.rows;
+    } else {
+      const db = loadJsonDb();
+      return db.ordenes_desarme || [];
+    }
+  },
+
 
   // ─── VENTAS HISTÓRICAS (Dashboard de Gerencia BI) ───────────────────────────
 
@@ -885,6 +1011,180 @@ export const db = {
       db.ventas_historicas = [];
       saveJsonDb();
       return count;
+    }
+  },
+
+  getAllPersonal: async () => {
+    if (usePostgreSQL) {
+      const res = await pool.query('SELECT * FROM personal ORDER BY nombre ASC');
+      return res.rows;
+    } else {
+      const db = loadJsonDb();
+      if (!db.personal) db.personal = [];
+      return db.personal.sort((a, b) => a.nombre.localeCompare(b.nombre));
+    }
+  },
+
+  savePersonal: async (persona) => {
+    if (usePostgreSQL) {
+      const res = await pool.query(
+        `INSERT INTO personal (nombre, cuit, telefono, rol_funcion, activo, usuario_id)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         RETURNING *`,
+        [persona.nombre, persona.cuit || null, persona.telefono || null, persona.rol_funcion, persona.activo !== false, persona.usuario_id || null]
+      );
+      return res.rows[0];
+    } else {
+      const db = loadJsonDb();
+      if (!db.personal) db.personal = [];
+      const nextId = db.personal.length > 0 ? Math.max(...db.personal.map(p => p.id)) + 1 : 1;
+      const newPersona = {
+        id: nextId,
+        nombre: persona.nombre,
+        cuit: persona.cuit || null,
+        telefono: persona.telefono || null,
+        rol_funcion: persona.rol_funcion,
+        activo: persona.activo !== false,
+        usuario_id: persona.usuario_id || null,
+        fecha_creacion: new Date().toISOString()
+      };
+      db.personal.push(newPersona);
+      saveJsonDb();
+      return newPersona;
+    }
+  },
+
+  updatePersonal: async (id, persona) => {
+    if (usePostgreSQL) {
+      const res = await pool.query(
+        `UPDATE personal
+         SET nombre = $1, cuit = $2, telefono = $3, rol_funcion = $4, activo = $5, usuario_id = $6
+         WHERE id = $7
+         RETURNING *`,
+        [persona.nombre, persona.cuit || null, persona.telefono || null, persona.rol_funcion, persona.activo !== false, persona.usuario_id || null, id]
+      );
+      return res.rows[0];
+    } else {
+      const db = loadJsonDb();
+      if (!db.personal) db.personal = [];
+      const idx = db.personal.findIndex(p => p.id === id);
+      if (idx !== -1) {
+        db.personal[idx] = {
+          ...db.personal[idx],
+          nombre: persona.nombre,
+          cuit: persona.cuit || null,
+          telefono: persona.telefono || null,
+          rol_funcion: persona.rol_funcion,
+          activo: persona.activo !== false,
+          usuario_id: persona.usuario_id || null
+        };
+        saveJsonDb();
+        return db.personal[idx];
+      }
+      return null;
+    }
+  },
+
+  deletePersonal: async (id) => {
+    if (usePostgreSQL) {
+      const res = await pool.query('DELETE FROM personal WHERE id = $1 RETURNING id', [id]);
+      return res.rowCount > 0;
+    } else {
+      const db = loadJsonDb();
+      if (!db.personal) db.personal = [];
+      const idx = db.personal.findIndex(p => p.id === id);
+      if (idx !== -1) {
+        db.personal.splice(idx, 1);
+        saveJsonDb();
+        return true;
+      }
+      return false;
+    }
+  },
+
+  getAllRecursos: async () => {
+    if (usePostgreSQL) {
+      const res = await pool.query('SELECT * FROM recursos ORDER BY nombre ASC');
+      return res.rows;
+    } else {
+      const db = loadJsonDb();
+      if (!db.recursos) db.recursos = [];
+      return db.recursos.sort((a, b) => a.nombre.localeCompare(b.nombre));
+    }
+  },
+
+  saveRecurso: async (recurso) => {
+    if (usePostgreSQL) {
+      const res = await pool.query(
+        `INSERT INTO recursos (nombre, tipo, patente_identificador, descripcion, activo)
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING *`,
+        [recurso.nombre, recurso.tipo, recurso.patente_identificador || null, recurso.descripcion || null, recurso.activo !== false]
+      );
+      return res.rows[0];
+    } else {
+      const db = loadJsonDb();
+      if (!db.recursos) db.recursos = [];
+      const nextId = db.recursos.length > 0 ? Math.max(...db.recursos.map(r => r.id)) + 1 : 1;
+      const newRecurso = {
+        id: nextId,
+        nombre: recurso.nombre,
+        tipo: recurso.tipo,
+        patente_identificador: recurso.patente_identificador || null,
+        descripcion: recurso.descripcion || null,
+        activo: recurso.activo !== false,
+        fecha_creacion: new Date().toISOString()
+      };
+      db.recursos.push(newRecurso);
+      saveJsonDb();
+      return newRecurso;
+    }
+  },
+
+  updateRecurso: async (id, recurso) => {
+    if (usePostgreSQL) {
+      const res = await pool.query(
+        `UPDATE recursos
+         SET nombre = $1, tipo = $2, patente_identificador = $3, descripcion = $4, activo = $5
+         WHERE id = $6
+         RETURNING *`,
+        [recurso.nombre, recurso.tipo, recurso.patente_identificador || null, recurso.descripcion || null, recurso.activo !== false, id]
+      );
+      return res.rows[0];
+    } else {
+      const db = loadJsonDb();
+      if (!db.recursos) db.recursos = [];
+      const idx = db.recursos.findIndex(r => r.id === id);
+      if (idx !== -1) {
+        db.recursos[idx] = {
+          ...db.recursos[idx],
+          nombre: recurso.nombre,
+          tipo: recurso.tipo,
+          patente_identificador: recurso.patente_identificador || null,
+          descripcion: recurso.descripcion || null,
+          activo: recurso.activo !== false
+        };
+        saveJsonDb();
+        return db.recursos[idx];
+      }
+      return null;
+    }
+  },
+
+  deleteRecurso: async (id) => {
+    if (usePostgreSQL) {
+      const res = await pool.query('DELETE FROM recursos WHERE id = $1 RETURNING id', [id]);
+      return res.rowCount > 0;
+    } else {
+      const db = loadJsonDb();
+      if (!db.recursos) db.recursos = [];
+      const idx = db.recursos.findIndex(r => r.id === id);
+      if (idx !== -1) {
+        db.recursos.splice(idx, 1);
+        saveJsonDb();
+        return true;
+      }
+      return false;
     }
   }
 };

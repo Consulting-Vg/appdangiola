@@ -48,6 +48,88 @@ app.post('/api/clientes', async (req, res) => {
 });
 
 // ----------------------------------------------------
+// 1b. PERSONAL ENDPOINTS
+// ----------------------------------------------------
+app.get('/api/personal', async (req, res) => {
+  try {
+    const personal = await db.getAllPersonal();
+    res.json(personal);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/personal', async (req, res) => {
+  try {
+    const persona = await db.savePersonal(req.body);
+    res.status(201).json(persona);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/personal/:id', async (req, res) => {
+  try {
+    const persona = await db.updatePersonal(parseInt(req.params.id), req.body);
+    if (!persona) return res.status(404).json({ error: 'Personal no encontrado' });
+    res.json(persona);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/personal/:id', async (req, res) => {
+  try {
+    const success = await db.deletePersonal(parseInt(req.params.id));
+    if (!success) return res.status(404).json({ error: 'Personal no encontrado' });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ----------------------------------------------------
+// 1c. RECURSOS ENDPOINTS
+// ----------------------------------------------------
+app.get('/api/recursos', async (req, res) => {
+  try {
+    const recursos = await db.getAllRecursos();
+    res.json(recursos);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/recursos', async (req, res) => {
+  try {
+    const recurso = await db.saveRecurso(req.body);
+    res.status(201).json(recurso);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/recursos/:id', async (req, res) => {
+  try {
+    const recurso = await db.updateRecurso(parseInt(req.params.id), req.body);
+    if (!recurso) return res.status(404).json({ error: 'Recurso no encontrado' });
+    res.json(recurso);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/recursos/:id', async (req, res) => {
+  try {
+    const success = await db.deleteRecurso(parseInt(req.params.id));
+    if (!success) return res.status(404).json({ error: 'Recurso no encontrado' });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ----------------------------------------------------
 // 2. STRUCTURES ENDPOINTS & LOGIC
 // ----------------------------------------------------
 app.get('/api/estructuras', async (req, res) => {
@@ -750,6 +832,298 @@ app.put('/api/ots/:id/adicionales', async (req, res) => {
   }
 });
 
+app.delete('/api/ots/:id', async (req, res) => {
+  const { id } = req.params;
+  const userRole = req.headers['x-user-role'];
+  const userName = req.headers['x-user-name'] || 'Usuario Autorizado';
+
+  if (userRole !== 'Gerencia' && userRole !== 'SuperAdmin') {
+    return res.status(403).json({ error: 'Acceso denegado. Solo Gerencia o SuperAdmin pueden eliminar Órdenes de Trabajo.' });
+  }
+
+  try {
+    const ots = await db.getOTs();
+    const ot = ots.find(o => o.id === parseInt(id));
+    if (!ot) {
+      return res.status(404).json({ error: 'Orden de Trabajo no encontrada.' });
+    }
+
+    const success = await db.deleteOT(parseInt(id));
+    if (!success) {
+      return res.status(500).json({ error: 'No se pudo eliminar la Orden de Trabajo.' });
+    }
+
+    // Log transaction
+    await db.saveTransactionLog({
+      ot_id: ot.id,
+      ot_numero: ot.ot_numero,
+      usuario: userName,
+      rol: userRole,
+      accion: 'ELIMINAR_OT',
+      detalles: `Eliminación permanente de la OT ${ot.ot_numero} (Cliente: ${ot.cliente_nombre})`
+    });
+
+    res.json({ success: true, message: `Orden de Trabajo ${ot.ot_numero} eliminada con éxito.` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+// ----------------------------------------------------
+// 3b. LOGISTICS & DISASSEMBLY MODULE
+// ----------------------------------------------------
+app.put('/api/ots/:id/logistica', async (req, res) => {
+  const { id } = req.params;
+  const { fecha_fin, fecha_traslado, fecha_comienzo_armado, fecha_comienzo_desarmado, fecha_retorno, usuario, rol } = req.body;
+  
+  if (!fecha_fin) {
+    return res.status(400).json({ error: 'Falta parámetro fecha_fin (Fecha de Desarme original)' });
+  }
+
+  try {
+    const ot = await db.updateOTLogistica(parseInt(id), {
+      fecha_fin,
+      fecha_traslado,
+      fecha_comienzo_armado,
+      fecha_comienzo_desarmado,
+      fecha_retorno
+    }, usuario, rol);
+
+    if (!ot) {
+      return res.status(404).json({ error: 'OT no encontrada' });
+    }
+
+    // Log transaction
+    await db.saveTransactionLog({
+      ot_id: ot.id,
+      ot_numero: ot.ot_numero,
+      usuario: usuario || 'Sistema',
+      rol: rol || 'Operaciones',
+      accion: 'LOGISTICA_HITOS',
+      detalles: `Se actualizaron hitos logísticos y fecha de desarme original: ${fecha_fin}`
+    });
+
+    res.json(ot);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/logistica/alertas-desarme', async (req, res) => {
+  try {
+    const OTs = await db.getOTs();
+    const now = new Date();
+    const alerts = OTs.filter(ot => {
+      if (['Cancelada', 'Rechazada', 'Pendiente', 'Desarmada', 'Retornada'].includes(ot.estado)) return false;
+      const fechaDesarme = new Date(ot.fecha_fin + 'T00:00:00');
+      const diffTime = fechaDesarme - now;
+      const diffHours = diffTime / (1000 * 60 * 60);
+      return diffHours <= 48 && diffHours >= -72;
+    });
+    res.json(alerts);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/logistica/desarme', async (req, res) => {
+  const { ot_id, retorno_completo, destinos, usuario, rol } = req.body;
+
+  if (!ot_id || retorno_completo === undefined || !destinos) {
+    return res.status(400).json({ error: 'Faltan parámetros requeridos: ot_id, retorno_completo, destinos' });
+  }
+
+  try {
+    const ots = await db.getOTs();
+    const originalOT = ots.find(o => o.id === parseInt(ot_id));
+    if (!originalOT) {
+      return res.status(404).json({ error: 'OT de origen no encontrada' });
+    }
+
+    // 1. Update OT state to Desarmada
+    const updatedOT = await db.updateOTStatus(originalOT.id, 'Desarmada', usuario, rol);
+
+    // 2. Process returned accessories and transfers
+    const remitosList = [];
+    
+    for (const dest of destinos) {
+      const { type, ot_id: target_ot_id, ot_numero: target_ot_numero, items } = dest;
+      
+      if (type === 'deposito') {
+        const accessories = await db.getAccessories();
+        for (const item of items) {
+          const acc = accessories.find(a => a.nombre.toLowerCase() === item.producto.toLowerCase());
+          if (acc) {
+            await db.updateAccessoryStock(acc.id, item.qty);
+          }
+        }
+
+        remitosList.push({
+          destino: 'Depósito Central Dangiola',
+          tipo: 'Retorno Físico',
+          items
+        });
+
+        await db.saveTransactionLog({
+          ot_id: originalOT.id,
+          ot_numero: originalOT.ot_numero,
+          usuario: usuario || 'Sistema',
+          rol: rol || 'Operaciones',
+          accion: 'RETORNO_DEPOSITO',
+          detalles: `Se retornaron ${items.length} componentes al depósito central.`
+        });
+      } else if (type === 'ot' && target_ot_id) {
+        const targetOT = ots.find(o => o.id === parseInt(target_ot_id));
+        if (targetOT) {
+          const targetPanol = typeof targetOT.panol_status === 'string' ? JSON.parse(targetOT.panol_status) : targetOT.panol_status || { items: [] };
+          const targetPlanta = typeof targetOT.planta_status === 'string' ? JSON.parse(targetOT.planta_status) : targetOT.planta_status || { items: [] };
+          
+          let transferredCount = 0;
+          items.forEach(transferItem => {
+            const itemCopy = { ...transferItem };
+            
+            // 1. Try to fulfill from targetPlanta items first
+            if (targetPlanta.items) {
+              for (let idx = 0; idx < targetPlanta.items.length; idx++) {
+                const matched = targetPlanta.items[idx];
+                if (matched.producto.toLowerCase() === itemCopy.producto.toLowerCase() && !matched.checked) {
+                  const neededQty = matched.qty;
+                  const transferQty = itemCopy.qty;
+                  
+                  if (transferQty >= neededQty) {
+                    matched.checked = true;
+                    matched.obs = (matched.obs || '') + ` [Recibido por transferencia de ${originalOT.ot_numero}]`;
+                    transferredCount += neededQty;
+                    itemCopy.qty -= neededQty;
+                  } else {
+                    // Split checklist line
+                    matched.qty = transferQty;
+                    matched.checked = true;
+                    matched.obs = (matched.obs || '') + ` [Recibido por transferencia de ${originalOT.ot_numero}]`;
+                    
+                    const remainingQty = neededQty - transferQty;
+                    targetPlanta.items.splice(idx + 1, 0, {
+                      producto: matched.producto,
+                      qty: remainingQty,
+                      checked: false,
+                      sector: matched.sector,
+                      obs: ''
+                    });
+                    transferredCount += transferQty;
+                    itemCopy.qty = 0;
+                  }
+                }
+                if (itemCopy.qty <= 0) break;
+              }
+            }
+            
+            // 2. If there is still quantity to transfer, try to fulfill from targetPanol items
+            if (itemCopy.qty > 0 && targetPanol.items) {
+              for (let idx = 0; idx < targetPanol.items.length; idx++) {
+                const matched = targetPanol.items[idx];
+                if (matched.producto.toLowerCase() === itemCopy.producto.toLowerCase() && !matched.checked) {
+                  const neededQty = matched.qty;
+                  const transferQty = itemCopy.qty;
+                  
+                  if (transferQty >= neededQty) {
+                    matched.checked = true;
+                    matched.obs = (matched.obs || '') + ` [Recibido por transferencia de ${originalOT.ot_numero}]`;
+                    transferredCount += neededQty;
+                    itemCopy.qty -= neededQty;
+                  } else {
+                    // Split checklist line
+                    matched.qty = transferQty;
+                    matched.checked = true;
+                    matched.obs = (matched.obs || '') + ` [Recibido por transferencia de ${originalOT.ot_numero}]`;
+                    
+                    const remainingQty = neededQty - transferQty;
+                    targetPanol.items.splice(idx + 1, 0, {
+                      producto: matched.producto,
+                      qty: remainingQty,
+                      checked: false,
+                      sector: matched.sector,
+                      obs: ''
+                    });
+                    transferredCount += transferQty;
+                    itemCopy.qty = 0;
+                  }
+                }
+                if (itemCopy.qty <= 0) break;
+              }
+            }
+          });
+
+          await db.updateOTChecklists(targetOT.id, targetPanol, targetPlanta, usuario, rol);
+
+          await db.saveTransactionLog({
+            ot_id: originalOT.id,
+            ot_numero: originalOT.ot_numero,
+            usuario: usuario || 'Sistema',
+            rol: rol || 'Operaciones',
+            accion: 'TRANSFERENCIA_SALIDA',
+            detalles: `Se transfirieron ${items.length} componentes directamente a la OT #${targetOT.ot_numero}.`
+          });
+
+          await db.saveTransactionLog({
+            ot_id: targetOT.id,
+            ot_numero: targetOT.ot_numero,
+            usuario: usuario || 'Sistema',
+            rol: rol || 'Operaciones',
+            accion: 'TRANSFERENCIA_ENTRADA',
+            detalles: `Se recibieron ${items.length} componentes por transferencia directa desde la OT #${originalOT.ot_numero}.`
+          });
+
+          remitosList.push({
+            destino: `OT #${targetOT.ot_numero} - ${targetOT.cliente_nombre}`,
+            tipo: 'Transferencia Directa',
+            items
+          });
+        }
+      }
+    }
+
+    const desarmeRecord = await db.saveDesarme({
+      ot_origen_id: originalOT.id,
+      retorno_completo,
+      destinos,
+      remitos: remitosList,
+      creado_por: usuario || 'Sistema'
+    });
+
+    res.status(201).json({
+      success: true,
+      desarme: desarmeRecord,
+      ot: updatedOT
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/logistica/desarme/:otId', async (req, res) => {
+  const { otId } = req.params;
+  try {
+    const record = await db.getDesarmeByOT(parseInt(otId));
+    if (!record) {
+      return res.status(404).json({ error: 'No se encontró un registro de desarme para esta OT' });
+    }
+    res.json(record);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/logistica/desarmes', async (req, res) => {
+  try {
+    const records = await db.getAllDesarmes();
+    res.json(records);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
 
 // Helper to check if a user is mentioned in a chat message
 const userIsMentioned = (messageText, user) => {
@@ -1202,6 +1576,15 @@ const syncOtToVentasHistoricas = async (ot) => {
     const existing = await db.getVentasHistoricas({ ot_id: ot.id });
     if (existing && existing.length > 0) return;
 
+    let clienteNombre = ot.cliente_nombre;
+    if ((!clienteNombre || clienteNombre === 'undefined' || clienteNombre === 'null') && ot.cliente_id) {
+      const clients = await db.getClients();
+      const client = clients.find(c => String(c.id) === String(ot.cliente_id));
+      if (client) {
+        clienteNombre = client.nombre;
+      }
+    }
+
     const adicionales = typeof ot.adicionales === 'string' ? JSON.parse(ot.adicionales) : ot.adicionales || {};
     const georef = typeof ot.georef === 'string' ? JSON.parse(ot.georef) : ot.georef || {};
 
@@ -1219,7 +1602,7 @@ const syncOtToVentasHistoricas = async (ot) => {
       fecha_alta: ot.fecha_creacion ? ot.fecha_creacion.substring(0, 10) : new Date().toISOString().substring(0, 10),
       fecha_armado: ot.fecha_inicio,
       fecha_desarme: ot.fecha_fin,
-      cliente_nombre: ot.cliente_nombre,
+      cliente_nombre: clienteNombre || 'Cliente Desconocido',
       cliente_cuenta: ot.cliente_id ? String(ot.cliente_id) : null,
       vendedor: ot.creado_por || 'Sistema',
       carpa_raw: ot.modelo_estructura,
@@ -1464,7 +1847,11 @@ app.get('/api/gerencia/kpis', async (req, res) => {
 
     // Top 3 Clientes por frecuencia
     const clientCount = {};
-    rows.forEach(r => { clientCount[r.cliente_nombre] = (clientCount[r.cliente_nombre] || 0) + 1; });
+    rows.forEach(r => {
+      if (r.cliente_nombre && r.cliente_nombre !== 'undefined' && r.cliente_nombre !== 'Cliente Desconocido') {
+        clientCount[r.cliente_nombre] = (clientCount[r.cliente_nombre] || 0) + 1;
+      }
+    });
     const top3Clientes = Object.entries(clientCount).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([nombre, cantidad]) => ({ nombre, cantidad }));
 
     // Top 3 Estructuras (post-split por |)

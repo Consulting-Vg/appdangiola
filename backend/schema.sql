@@ -1,15 +1,18 @@
 -- Database Schema for Carpas D'Angiola ERP
 
 -- Drop tables if they exist (for clean migration/reset)
-DROP TABLE IF EXISTS chat_mensajes;
-DROP TABLE IF EXISTS ordenes_trabajo;
-DROP TABLE IF EXISTS inventario_accesorios;
-DROP TABLE IF EXISTS base_fijo;
-DROP TABLE IF EXISTS base_modulo;
-DROP TABLE IF EXISTS base_arco;
-DROP TABLE IF EXISTS estructuras_maestras;
-DROP TABLE IF EXISTS clientes;
-DROP TABLE IF EXISTS usuarios;
+DROP TABLE IF EXISTS chat_mensajes CASCADE;
+DROP TABLE IF EXISTS ordenes_desarme CASCADE;
+DROP TABLE IF EXISTS ordenes_trabajo CASCADE;
+DROP TABLE IF EXISTS inventario_accesorios CASCADE;
+DROP TABLE IF EXISTS base_fijo CASCADE;
+DROP TABLE IF EXISTS base_modulo CASCADE;
+DROP TABLE IF EXISTS base_arco CASCADE;
+DROP TABLE IF EXISTS estructuras_maestras CASCADE;
+DROP TABLE IF EXISTS clientes CASCADE;
+DROP TABLE IF EXISTS usuarios CASCADE;
+DROP TABLE IF EXISTS personal CASCADE;
+DROP TABLE IF EXISTS recursos CASCADE;
 
 -- 0. Usuarios
 CREATE TABLE usuarios (
@@ -17,7 +20,7 @@ CREATE TABLE usuarios (
     username VARCHAR(100) UNIQUE NOT NULL,
     nombre VARCHAR(255) NOT NULL,
     password VARCHAR(255) NOT NULL,
-    rol VARCHAR(50) NOT NULL, -- 'Comercial', 'Operaciones', 'Gerencia', 'Planta', 'Pañol', 'Lonas', 'SuperAdmin'
+    rol VARCHAR(50) NOT NULL, -- 'Comercial', 'Operaciones', 'Gerencia', 'Operario', 'Chofer', 'SuperAdmin'
     modulos VARCHAR(255) DEFAULT '[]',
     fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -116,6 +119,23 @@ CREATE TABLE ordenes_trabajo (
     panol_status JSONB NOT NULL, -- Checklist for Pañol: { "items": [ { "producto": "...", "qty": 2, "checked": false } ] }
     planta_status JSONB NOT NULL, -- Checklist for Planta: { "items": [ { "producto": "...", "qty": 4, "checked": false } ] }
     creado_por VARCHAR(100),
+    fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    fecha_evento DATE,
+    observaciones TEXT,
+    fecha_traslado TIMESTAMP,
+    fecha_comienzo_armado TIMESTAMP,
+    fecha_comienzo_desarmado TIMESTAMP,
+    fecha_retorno TIMESTAMP
+);
+
+-- 7b. Ordenes de Desarme (Logística Inversa)
+CREATE TABLE ordenes_desarme (
+    id SERIAL PRIMARY KEY,
+    ot_origen_id INT NOT NULL REFERENCES ordenes_trabajo(id) ON DELETE CASCADE,
+    retorno_completo BOOLEAN NOT NULL,
+    destinos JSONB NOT NULL, -- list of destinations and items
+    remitos JSONB NOT NULL, -- copy of the generated remitos
+    creado_por VARCHAR(100),
     fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -183,3 +203,26 @@ CREATE TABLE IF NOT EXISTS ventas_historicas (
 CREATE INDEX IF NOT EXISTS idx_vh_fechas ON ventas_historicas(fecha_armado, fecha_desarme);
 CREATE INDEX IF NOT EXISTS idx_vh_cliente ON ventas_historicas(cliente_nombre);
 CREATE INDEX IF NOT EXISTS idx_vh_vendedor ON ventas_historicas(vendedor);
+
+-- 11. Personal de la empresa
+CREATE TABLE IF NOT EXISTS personal (
+    id SERIAL PRIMARY KEY,
+    nombre VARCHAR(150) NOT NULL,
+    cuit VARCHAR(20),
+    telefono VARCHAR(50),
+    rol_funcion VARCHAR(100) NOT NULL,
+    activo BOOLEAN DEFAULT TRUE,
+    usuario_id INTEGER REFERENCES usuarios(id) ON DELETE SET NULL,
+    fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 12. Recursos de la empresa (Camiones, Maquinaria, etc.)
+CREATE TABLE IF NOT EXISTS recursos (
+    id SERIAL PRIMARY KEY,
+    nombre VARCHAR(150) NOT NULL,
+    tipo VARCHAR(100) NOT NULL, -- 'Vehículo / Camión', 'Maquinaria', 'Herramienta', 'Otro'
+    patente_identificador VARCHAR(50),
+    descripcion TEXT,
+    activo BOOLEAN DEFAULT TRUE,
+    fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);

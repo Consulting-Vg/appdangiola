@@ -4,7 +4,8 @@ import {
   FileText, CheckSquare, Plus, MessageSquare, Clock, MapPin,
   Layers, CheckCircle2, ChevronRight, User, Calendar, Trash2,
   HelpCircle, AlertOctagon, AlertTriangle, RefreshCw,
-  BarChart3, ShieldCheck, TrendingUp, Package, Eye, Truck
+  BarChart3, ShieldCheck, TrendingUp, Package, Eye, Truck,
+  Shuffle, Warehouse, Printer, ArrowRight
 } from 'lucide-react';
 import PDFReplicator from './PDFReplicator';
 
@@ -13,6 +14,8 @@ export default function RoleDashboard({
   userRole,
   userName,
   ots,
+  personalList = [],
+  users = [],
   onCreateOTClick,
   onSelectOT,
   onUpdateOTStatus,
@@ -27,38 +30,34 @@ export default function RoleDashboard({
   onOpenGerenciaDashboard
 }) {
   const getModulesForUser = () => {
-    if (!currentUser) {
-      if (userRole === 'Comercial') return ['Comercial'];
-      if (userRole === 'Gerencia') return ['Gerencia', 'Comercial', 'Operaciones', 'Almacen', 'Chofer'];
-      if (userRole === 'Operaciones') return ['Operaciones', 'Chofer'];
-      if (['Planta', 'Pañol', 'Lonas', 'Pisos', 'Telas'].includes(userRole)) return ['Almacen'];
-      if (userRole === 'Chofer') return ['Chofer'];
-      return ['Almacen'];
-    }
-    if (currentUser.rol === 'SuperAdmin') {
-      return ['Gerencia', 'Comercial', 'Operaciones', 'Almacen', 'Chofer'];
-    }
-    if (currentUser.rol === 'Gerencia') {
-      return ['Gerencia', 'Comercial', 'Operaciones', 'Almacen', 'Chofer'];
-    }
-    if (currentUser.rol === 'Operaciones') {
-      return ['Operaciones', 'Chofer'];
-    }
-    if (currentUser.rol === 'Chofer') {
-      return ['Chofer'];
-    }
-    if (['Planta', 'Pañol', 'Lonas', 'Pisos', 'Telas'].includes(currentUser.rol)) {
-      return ['Almacen'];
-    }
-    try {
-      const parsed = typeof currentUser.modulos === 'string'
-        ? JSON.parse(currentUser.modulos)
-        : currentUser.modulos;
-      return Array.isArray(parsed) ? parsed : [];
-    } catch (e) {
-      console.error(e);
+    // 1. Determine default modules by role
+    const defaultModulesByRole = (() => {
+      const role = currentUser?.rol || userRole;
+      if (role === 'Comercial') return ['Comercial'];
+      if (role === 'Gerencia') return ['Gerencia', 'Comercial', 'Operaciones', 'Almacen', 'Chofer'];
+      if (role === 'Operaciones') return ['Operaciones', 'Chofer'];
+      if (role === 'Chofer') return ['Chofer'];
+      if (['Planta', 'Pañol', 'Lonas', 'Pisos', 'Telas', 'Operario'].includes(role)) return ['Almacen'];
+      if (role === 'SuperAdmin') return ['Gerencia', 'Comercial', 'Operaciones', 'Almacen', 'Chofer'];
       return [];
+    })();
+
+    // 2. If currentUser has custom modulos, parse and merge them
+    if (currentUser) {
+      try {
+        const parsed = typeof currentUser.modulos === 'string'
+          ? JSON.parse(currentUser.modulos)
+          : currentUser.modulos;
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const merged = Array.from(new Set([...parsed, ...defaultModulesByRole]));
+          return merged;
+        }
+      } catch (e) {
+        console.error(e);
+      }
     }
+
+    return defaultModulesByRole;
   };
 
   const isLona = (name) => {
@@ -76,10 +75,94 @@ export default function RoleDashboard({
     return n.includes('tela') || n.includes('cortina') || n.includes('cielorraso');
   };
 
+  const isUserAssignedToOT = (ot, uId, uName, pList = []) => {
+    const asignaciones = ot.adicionales?.asignaciones_tareas || {};
+    // Find all personal IDs associated with this app user ID
+    const associatedPersonalIds = pList
+      .filter(p => p.usuario_id === uId)
+      .map(p => p.id);
+
+    return Object.keys(asignaciones).some(sec => {
+      const val = asignaciones[sec];
+      if (!val) return false;
+      if (Array.isArray(val)) {
+        return val.some(item => {
+          const numItem = Number(item);
+          if (!isNaN(numItem)) {
+            return associatedPersonalIds.includes(numItem);
+          }
+          return String(item) === uName;
+        });
+      }
+      const numVal = Number(val);
+      if (!isNaN(numVal)) {
+        return associatedPersonalIds.includes(numVal);
+      }
+      return String(val) === uName;
+    });
+  };
+
+  const getUserAssignedSectors = (ot, uId, uName, pList = []) => {
+    const asignaciones = ot.adicionales?.asignaciones_tareas || {};
+    const associatedPersonalIds = pList
+      .filter(p => p.usuario_id === uId)
+      .map(p => p.id);
+
+    const sectors = new Set();
+    Object.keys(asignaciones).forEach(sec => {
+      const val = asignaciones[sec];
+      if (!val) return;
+      let isAssigned = false;
+      if (Array.isArray(val)) {
+        isAssigned = val.some(item => {
+          const numItem = Number(item);
+          if (!isNaN(numItem)) {
+            return associatedPersonalIds.includes(numItem);
+          }
+          return String(item) === uName;
+        });
+      } else {
+        const numVal = Number(val);
+        if (!isNaN(numVal)) {
+          isAssigned = associatedPersonalIds.includes(numVal);
+        } else {
+          isAssigned = String(val) === uName;
+        }
+      }
+      if (isAssigned) {
+        sectors.add(sec);
+      }
+    });
+    return sectors;
+  };
+
   const filterMaterials = (mats, role) => {
     if (!role) return mats;
     if (['Gerencia', 'Operaciones', 'SuperAdmin', 'Comercial'].includes(role)) {
       return mats;
+    }
+    if (role === 'Operario') {
+      const username = currentUser?.username || userName;
+      const userId = currentUser?.id || null;
+      const assignedSectors = new Set();
+      (ots || []).forEach(ot => {
+        const sectors = getUserAssignedSectors(ot, userId, username, personalList);
+        sectors.forEach(sec => assignedSectors.add(sec));
+      });
+      if (assignedSectors.size === 0) return [];
+
+      return mats.filter(item => {
+        const name = item.producto || '';
+        const sector = item.sector || '';
+        return Array.from(assignedSectors).some(sec => {
+          if (sec === 'Planta') return sector === 'Planta' && !isLona(name) && !isPiso(name) && !isTela(name);
+          if (sec === 'Pañol') return sector === 'Pañol' && !isLona(name) && !isPiso(name) && !isTela(name);
+          if (sec === 'Lonas') return isLona(name);
+          if (sec === 'Pisos') return isPiso(name);
+          if (sec === 'Telas') return isTela(name);
+          return false;
+        });
+      });
     }
     return mats.filter(item => {
       const name = item.producto || '';
@@ -103,17 +186,33 @@ export default function RoleDashboard({
     });
   };
 
+  const getDefaultModuleForRole = (role) => {
+    if (role === 'Comercial') return 'Comercial';
+    if (role === 'Gerencia') return 'Gerencia';
+    if (role === 'Operaciones') return 'Operaciones';
+    if (role === 'Chofer') return 'Chofer';
+    if (['Planta', 'Pañol', 'Lonas', 'Pisos', 'Telas', 'Operario'].includes(role)) return 'Almacen';
+    if (role === 'SuperAdmin') return 'Gerencia';
+    return null;
+  };
+
   const allowedModules = getModulesForUser();
-  const defaultModule = allowedModules.includes('Gerencia') ? 'Gerencia' : (allowedModules[0] || 'Comercial');
+  const primaryModule = getDefaultModuleForRole(currentUser?.rol || userRole);
+  const defaultModule = allowedModules.includes(primaryModule)
+    ? primaryModule
+    : (allowedModules.includes('Gerencia') ? 'Gerencia' : (allowedModules[0] || 'Comercial'));
   const [activeModule, setActiveModule] = useState(defaultModule);
 
   useEffect(() => {
     const modules = getModulesForUser();
     if (modules.length > 0 && !modules.includes(activeModule)) {
-      const def = modules.includes('Gerencia') ? 'Gerencia' : modules[0];
+      const pMod = getDefaultModuleForRole(currentUser?.rol || userRole);
+      const def = modules.includes(pMod)
+        ? pMod
+        : (modules.includes('Gerencia') ? 'Gerencia' : modules[0]);
       setActiveModule(def);
     }
-  }, [currentUser]);
+  }, [currentUser, userRole]);
 
   const [activeTab, setActiveTab] = useState('all');
   const [operacionesSubTab, setOperacionesSubTab] = useState('ots'); // 'ots', 'stock'
@@ -121,22 +220,48 @@ export default function RoleDashboard({
   const [borrowItem, setBorrowItem] = useState({ item: '', sourceEst: '', qty: 1 });
   const [borrowOTId, setBorrowOTId] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [desarmeRecords, setDesarmeRecords] = useState([]);
 
-  const calculateKms = (lat2, lng2) => {
+  useEffect(() => {
+    const fetchDesarmes = async () => {
+      try {
+        const res = await fetch('/api/logistica/desarmes');
+        if (res.ok) {
+          const data = await res.json();
+          setDesarmeRecords(data);
+        }
+      } catch (err) {
+        console.error("Error al cargar registros de desarme:", err);
+      }
+    };
+    fetchDesarmes();
+  }, [ots]);
+
+  const getDisassemblyAlerts = () => {
+    const now = new Date();
+    return (ots || []).filter(ot => {
+      if (['Cancelada', 'Rechazada', 'Pendiente', 'Desarmada', 'Retornada'].includes(ot.estado)) return false;
+      const fechaDesarme = new Date(ot.fecha_fin + 'T00:00:00');
+      const diffTime = fechaDesarme - now;
+      const diffHours = diffTime / (1000 * 60 * 60);
+      return diffHours <= 48; // within 48 hours or overdue
+    });
+  };
+  const disassemblyAlerts = getDisassemblyAlerts();
+
+  const calculateDistanceBetween = (lat1, lng1, lat2, lng2) => {
+    const l1 = parseFloat(lat1);
+    const g1 = parseFloat(lng1);
     const l2 = parseFloat(lat2);
     const g2 = parseFloat(lng2);
-    if (isNaN(l2) || isNaN(g2)) return "0.0";
-
-    // Base de operaciones (Burzaco - Juan XXIII 2980)
-    const lat1 = -34.83473863535278;
-    const lon1 = -58.42446638785623;
+    if (isNaN(l1) || isNaN(g1) || isNaN(l2) || isNaN(g2)) return "0.0";
 
     const R = 6371; // radio de la tierra en km
-    const dLat = ((l2 - lat1) * Math.PI) / 180;
-    const dLon = ((g2 - lon1) * Math.PI) / 180;
+    const dLat = ((l2 - l1) * Math.PI) / 180;
+    const dLon = ((g2 - g1) * Math.PI) / 180;
     const a =
       Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-      Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((l1 * Math.PI) / 180) *
       Math.cos((l2 * Math.PI) / 180) *
       Math.sin(dLon / 2) *
       Math.sin(dLon / 2);
@@ -146,7 +271,319 @@ export default function RoleDashboard({
     return (R * c * 1.35).toFixed(1);
   };
 
+  const calculateKms = (lat2, lng2) => {
+    return calculateDistanceBetween(-34.83473863535278, -58.42446638785623, lat2, lng2);
+  };
+
+  const handleGPSArrivalRetorno = (otId, destKey, checked) => {
+    if (!checked) return;
+    const ot = ots.find(o => o.id === otId);
+    if (!ot) return;
+    const adObj = typeof ot.adicionales === 'string' ? JSON.parse(ot.adicionales) : ot.adicionales || {};
+    const retornoLlegadas = adObj.chofer_retorno_llegadas || {};
+
+    const saveGPSInfo = async (coordsStr) => {
+      const updatedLlegadas = {
+        ...retornoLlegadas,
+        [destKey]: {
+          llegada: true,
+          fecha: new Date().toISOString(),
+          coords: coordsStr
+        }
+      };
+      if (onUpdateAdicionales) {
+        await onUpdateAdicionales(otId, {
+          ...adObj,
+          chofer_retorno_llegadas: updatedLlegadas
+        });
+      }
+    };
+
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const lat = position.coords.latitude;
+          const lng = position.coords.longitude;
+          const coordsStr = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+          saveGPSInfo(coordsStr);
+        },
+        (err) => {
+          console.error("Error obteniendo ubicación GPS retorno:", err);
+          saveGPSInfo('Acceso GPS denegado');
+        },
+        { enableHighAccuracy: true, timeout: 5000 }
+      );
+    } else {
+      saveGPSInfo('GPS no soportado');
+    }
+  };
+
+
+  const drawOfficialHeader = (doc, title, otNumber, clientCuit, logoImg) => {
+    const primaryColor = [16, 49, 107]; // Navy Blue
+    const grayColor = [100, 116, 139];
+
+    // Draw outer box for the Remito header
+    doc.setFillColor(252, 252, 252);
+    doc.rect(15, 15, 180, 40, 'FD');
+    doc.setDrawColor(180, 180, 180);
+    doc.setLineWidth(0.3);
+    doc.line(105, 15, 105, 55); // Vertical divider
+
+    // Draw "R" box
+    doc.setFillColor(255, 255, 255);
+    doc.rect(98, 15, 14, 14, 'FD');
+    doc.setFont('Helvetica', 'bold');
+    doc.setFontSize(22);
+    doc.setTextColor(0, 0, 0);
+    doc.text("R", 102, 26);
+
+    // Subtext under "R" box
+    doc.setFontSize(6);
+    doc.setTextColor(120, 120, 120);
+    doc.text("COD. 91", 101, 31);
+
+    // Left Side: Emisor
+    if (logoImg && logoImg.complete && logoImg.naturalWidth > 0) {
+      doc.addImage(logoImg, 'PNG', 18, 18, 12, 12);
+    }
+    doc.setFont('Helvetica', 'bold');
+    doc.setFontSize(12);
+    doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+    doc.text("CARPAS D'ANGIOLA S.A.", 32, 23);
+
+    doc.setFont('Helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.setTextColor(60, 60, 60);
+    doc.text("Fábrica y Alquiler de Estructuras y Carpas Modulares", 32, 27);
+    doc.text("Administración: Juan XXIII 2980, Parque Industrial, Burzaco", 32, 31);
+    doc.text("Teléfono: +54 11 4244-1234 | www.carpasdangiola.com", 32, 35);
+    doc.text("IVA RESPONSABLE INSCRIPTO", 32, 39);
+
+    // Right Side: Document info
+    doc.setFont('Helvetica', 'bold');
+    doc.setFontSize(13);
+    doc.setTextColor(0, 0, 0);
+    doc.text(String(title).toUpperCase(), 112, 23);
+
+    doc.setFontSize(10);
+    doc.text(`N°: ${otNumber}`, 112, 28);
+
+    doc.setFont('Helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.setTextColor(60, 60, 60);
+    doc.text(`Fecha Emisión: ${new Date().toLocaleDateString('es-ES')}`, 112, 33);
+    doc.text(`CUIT: ${clientCuit || '30-71112223-4'}`, 112, 37);
+    doc.text("Ing. Brutos: 30-71112223-4 (Conv. Multilateral)", 112, 41);
+    doc.text("Inicio Actividades: 10/05/2012", 112, 45);
+
+    // "Documento no válido como factura" watermark style
+    doc.setFont('Helvetica', 'bold');
+    doc.setFontSize(6.5);
+    doc.setTextColor(200, 50, 50);
+    doc.text("DOCUMENTO NO VÁLIDO COMO FACTURA", 112, 51);
+  };
+
+  const generateDisassemblyPreArmadoPDF = async (ot) => {
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    const primaryColor = [16, 49, 107];
+    const grayColor = [148, 163, 184];
+
+    // Preload logo
+    const logoImg = new Image();
+    logoImg.src = '/cd.png';
+    await new Promise((resolve) => {
+      logoImg.onload = resolve;
+      logoImg.onerror = resolve;
+    });
+
+    const matchingClient = clients?.find(c => c.id === ot.cliente_id);
+    drawOfficialHeader(doc, "CONTROL DESARME", ot.ot_numero, matchingClient?.cuit, logoImg);
+
+    let y = 60;
+    const startX = 15;
+    
+    // Client info
+    doc.setDrawColor(220, 220, 220);
+    doc.rect(startX, y, 180, 20);
+    doc.setFont('Helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+    doc.text("DATOS DE LA ORDEN DE ORIGEN", startX + 2, y - 2);
+
+    doc.text("CLIENTE / OBRA:", startX + 4, y + 6);
+    doc.setFont('Helvetica', 'normal');
+    doc.text(String(ot.cliente_nombre || 'S/D').toUpperCase(), startX + 35, y + 6);
+
+    doc.setFont('Helvetica', 'bold');
+    doc.text("ESTRUCTURA:", startX + 4, y + 12);
+    doc.setFont('Helvetica', 'normal');
+    doc.text(`${ot.modelo_estructura} (${ot.frente}x${ot.largo}m)`, startX + 35, y + 12);
+
+    doc.setFont('Helvetica', 'bold');
+    doc.text("FECHA EVENTO:", startX + 100, y + 6);
+    doc.setFont('Helvetica', 'normal');
+    doc.text(ot.fecha_evento ? new Date(ot.fecha_evento + 'T00:00:00').toLocaleDateString('es-ES') : 'No especificada', startX + 130, y + 6);
+
+    doc.setFont('Helvetica', 'bold');
+    doc.text("FECHA DESARME:", startX + 100, y + 12);
+    doc.setFont('Helvetica', 'normal');
+    doc.text(new Date(ot.fecha_fin + 'T00:00:00').toLocaleDateString('es-ES'), startX + 130, y + 12);
+
+    y += 26;
+
+    // Items list
+    doc.setFont('Helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+    doc.text("DETALLE DE COMPONENTES CONFORMADOS A RETORNAR/TRANSFERIR", startX, y);
+    doc.setDrawColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+    doc.setLineWidth(0.5);
+    doc.line(startX, y + 2, startX + 180, y + 2);
+    y += 7;
+
+    const list = [];
+    const panol = typeof ot.panol_status === 'string' ? JSON.parse(ot.panol_status) : ot.panol_status;
+    const planta = typeof ot.planta_status === 'string' ? JSON.parse(ot.planta_status) : ot.planta_status;
+    if (panol?.items) {
+      panol.items.forEach(item => {
+        list.push({ producto: item.producto, qty: item.qty, sector: 'Pañol' });
+      });
+    }
+    if (planta?.items) {
+      planta.items.forEach(item => {
+        list.push({ producto: item.producto, qty: item.qty, sector: 'Planta' });
+      });
+    }
+    
+    // Draw table box
+    doc.setDrawColor(220, 220, 220);
+    doc.setLineWidth(0.2);
+    const boxH = list.length * 6 + 7;
+    doc.rect(startX, y, 180, boxH);
+
+    doc.setFont('Helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.text("COMPONENTE", startX + 4, y + 5);
+    doc.text("CANTIDAD", startX + 100, y + 5);
+    doc.text("SECTOR", startX + 130, y + 5);
+    doc.text("ESTADO", startX + 160, y + 5);
+    doc.line(startX, y + 7, startX + 180, y + 7);
+
+    let itemY = y + 11;
+    doc.setFont('Helvetica', 'normal');
+    doc.setFontSize(7.5);
+    list.forEach(item => {
+      doc.text(String(item.producto).toUpperCase(), startX + 4, itemY);
+      doc.text(String(item.qty), startX + 100, itemY);
+      doc.text(String(item.sector).toUpperCase(), startX + 130, itemY);
+      doc.text("[ OK / DEF ]", startX + 160, itemY);
+      itemY += 6;
+    });
+
+    y += boxH + 15;
+    doc.setFont('Helvetica', 'bold');
+    doc.text("FIRMA RESPONSABLE CARGA / CHOFER", startX + 10, y + 15);
+    doc.line(startX + 10, y + 13, startX + 70, y + 13);
+
+    doc.text("FIRMA SUPERVISOR OBRA", startX + 110, y + 15);
+    doc.line(startX + 110, y + 13, startX + 170, y + 13);
+
+    doc.save(`Remito_PreArmado_Desarme_${ot.ot_numero}.pdf`);
+  };
+
+  const printDisassemblyRemitoOfficial = async (remito, otOrigen) => {
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    const primaryColor = [16, 49, 107];
+    const grayColor = [148, 163, 184];
+
+    // Preload logo
+    const logoImg = new Image();
+    logoImg.src = '/cd.png';
+    await new Promise((resolve) => {
+      logoImg.onload = resolve;
+      logoImg.onerror = resolve;
+    });
+
+    const matchingClient = clients?.find(c => c.id === otOrigen.cliente_id);
+    drawOfficialHeader(doc, `REMITO: ${remito.tipo}`, otOrigen.ot_numero, matchingClient?.cuit, logoImg);
+
+    let y = 60;
+    const startX = 15;
+
+    // Client info
+    doc.setDrawColor(220, 220, 220);
+    doc.rect(startX, y, 180, 26);
+    doc.setFont('Helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+    doc.text("DATOS DE ORIGEN Y DESTINO", startX + 2, y - 2);
+
+    doc.text("OT ORIGEN:", startX + 4, y + 6);
+    doc.setFont('Helvetica', 'normal');
+    doc.text(`${otOrigen.ot_numero} - ${otOrigen.cliente_nombre}`, startX + 30, y + 6);
+
+    doc.setFont('Helvetica', 'bold');
+    doc.text("DESTINO:", startX + 4, y + 12);
+    doc.setFont('Helvetica', 'normal');
+    doc.text(String(remito.destino).toUpperCase(), startX + 30, y + 12);
+
+    doc.setFont('Helvetica', 'bold');
+    doc.text("FECHA EMISION:", startX + 4, y + 18);
+    doc.setFont('Helvetica', 'normal');
+    doc.text(new Date().toLocaleDateString('es-ES') + ' ' + new Date().toLocaleTimeString('es-ES'), startX + 30, y + 18);
+
+    doc.setFont('Helvetica', 'bold');
+    doc.text("OPERADOR:", startX + 110, y + 6);
+    doc.setFont('Helvetica', 'normal');
+    doc.text(String(currentUser?.nombre || userName), startX + 130, y + 6);
+
+    y += 32;
+
+    // Items list
+    doc.setFont('Helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+    doc.text("DESGLOSE DE MATERIALES EN TRANSITO", startX, y);
+    doc.setDrawColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+    doc.setLineWidth(0.5);
+    doc.line(startX, y + 2, startX + 180, y + 2);
+    y += 7;
+
+    // Draw table box
+    doc.setDrawColor(220, 220, 220);
+    doc.setLineWidth(0.2);
+    const boxH = remito.items.length * 6 + 7;
+    doc.rect(startX, y, 180, boxH);
+
+    doc.setFont('Helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.text("PRODUCTO / COMPONENTE", startX + 4, y + 5);
+    doc.text("CANTIDAD DESPACHADA", startX + 120, y + 5);
+    doc.line(startX, y + 7, startX + 180, y + 7);
+
+    let itemY = y + 11;
+    doc.setFont('Helvetica', 'normal');
+    doc.setFontSize(7.5);
+    remito.items.forEach(item => {
+      doc.text(String(item.producto).toUpperCase(), startX + 4, itemY);
+      doc.text(String(item.qty), startX + 120, itemY);
+      itemY += 6;
+    });
+
+    y += boxH + 15;
+    doc.setFont('Helvetica', 'bold');
+    doc.text("FIRMA RESPONSABLE TRANSPORTE", startX + 10, y + 15);
+    doc.line(startX + 10, y + 13, startX + 70, y + 13);
+
+    doc.text("FIRMA CONTROL RECEPCION", startX + 110, y + 15);
+    doc.line(startX + 110, y + 13, startX + 170, y + 13);
+
+    doc.save(`Remito_${remito.tipo.replace(/\s+/g, '_')}_${otOrigen.ot_numero}.pdf`);
+  };
+
   const generateRemitoPDF = async (ot) => {
+
     const doc = new jsPDF({
       orientation: 'portrait',
       unit: 'mm',
@@ -413,6 +850,10 @@ export default function RoleDashboard({
         return <span className="bg-emerald-100 text-emerald-850 text-[10px] font-black px-2 py-0.5 rounded-full uppercase border border-emerald-250">Armado Completado</span>;
       case 'Cancelada':
         return <span className="bg-red-100 text-red-800 text-[10px] font-black px-2 py-0.5 rounded-full uppercase border border-red-250">Cancelada</span>;
+      case 'Desarmada':
+        return <span className="bg-fuchsia-100 text-fuchsia-850 text-[10px] font-black px-2 py-0.5 rounded-full uppercase border border-fuchsia-250">Desarmada (Logística Inversa)</span>;
+      case 'Retornada':
+        return <span className="bg-slate-100 text-slate-800 text-[10px] font-black px-2 py-0.5 rounded-full uppercase border border-slate-300">Retornada al Depósito</span>;
       default:
         return <span className="bg-slate-100 text-slate-800 text-[10px] font-black px-2 py-0.5 rounded-full uppercase border border-slate-200">{status}</span>;
     }
@@ -998,8 +1439,7 @@ export default function RoleDashboard({
                     <th className="pb-3">Cliente</th>
                     <th className="pb-3">Fechas</th>
                     <th className="pb-3">Estructura</th>
-                    <th className="pb-3 text-right">Superficie</th>
-                    <th className="pb-3">Estado</th>
+                    <th className="pb-3 pr-4">Superficie / Estado</th>
                     <th className="pb-3 text-center">Acciones</th>
                   </tr>
                 </thead>
@@ -1020,8 +1460,12 @@ export default function RoleDashboard({
                           <span className="text-[10px] font-semibold text-slate-500 uppercase">{ot.estructura_tipo}</span>
                         </div>
                       </td>
-                      <td className="py-4 text-right font-black text-slate-800">{ot.superficie || (ot.frente * ot.largo)} m²</td>
-                      <td className="py-4">{getStatusBadge(ot.estado)}</td>
+                      <td className="py-4 pr-4">
+                        <div className="flex items-center gap-2">
+                          <span className="font-black text-slate-800 whitespace-nowrap">{ot.superficie || (ot.frente * ot.largo)} m²</span>
+                          {getStatusBadge(ot.estado)}
+                        </div>
+                      </td>
                       <td className="py-4 text-center">
                         <button
                           onClick={() => onSelectOT(ot)}
@@ -1034,7 +1478,7 @@ export default function RoleDashboard({
                   ))}
                   {ots.length === 0 && (
                     <tr>
-                      <td colSpan="7" className="text-center py-8 text-slate-400 font-semibold italic">No hay órdenes de trabajo cargadas en el sistema.</td>
+                      <td colSpan="6" className="text-center py-8 text-slate-400 font-semibold italic">No hay órdenes de trabajo cargadas en el sistema.</td>
                     </tr>
                   )}
                 </tbody>
@@ -1053,6 +1497,43 @@ export default function RoleDashboard({
               <p className="text-xs text-slate-500 font-semibold">Ejecuta Explosión de Materiales y Gestión de OTs.</p>
             </div>
           </div>
+
+          {/* URGENT DISASSEMBLY ALERTS */}
+          {disassemblyAlerts.length > 0 && (
+            <div className="border-2 border-fuchsia-300 rounded-[2rem] p-6 bg-fuchsia-50/30 shadow-md space-y-3">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="w-5 h-5 text-fuchsia-600 animate-bounce" />
+                <h3 className="text-sm font-black uppercase text-fuchsia-900 tracking-wider Poppins">Alertas Críticas de Logística Inversa (Desarme Pendiente)</h3>
+              </div>
+              <p className="text-xs text-fuchsia-800 font-semibold">
+                Las siguientes OTs activas están a menos de 48 horas de su desarme planificado o se encuentran vencidas. Debe crear la Orden de Desarme correspondiente:
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-2">
+                {disassemblyAlerts.map(ot => (
+                  <div key={ot.id} className="bg-white/95 border border-fuchsia-200 rounded-2xl p-4 flex justify-between items-center gap-4 hover:border-fuchsia-400 transition-all-300 shadow-sm">
+                    <div>
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <span className="font-mono font-black text-fuchsia-700 text-xs">{ot.ot_numero}</span>
+                        <span className="text-[10px] font-black text-slate-800 uppercase">{ot.cliente_nombre}</span>
+                      </div>
+                      <div className="text-[10px] text-slate-500 font-semibold">
+                        Estructura: {ot.modelo_estructura} ({ot.frente}x{ot.largo}m)
+                      </div>
+                      <div className="text-[10px] text-fuchsia-700 font-extrabold mt-1">
+                        Desarme original: {new Date(ot.fecha_fin + 'T00:00:00').toLocaleDateString('es-ES')}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => onSelectOT(ot)}
+                      className="bg-fuchsia-600 hover:bg-fuchsia-700 text-white rounded-xl px-3 py-2 text-[10px] font-black uppercase tracking-wider transition-all-300 cursor-pointer shadow-sm shrink-0"
+                    >
+                      Crear Orden de Desarme
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Sub-tab Navigation */}
           <div className="flex gap-2 border-b border-slate-200 pb-2">
@@ -1195,8 +1676,7 @@ export default function RoleDashboard({
                         <th className="pb-3">Cliente</th>
                         <th className="pb-3">Fechas</th>
                         <th className="pb-3">Estructura</th>
-                        <th className="pb-3 text-right">Superficie</th>
-                        <th className="pb-3">Estado</th>
+                        <th className="pb-3 pr-4">Superficie / Estado</th>
                         <th className="pb-3 text-center">Acciones</th>
                       </tr>
                     </thead>
@@ -1217,8 +1697,12 @@ export default function RoleDashboard({
                               <span className="text-[10px] font-semibold text-slate-500 uppercase">{ot.estructura_tipo}</span>
                             </div>
                           </td>
-                          <td className="py-4 text-right font-black text-slate-800">{ot.superficie || (ot.frente * ot.largo)} m²</td>
-                          <td className="py-4">{getStatusBadge(ot.estado)}</td>
+                          <td className="py-4 pr-4">
+                            <div className="flex items-center gap-2">
+                              <span className="font-black text-slate-800 whitespace-nowrap">{ot.superficie || (ot.frente * ot.largo)} m²</span>
+                              {getStatusBadge(ot.estado)}
+                            </div>
+                          </td>
                           <td className="py-4 text-center">
                             <div className="flex items-center justify-center gap-2">
                               <button
@@ -1277,14 +1761,31 @@ export default function RoleDashboard({
               </div>
 
               <div className="space-y-2.5 max-h-[480px] overflow-y-auto pr-1">
-                {ots
-                  .filter(ot => {
-                    if (ot.estado === 'Pendiente' || ot.estado === 'Aprobada por Gerencia' || ot.estado === 'Rechazada' || ot.estado === 'Cancelada') return false;
-                    if (activeTab === 'aprobadas') return ot.estado === 'Aprobada';
-                    if (activeTab === 'bultos') return ot.estado === 'Bulto Completo';
-                    return true;
-                  })
-                  .map((ot) => (
+                {(() => {
+                  const filteredOts = ots
+                    .filter(ot => {
+                      if (ot.estado === 'Pendiente' || ot.estado === 'Aprobada por Gerencia' || ot.estado === 'Rechazada' || ot.estado === 'Cancelada') return false;
+                      if (activeTab === 'aprobadas') return ot.estado === 'Aprobada';
+                      if (activeTab === 'bultos') return ot.estado === 'Bulto Completo';
+                      return true;
+                    })
+                    .filter(ot => {
+                      const actualRole = currentUser?.rol || userRole;
+                      if (actualRole === 'Operario') {
+                        const username = currentUser?.username || userName;
+                        const userId = currentUser?.id || null;
+                        return isUserAssignedToOT(ot, userId, username, personalList);
+                      }
+                      return true;
+                    });
+
+                  if (filteredOts.length === 0) {
+                    return (
+                      <div className="text-center py-8 text-slate-400 font-semibold italic">No hay órdenes de trabajo activas para cargar.</div>
+                    );
+                  }
+
+                  return filteredOts.map((ot) => (
                     <button
                       key={ot.id}
                       onClick={() => onSelectOT(ot)}
@@ -1300,10 +1801,8 @@ export default function RoleDashboard({
                         <span>{ot.modelo_estructura} ({ot.frente}x{ot.largo}m)</span>
                       </div>
                     </button>
-                  ))}
-                {ots.length === 0 && (
-                  <div className="text-center py-8 text-slate-400 font-semibold italic">No hay órdenes de trabajo activas para cargar.</div>
-                )}
+                  ));
+                })()}
               </div>
             </div>
 
@@ -1463,8 +1962,10 @@ export default function RoleDashboard({
 
       {/* -------------------- CHOFER DASHBOARD -------------------- */}
       {activeModule === 'Chofer' && (() => {
-        const dispatchesPending = ots.filter(o => o.estado === 'Bulto Completo');
+        const dispatchesPending = ots.filter(o => ['Aprobada', 'En Planta', 'Bulto Completo'].includes(o.estado));
         const dispatchesCompleted = ots.filter(o => o.estado === 'Completada');
+        const disassemblies = ots.filter(o => ['Completada', 'Desarmada'].includes(o.estado));
+
 
         return (
           <div className="space-y-6">
@@ -1539,6 +2040,22 @@ export default function RoleDashboard({
                             <span className="font-bold text-slate-800 flex items-center gap-1">
                               <MapPin className="w-3.5 h-3.5 text-blue-700" />
                               {kms} km (Ruta óptima)
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Recorrido Visual */}
+                        <div className="bg-slate-50 border border-slate-100 rounded-xl p-2.5 text-[10px] space-y-1.5">
+                          <strong className="block text-slate-400 font-bold uppercase tracking-wider text-[8px]">Recorrido</strong>
+                          <div className="flex items-center gap-1.5 flex-wrap font-semibold text-slate-700">
+                            <span className="flex items-center gap-1 bg-blue-100 text-blue-900 px-2 py-0.5 rounded border border-blue-200">
+                              <Warehouse className="w-3.5 h-3.5 text-blue-900" />
+                              Depósito Central
+                            </span>
+                            <ArrowRight className="w-3.5 h-3.5 text-slate-400" />
+                            <span className="flex items-center gap-1 bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded border border-indigo-200 max-w-xs truncate" title={address}>
+                              <MapPin className="w-3.5 h-3.5 text-indigo-700" />
+                              Obra: {address.split(',')[0]}
                             </span>
                           </div>
                         </div>
@@ -1709,6 +2226,22 @@ export default function RoleDashboard({
                           </div>
                         </div>
 
+                        {/* Recorrido Visual */}
+                        <div className="bg-slate-50 border border-slate-100 rounded-xl p-2.5 text-[10px] space-y-1.5 opacity-90">
+                          <strong className="block text-slate-455 font-bold uppercase tracking-wider text-[8px]">Recorrido</strong>
+                          <div className="flex items-center gap-1.5 flex-wrap font-semibold text-slate-600">
+                            <span className="flex items-center gap-1 bg-slate-100 text-slate-700 px-2 py-0.5 rounded border border-slate-200">
+                              <Warehouse className="w-3.5 h-3.5 text-slate-550" />
+                              Depósito Central
+                            </span>
+                            <ArrowRight className="w-3.5 h-3.5 text-slate-400" />
+                            <span className="flex items-center gap-1 bg-slate-100 text-slate-700 px-2 py-0.5 rounded border border-slate-200 max-w-xs truncate" title={address}>
+                              <MapPin className="w-3.5 h-3.5 text-slate-550" />
+                              Obra: {address.split(',')[0]}
+                            </span>
+                          </div>
+                        </div>
+
                         {/* Estado llegada confirmada en historial */}
                         <div className="flex items-center gap-2 bg-indigo-50/50 p-2.5 rounded-xl border border-indigo-100/50 mt-1">
                           <input
@@ -1803,6 +2336,334 @@ export default function RoleDashboard({
                   )}
                 </div>
               </div>
+
+              {/* Panel 3: Retiros de Desarme y Logística Inversa */}
+              <div className="glass-panel rounded-[2rem] p-6 space-y-4 col-span-1 xl:col-span-2">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs uppercase tracking-widest font-black text-fuchsia-700 Poppins flex items-center gap-1.5">
+                    <Shuffle className="w-4 h-4 text-fuchsia-600" />
+                    3. Retiros de Desarme y Logística Inversa ({disassemblies.length})
+                  </h3>
+                  <span className="bg-fuchsia-100 text-fuchsia-850 text-[10px] font-black px-2 py-0.5 rounded-full uppercase border border-fuchsia-250">
+                    Logística Inversa
+                  </span>
+                </div>
+                <p className="text-[10px] text-slate-400 font-semibold">
+                  Órdenes en proceso de desarme o desarmadas. Visualice destinos, distancias calculadas y descargue los remitos oficiales.
+                </p>
+
+                <div className="space-y-4 max-h-[600px] overflow-y-auto pr-1">
+                  {disassemblies.map((ot) => {
+                    const geo = typeof ot.georef === 'string' ? JSON.parse(ot.georef) : ot.georef;
+                    const latOrigin = geo?.lat;
+                    const lngOrigin = geo?.lng;
+                    const addressOrigin = geo?.direccion || 'No especificada';
+                    
+                    // Find the disassembly record for this OT if it's Desarmada
+                    const record = desarmeRecords.find(d => d.ot_origen_id === ot.id);
+                    
+                    return (
+                      <div
+                        key={ot.id}
+                        className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm space-y-3 hover:border-fuchsia-300 transition-all-300"
+                      >
+                        <div className="flex justify-between items-start gap-2">
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono font-black text-fuchsia-900 text-xs block">{ot.ot_numero}</span>
+                              <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded uppercase border ${
+                                ot.estado === 'Desarmada'
+                                  ? 'bg-fuchsia-50 text-fuchsia-700 border-fuchsia-250'
+                                  : 'bg-emerald-50 text-emerald-700 border-emerald-250'
+                              }`}>
+                                {ot.estado === 'Desarmada' ? 'Desarmada' : 'En Cliente / Pendiente Desarme'}
+                              </span>
+                            </div>
+                            <span className="font-black text-sm text-slate-800">{ot.cliente_nombre}</span>
+                          </div>
+                          <span className="bg-slate-100 text-slate-650 text-[9px] font-extrabold px-2 py-0.5 rounded border border-slate-200 uppercase">
+                            {ot.modelo_estructura}
+                          </span>
+                        </div>
+
+                        {/* Origin details */}
+                        <div className="text-[10px] text-slate-650 bg-slate-50 p-2.5 rounded-xl border border-slate-100 space-y-1">
+                          <div>
+                            <strong className="text-slate-400 font-bold uppercase tracking-wider text-[8px] mr-1">Origen (Obra):</strong>
+                            <span className="font-semibold text-slate-700">{addressOrigin}</span>
+                          </div>
+                          <div>
+                            <strong className="text-slate-400 font-bold uppercase tracking-wider text-[8px] mr-1">Fecha Desarme:</strong>
+                            <span className="font-bold text-slate-750">
+                              {ot.fecha_fin ? new Date(ot.fecha_fin + 'T00:00:00').toLocaleDateString('es-ES') : 'No especificada'}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Destinations & Distances Block */}
+                        <div className="space-y-3">
+                          <h4 className="text-[9px] font-black uppercase tracking-wider text-slate-450">Ruta y Destinos de Carga</h4>
+                          
+                          {/* If not disassembled yet (Completada state) */}
+                          {ot.estado === 'Completada' && (() => {
+                            const distVal = calculateDistanceBetween(latOrigin, lngOrigin, -34.83473863535278, -58.42446638785623);
+                            const retornoLlegadas = adObj.chofer_retorno_llegadas || {};
+
+                            return (
+                              <div className="space-y-3">
+                                <div className="border border-slate-150 rounded-xl p-3 bg-slate-50/30 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                                  <div className="space-y-1">
+                                    <div className="flex items-center gap-1.5">
+                                      <Warehouse className="w-3.5 h-3.5 text-blue-900" />
+                                      <span className="text-[11px] font-black text-slate-800 uppercase">Retorno al Depósito Central (Dangiola)</span>
+                                    </div>
+                                    <span className="text-[10px] font-semibold text-slate-500 block">Juan XXIII 2980, Parque Industrial Burzaco</span>
+                                  </div>
+                                  <div className="text-right shrink-0">
+                                    <span className="text-xs font-black text-blue-900 block">
+                                      {distVal} km
+                                    </span>
+                                    <span className="text-[8px] font-black text-slate-450 uppercase">Ruta óptima (+1.35)</span>
+                                  </div>
+                                </div>
+
+                                {/* Recorrido Visual */}
+                                <div className="bg-slate-50 border border-slate-100 rounded-xl p-2.5 text-[10px] space-y-1.5">
+                                  <strong className="block text-slate-400 font-bold uppercase tracking-wider text-[8px]">Recorrido Retorno</strong>
+                                  <div className="flex items-center gap-1.5 flex-wrap font-semibold text-slate-700">
+                                    <span className="flex items-center gap-1 bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded border border-indigo-200 max-w-xs truncate" title={addressOrigin}>
+                                      <MapPin className="w-3 h-3 text-indigo-700" />
+                                      Obra: {addressOrigin.split(',')[0]}
+                                    </span>
+                                    <ArrowRight className="w-3.5 h-3.5 text-slate-400" />
+                                    <span className="flex items-center gap-1 bg-blue-100 text-blue-900 px-2 py-0.5 rounded border border-blue-200">
+                                      <Warehouse className="w-3 h-3 text-blue-900" />
+                                      Depósito Central
+                                    </span>
+                                  </div>
+                                </div>
+
+                                {/* Checkbox de llegada para el Retorno */}
+                                <div className="flex items-center gap-2 bg-indigo-50/50 p-2.5 rounded-xl border border-indigo-100/50">
+                                  <input
+                                    type="checkbox"
+                                    id={`llegada-retorno-${ot.id}-deposito`}
+                                    checked={Boolean(retornoLlegadas?.deposito?.llegada)}
+                                    disabled={Boolean(retornoLlegadas?.deposito?.llegada)}
+                                    onChange={(e) => handleGPSArrivalRetorno(ot.id, 'deposito', e.target.checked)}
+                                    className="w-4 h-4 rounded border-slate-350 text-indigo-650 focus:ring-indigo-500 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+                                  />
+                                  <label htmlFor={`llegada-retorno-${ot.id}-deposito`} className="text-[10px] font-bold text-slate-700 cursor-pointer flex flex-col">
+                                    <span>Confirmar Llegada a Depósito (GPS)</span>
+                                    {retornoLlegadas?.deposito?.fecha && (
+                                      <span className="text-[9px] text-emerald-700 font-semibold flex flex-col mt-0.5">
+                                        <span>Llegó: {new Date(retornoLlegadas.deposito.fecha).toLocaleTimeString('es-ES')}</span>
+                                        {retornoLlegadas.deposito.coords && (
+                                          <span className="text-[8px] text-slate-500 font-normal font-mono">Coords: {retornoLlegadas.deposito.coords}</span>
+                                        )}
+                                      </span>
+                                    )}
+                                  </label>
+                                </div>
+                              </div>
+                            );
+                          })()}
+
+                          {/* If disassembled (Desarmada state) */}
+                          {ot.estado === 'Desarmada' && record && record.destinos && record.destinos.map((dest, idx) => {
+                            let destTitle = "";
+                            let destAddress = "";
+                            let destLat = null;
+                            let destLng = null;
+                            let icon = <Warehouse className="w-3.5 h-3.5 text-blue-900" />;
+                            
+                            if (dest.type === 'deposito' || dest.destino === 'deposito') {
+                              destTitle = "Retorno a Depósito Central (Dangiola)";
+                              destAddress = "Juan XXIII 2980, Parque Industrial Burzaco";
+                              destLat = -34.83473863535278;
+                              destLng = -58.42446638785623;
+                            } else {
+                              // It's a transfer to another OT
+                              const targetOt = ots.find(o => o.id === dest.ot_id || o.ot_numero === dest.ot_numero);
+                              destTitle = `Transferencia Directa a ${dest.ot_numero || 'OT-' + dest.ot_id}`;
+                              icon = <Truck className="w-3.5 h-3.5 text-fuchsia-600" />;
+                              if (targetOt) {
+                                const targetGeo = typeof targetOt.georef === 'string' ? JSON.parse(targetOt.georef) : targetOt.georef;
+                                destAddress = targetGeo?.direccion || 'Obra destino';
+                                destLat = targetGeo?.lat;
+                                destLng = targetGeo?.lng;
+                                destTitle += ` - ${targetOt.cliente_nombre}`;
+                              } else {
+                                destAddress = "Obra destino";
+                              }
+                            }
+                            
+                            const distVal = (latOrigin && lngOrigin && destLat && destLng)
+                              ? calculateDistanceBetween(latOrigin, lngOrigin, destLat, destLng)
+                              : "0.0";
+                              
+                            const routeGpsLink = (latOrigin && lngOrigin && destLat && destLng)
+                              ? `https://www.google.com/maps/dir/?api=1&origin=${latOrigin},${lngOrigin}&destination=${destLat},${destLng}&travelmode=driving`
+                              : null;
+
+                            const destKey = dest.type === 'deposito' || dest.destino === 'deposito'
+                              ? 'deposito'
+                              : `ot-${dest.ot_id || dest.ot_numero}`;
+                            const retornoLlegadas = adObj.chofer_retorno_llegadas || {};
+
+                            return (
+                              <div key={idx} className="border border-fuchsia-100 rounded-2xl p-4 bg-fuchsia-50/10 space-y-3 hover:border-fuchsia-250 transition-all-300">
+                                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                                  <div className="space-y-1">
+                                    <div className="flex items-center gap-1.5">
+                                      {icon}
+                                      <span className="text-[11px] font-black text-slate-800 uppercase">{destTitle}</span>
+                                    </div>
+                                    <span className="text-[10px] font-semibold text-slate-500 block">{destAddress}</span>
+                                    {dest.items && (
+                                      <span className="text-[9px] text-fuchsia-700 font-bold block bg-fuchsia-50 border border-fuchsia-100 rounded-md px-1.5 py-0.5 mt-1 max-w-max">
+                                        Lleva {dest.items.length} componentes de esta OT
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="flex sm:flex-col items-center sm:items-end justify-between w-full sm:w-auto shrink-0 gap-2">
+                                    <div className="text-left sm:text-right">
+                                      <span className="text-xs font-black text-fuchsia-900 block">{distVal} km</span>
+                                      <span className="text-[8px] font-black text-slate-450 uppercase">Ruta óptima (+1.35)</span>
+                                    </div>
+                                    {routeGpsLink && (
+                                      <a
+                                        href={routeGpsLink}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="bg-emerald-650 hover:bg-emerald-700 text-white rounded-lg py-1.5 px-2.5 text-[9px] font-black uppercase tracking-wider flex items-center gap-1 shadow-sm transition-all-300 cursor-pointer"
+                                      >
+                                        <MapPin className="w-3 h-3" />
+                                        GPS Destino
+                                      </a>
+                                    )}
+                                  </div>
+                                </div>
+
+                                {/* Recorrido Visual */}
+                                <div className="bg-slate-50 border border-slate-100 rounded-xl p-2.5 text-[10px] space-y-1.5">
+                                  <strong className="block text-slate-455 font-bold uppercase tracking-wider text-[8px]">Recorrido</strong>
+                                  <div className="flex items-center gap-1.5 flex-wrap font-semibold text-slate-700">
+                                    <span className="flex items-center gap-1 bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded border border-indigo-200 max-w-xs truncate" title={addressOrigin}>
+                                      <MapPin className="w-3 h-3 text-indigo-700" />
+                                      Obra: {addressOrigin.split(',')[0]}
+                                    </span>
+                                    <ArrowRight className="w-3.5 h-3.5 text-slate-400" />
+                                    {dest.type === 'deposito' || dest.destino === 'deposito' ? (
+                                      <span className="flex items-center gap-1 bg-blue-100 text-blue-900 px-2 py-0.5 rounded border border-blue-200">
+                                        <Warehouse className="w-3 h-3 text-blue-900" />
+                                        Depósito Central
+                                      </span>
+                                    ) : (
+                                      <span className="flex items-center gap-1 bg-fuchsia-50 text-fuchsia-700 px-2 py-0.5 rounded border border-fuchsia-200 max-w-xs truncate" title={destAddress}>
+                                        <Truck className="w-3 h-3 text-fuchsia-700" />
+                                        {destTitle.split(' - ')[0]}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+
+                                {/* Checkbox de llegada para este destino */}
+                                <div className="flex items-center gap-2 bg-indigo-50/50 p-2.5 rounded-xl border border-indigo-100/50 mt-1">
+                                  <input
+                                    type="checkbox"
+                                    id={`llegada-retorno-${ot.id}-${destKey}`}
+                                    checked={Boolean(retornoLlegadas?.[destKey]?.llegada)}
+                                    disabled={Boolean(retornoLlegadas?.[destKey]?.llegada)}
+                                    onChange={(e) => handleGPSArrivalRetorno(ot.id, destKey, e.target.checked)}
+                                    className="w-4 h-4 rounded border-slate-350 text-indigo-650 focus:ring-indigo-500 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+                                  />
+                                  <label htmlFor={`llegada-retorno-${ot.id}-${destKey}`} className="text-[10px] font-bold text-slate-700 cursor-pointer flex flex-col">
+                                    <span>Confirmar Llegada a Destino (GPS)</span>
+                                    {retornoLlegadas?.[destKey]?.fecha && (
+                                      <span className="text-[9px] text-emerald-700 font-semibold flex flex-col mt-0.5">
+                                        <span>Llegó: {new Date(retornoLlegadas[destKey].fecha).toLocaleTimeString('es-ES')}</span>
+                                        {retornoLlegadas[destKey].coords && (
+                                          <span className="text-[8px] text-slate-500 font-normal font-mono">Coords: {retornoLlegadas[destKey].coords}</span>
+                                        )}
+                                      </span>
+                                    )}
+                                  </label>
+                                </div>
+                              </div>
+                            );
+                          })}
+
+                          {ot.estado === 'Desarmada' && (!record || !record.destinos) && (
+                            <div className="text-slate-400 italic text-[10px] p-2 bg-slate-50 rounded-lg">
+                              No hay detalles de destinos disponibles para este desarme.
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Actions block */}
+                        <div className="flex gap-2 flex-wrap pt-1">
+                          {/* GPS link for return to Depot (if not disassembled yet) */}
+                          {ot.estado === 'Completada' && latOrigin && lngOrigin && (
+                            <a
+                              href={`https://www.google.com/maps/dir/?api=1&origin=${latOrigin},${lngOrigin}&destination=-34.83473863535278,-58.42446638785623&travelmode=driving`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex-1 min-w-[120px] bg-emerald-650 hover:bg-emerald-700 text-white rounded-xl py-2 px-3 text-[10px] font-black uppercase tracking-wider text-center flex items-center justify-center gap-1.5 shadow-sm transition-all-300"
+                            >
+                              <MapPin className="w-3.5 h-3.5" />
+                              Navegar Retorno (GPS)
+                            </a>
+                          )}
+
+                          {/* Print Pre-disassembly control sheet */}
+                          {ot.estado === 'Completada' && (
+                            <button
+                              onClick={() => generateDisassemblyPreArmadoPDF(ot)}
+                              className="flex-1 min-w-[120px] bg-blue-900 hover:bg-blue-955 text-white rounded-xl py-2 px-3 text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-sm transition-all-300 cursor-pointer"
+                            >
+                              <FileText className="w-3.5 h-3.5" />
+                              Planilla Control Desarme
+                            </button>
+                          )}
+
+                          {/* Print Official Disassembly Remitos */}
+                          {ot.estado === 'Desarmada' && record && record.remitos && record.remitos.map((remito, rIdx) => (
+                            <button
+                              key={rIdx}
+                              onClick={() => printDisassemblyRemitoOfficial(remito, ot)}
+                              className="flex-1 min-w-[120px] bg-fuchsia-600 hover:bg-fuchsia-700 text-white rounded-xl py-2 px-3 text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-sm transition-all-300 cursor-pointer"
+                            >
+                              <FileText className="w-3.5 h-3.5" />
+                              Imprimir Remito: {remito.tipo.replace('Retorno a ', '')}
+                            </button>
+                          ))}
+
+                          {/* Confirmar Recepcion (Finalizar Viaje) */}
+                          {ot.estado === 'Desarmada' && (
+                            <button
+                              onClick={async () => {
+                                if (confirm(`¿Confirmar recepción de retorno y finalizar viaje para la OT ${ot.ot_numero}? Esto cambiará su estado a Retornada.`)) {
+                                  await onUpdateOTStatus(ot.id, 'Retornada');
+                                }
+                              }}
+                              className="w-full bg-slate-900 hover:bg-black text-white rounded-xl py-2.5 px-3 text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-sm transition-all-300 cursor-pointer mt-1"
+                            >
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                              Confirmar Recepción de Retorno (Finalizar Viaje)
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {disassemblies.length === 0 && (
+                    <div className="text-center py-12 text-slate-400 font-semibold italic bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                      No hay retiros de desarme planificados o registrados en este período.
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         );
@@ -1864,6 +2725,42 @@ export default function RoleDashboard({
               renderStockInventory()
             ) : (
               <>
+                {/* URGENT DISASSEMBLY ALERTS */}
+                {disassemblyAlerts.length > 0 && (
+                  <div className="border-2 border-fuchsia-300 rounded-[2rem] p-6 bg-fuchsia-50/30 shadow-md space-y-3 mb-6">
+                    <div className="flex items-center gap-2">
+                      <AlertTriangle className="w-5 h-5 text-fuchsia-600 animate-bounce" />
+                      <h3 className="text-sm font-black uppercase text-fuchsia-900 tracking-wider Poppins">Alertas Críticas de Logística Inversa (Desarme Pendiente)</h3>
+                    </div>
+                    <p className="text-xs text-fuchsia-800 font-semibold">
+                      Las siguientes OTs activas están a menos de 48 horas de su desarme planificado o se encuentran vencidas. Debe crear la Orden de Desarme correspondiente:
+                    </p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-2">
+                      {disassemblyAlerts.map(ot => (
+                        <div key={ot.id} className="bg-white/95 border border-fuchsia-200 rounded-2xl p-4 flex justify-between items-center gap-4 hover:border-fuchsia-400 transition-all-300 shadow-sm">
+                          <div>
+                            <div className="flex items-center gap-1.5 mb-1">
+                              <span className="font-mono font-black text-fuchsia-700 text-xs">{ot.ot_numero}</span>
+                              <span className="text-[10px] font-black text-slate-800 uppercase">{ot.cliente_nombre}</span>
+                            </div>
+                            <div className="text-[10px] text-slate-500 font-semibold">
+                              Estructura: {ot.modelo_estructura} ({ot.frente}x{ot.largo}m)
+                            </div>
+                            <div className="text-[10px] text-fuchsia-700 font-extrabold mt-1">
+                              Desarme original: {new Date(ot.fecha_fin + 'T00:00:00').toLocaleDateString('es-ES')}
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => onSelectOT(ot)}
+                            className="bg-fuchsia-600 hover:bg-fuchsia-700 text-white rounded-xl px-3 py-2 text-[10px] font-black uppercase tracking-wider transition-all-300 cursor-pointer shadow-sm shrink-0"
+                          >
+                            Crear Orden de Desarme
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 {/* KPI Cards */}
                 <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
                   <div className="bg-white border border-yellow-200 rounded-2xl p-4 shadow-sm hover:shadow-md transition-all-300">
@@ -2024,8 +2921,7 @@ export default function RoleDashboard({
                           <th className="pb-3">Cliente</th>
                           <th className="pb-3">Fechas</th>
                           <th className="pb-3">Estructura</th>
-                          <th className="pb-3 text-right">Superficie</th>
-                          <th className="pb-3">Estado</th>
+                          <th className="pb-3 pr-4">Superficie / Estado</th>
                           <th className="pb-3 text-center">Acciones</th>
                         </tr>
                       </thead>
@@ -2038,21 +2934,23 @@ export default function RoleDashboard({
                               {new Date(ot.fecha_inicio).toLocaleDateString('es-ES')} a {new Date(ot.fecha_fin).toLocaleDateString('es-ES')}
                             </td>
                             <td className="py-3"><span className="badge-carpa">{ot.modelo_estructura}</span></td>
-                            <td className="py-3 text-right font-black text-slate-800">{ot.superficie || (ot.frente * ot.largo)} m²</td>
-                            <td className="py-3">
-                              <div className="flex flex-col gap-1">
-                                {getStatusBadge(ot.estado)}
-                                {(() => {
-                                  const ad = typeof ot.adicionales === 'string' ? JSON.parse(ot.adicionales) : ot.adicionales || {};
-                                  if (ad.chofer_llegada === true) {
-                                    return (
-                                      <span className="bg-indigo-100 text-indigo-800 text-[9px] font-black px-1.5 py-0.5 rounded border border-indigo-250 uppercase w-max">
-                                        Entregado (Chofer)
-                                      </span>
-                                    );
-                                  }
-                                  return null;
-                                })()}
+                            <td className="py-3 pr-4">
+                              <div className="flex items-center gap-2">
+                                <span className="font-black text-slate-800 whitespace-nowrap">{ot.superficie || (ot.frente * ot.largo)} m²</span>
+                                <div className="flex flex-col gap-1">
+                                  {getStatusBadge(ot.estado)}
+                                  {(() => {
+                                    const ad = typeof ot.adicionales === 'string' ? JSON.parse(ot.adicionales) : ot.adicionales || {};
+                                    if (ad.chofer_llegada === true) {
+                                      return (
+                                        <span className="bg-indigo-100 text-indigo-800 text-[9px] font-black px-1.5 py-0.5 rounded border border-indigo-250 uppercase w-max">
+                                          Entregado (Chofer)
+                                        </span>
+                                      );
+                                    }
+                                    return null;
+                                  })()}
+                                </div>
                               </div>
                             </td>
                             <td className="py-3 text-center">
@@ -2067,7 +2965,7 @@ export default function RoleDashboard({
                         ))}
                         {inLogistics.length === 0 && (
                           <tr>
-                            <td colSpan="7" className="text-center py-8 text-slate-400 font-semibold italic">No hay órdenes de trabajo en logística.</td>
+                            <td colSpan="6" className="text-center py-8 text-slate-400 font-semibold italic">No hay órdenes de trabajo en logística.</td>
                           </tr>
                         )}
                       </tbody>
@@ -2086,8 +2984,7 @@ export default function RoleDashboard({
                           <th className="pb-3">Cliente</th>
                           <th className="pb-3">Fechas</th>
                           <th className="pb-3">Estructura</th>
-                          <th className="pb-3 text-right">Superficie</th>
-                          <th className="pb-3">Estado</th>
+                          <th className="pb-3 pr-4">Superficie / Estado</th>
                           <th className="pb-3 text-center">Acciones</th>
                         </tr>
                       </thead>
@@ -2100,8 +2997,12 @@ export default function RoleDashboard({
                               {new Date(ot.fecha_inicio).toLocaleDateString('es-ES')} a {new Date(ot.fecha_fin).toLocaleDateString('es-ES')}
                             </td>
                             <td className="py-3"><span className="badge-carpa">{ot.modelo_estructura}</span></td>
-                            <td className="py-3 text-right font-black text-slate-800">{ot.superficie || (ot.frente * ot.largo)} m²</td>
-                            <td className="py-3">{getStatusBadge(ot.estado)}</td>
+                            <td className="py-3 pr-4">
+                              <div className="flex items-center gap-2">
+                                <span className="font-black text-slate-800 whitespace-nowrap">{ot.superficie || (ot.frente * ot.largo)} m²</span>
+                                {getStatusBadge(ot.estado)}
+                              </div>
+                            </td>
                             <td className="py-3 text-center">
                               <button
                                 onClick={() => onSelectOT(ot)}
@@ -2114,7 +3015,7 @@ export default function RoleDashboard({
                         ))}
                         {ots.length === 0 && (
                           <tr>
-                            <td colSpan="7" className="text-center py-8 text-slate-400 font-semibold italic">No hay órdenes de trabajo en el sistema.</td>
+                            <td colSpan="6" className="text-center py-8 text-slate-400 font-semibold italic">No hay órdenes de trabajo en el sistema.</td>
                           </tr>
                         )}
                       </tbody>
