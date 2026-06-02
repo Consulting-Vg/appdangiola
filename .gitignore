@@ -34,3 +34,7 @@ __pycache__/
 .venv/
 venv/
 ENV/
+
+# Local JSON database fallback
+backend/data/db.json
+
