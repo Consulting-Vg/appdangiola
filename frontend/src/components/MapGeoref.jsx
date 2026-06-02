@@ -181,7 +181,7 @@ export default function MapGeoref({ value, onChange }) {
         <div ref={mapRef} className="w-full h-full" />
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
           <label className="text-[10px] uppercase tracking-widest font-black text-slate-400 block mb-1">Latitud</label>
           <input

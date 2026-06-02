@@ -177,7 +177,7 @@ export default function PersonalRecursos({
       </div>
 
       {/* Sub Tabs Selector */}
-      <div className="flex gap-2 bg-slate-100 p-1 rounded-2xl border border-slate-200 w-fit">
+      <div className="flex flex-wrap gap-2 bg-slate-100 p-1 rounded-2xl border border-slate-200 w-fit justify-center sm:justify-start">
         <button
           onClick={() => setActiveSubTab('personal')}
           className={`px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all-300 cursor-pointer flex items-center gap-2 ${
@@ -459,7 +459,7 @@ export default function PersonalRecursos({
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="text-[9px] uppercase tracking-widest font-black text-slate-400 block mb-1">CUIT / CUIL</label>
                   <input
@@ -571,7 +571,7 @@ export default function PersonalRecursos({
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="text-[9px] uppercase tracking-widest font-black text-slate-400 block mb-1">Tipo de Recurso *</label>
                   <select

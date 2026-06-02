@@ -657,7 +657,7 @@ export default function MaestroDatos({ currentUser }) {
               {/* Personal Form */}
               {activeTab === 'personal' && (
                 <>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="col-span-2">
                       <label className="text-[10px] uppercase tracking-wider font-bold text-slate-400 block mb-1">Nombre Completo *</label>
                       <input type="text" required value={formData.nombre || ''} onChange={e => setFormData({ ...formData, nombre: e.target.value })}
@@ -697,7 +697,7 @@ export default function MaestroDatos({ currentUser }) {
               {/* Recursos Form */}
               {activeTab === 'recursos' && (
                 <>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="col-span-2">
                       <label className="text-[10px] uppercase tracking-wider font-bold text-slate-400 block mb-1">Nombre / Identificación *</label>
                       <input type="text" required value={formData.nombre || ''} onChange={e => setFormData({ ...formData, nombre: e.target.value })}
@@ -737,7 +737,7 @@ export default function MaestroDatos({ currentUser }) {
               {/* Estructuras Form */}
               {activeTab === 'estructuras' && (
                 <>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="col-span-2">
                       <label className="text-[10px] uppercase tracking-wider font-bold text-slate-400 block mb-1">Modelo de Estructura *</label>
                       <input type="text" required placeholder="ej. C10-L1" value={formData.modelo_estructura || ''} onChange={e => setFormData({ ...formData, modelo_estructura: e.target.value })}
@@ -778,7 +778,7 @@ export default function MaestroDatos({ currentUser }) {
               {/* Componentes Arcos / Modulos / Fijos Form */}
               {['arcos', 'modulos', 'fijos'].includes(activeTab) && (
                 <>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="col-span-2">
                       <label className="text-[10px] uppercase tracking-wider font-bold text-slate-400 block mb-1">Producto / Componente *</label>
                       <input type="text" required value={formData.producto || ''} onChange={e => setFormData({ ...formData, producto: e.target.value })}
@@ -846,7 +846,7 @@ export default function MaestroDatos({ currentUser }) {
               {/* Clientes Form */}
               {activeTab === 'clientes' && (
                 <>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <label className="text-[10px] uppercase tracking-wider font-bold text-slate-400 block mb-1">Cuenta Única *</label>
                       <input type="text" required placeholder="ej. CL-COVELIA" value={formData.cuenta || ''} onChange={e => setFormData({ ...formData, cuenta: e.target.value })}
@@ -929,7 +929,7 @@ export default function MaestroDatos({ currentUser }) {
               {/* Accesorios (Lonas, Telas, Pisos, Alfombras) Form */}
               {['lonas', 'telas', 'pisos', 'alfombras'].includes(activeTab) && (
                 <>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="col-span-2">
                       <label className="text-[10px] uppercase tracking-wider font-bold text-slate-400 block mb-1">Nombre Completo del Producto *</label>
                       <input type="text" required value={formData.nombre || ''} onChange={e => setFormData({ ...formData, nombre: e.target.value })}
@@ -986,7 +986,7 @@ export default function MaestroDatos({ currentUser }) {
               {/* Vendedores Form */}
               {activeTab === 'vendedores' && (
                 <>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="col-span-2">
                       <label className="text-[10px] uppercase tracking-wider font-bold text-slate-400 block mb-1">Nombre Completo *</label>
                       <input type="text" required value={formData.nombre || ''} onChange={e => setFormData({ ...formData, nombre: e.target.value })}

@@ -50387,6 +50387,24 @@
       "frente": 10,
       "largo_maximo": 30,
       "arcos_disponibles": 0
+    },
+    {
+      "id": 5,
+      "estructura_tipo": "Aluminio",
+      "arcos_totales": 7,
+      "frente": 10,
+      "largo_maximo": 2,
+      "arcos_disponibles": 0,
+      "modelo_estructura": "C10-2MTS"
+    },
+    {
+      "id": 6,
+      "estructura_tipo": "Aluminio",
+      "arcos_totales": 7,
+      "frente": 10,
+      "largo_maximo": 3,
+      "arcos_disponibles": 0,
+      "modelo_estructura": "C10-3MTS"
     }
   ],
   "base_arco": [
@@ -133061,5 +133079,6 @@
       "ot_id": null,
       "fecha_creacion": "2026-06-02T11:24:46.484Z"
     }
-  ]
+  ],
+  "vendedores": []
 }

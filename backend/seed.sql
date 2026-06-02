@@ -1,6 +1,5 @@
 -- Seed script for Carpas D'Angiola ERP
 -- Populates tables with parsed historical spreadsheet data
-
 BEGIN;
 
 INSERT INTO clientes (id, cuenta, nombre, actividad, estado, observacion, domicilio, localidad, provincia, pais, telefono, email, cuit, vendedores, responsables, latitud, longitud) VALUES (1, '1', 'GATUSSO ADRIAN', '1-UNICA', 'Cliente', ' ', 'DEAN FUNES - 794 - 3 - D', 'C.A.B.A.', '901-C.A.B.A', '54-ARGENTINA', '15-5494-8828', ' ', '20-25999368-8', ' ', '001-GLADYS, 002-ELSA, 008-LUIS NAVARRO, 011-JAVIER', -34.6192338, -58.4062825);

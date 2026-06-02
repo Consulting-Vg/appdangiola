@@ -341,7 +341,7 @@ const TabPerformanceComercial = ({ kpis, evolucion, topModelos, vendedores, filt
               <p className="text-red-500 text-sm">No se encontraron datos para este vendedor.</p>
             ) : (
               <>
-                <div className="grid grid-cols-3 gap-4 mb-6">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
                   <KPICard label="Total Eventos" value={auditoriaVendedor.total_eventos} colorClass="blue" />
                   <KPICard label="Ticket Medio m²" value={`${auditoriaVendedor.ticket_medio_m2} m²`} colorClass="amber" />
                   <KPICard label="Estructura Estrella" value={auditoriaVendedor.estructura_principal || '─'} colorClass="violet" />
@@ -576,7 +576,7 @@ const TabDesglosOperativo = () => {
       <div className="space-y-4">
         {clienteSeleccionado ? (
           <>
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <KPICard label="Total Contratos" value={ventasCliente.length} colorClass="blue" />
               <KPICard label="Módulos Independientes" value={allCarpas.length} sub="post-split por |" colorClass="amber" />
               <KPICard label="Adicional Preferido" value={adPreferido && adPreferido[1] > 0 ? adPreferido[0].charAt(0).toUpperCase() + adPreferido[0].slice(1) : '─'} colorClass="violet" />

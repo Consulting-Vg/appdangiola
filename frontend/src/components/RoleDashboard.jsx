@@ -2762,7 +2762,7 @@ export default function RoleDashboard({
                   </div>
                 )}
                 {/* KPI Cards */}
-                <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
                   <div className="bg-white border border-yellow-200 rounded-2xl p-4 shadow-sm hover:shadow-md transition-all-300">
                     <div className="flex items-center justify-between mb-3">
                       <span className="text-[9px] font-black uppercase tracking-widest text-yellow-600">Pendientes Aprobación</span>
