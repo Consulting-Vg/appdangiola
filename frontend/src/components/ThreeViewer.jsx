@@ -2,6 +2,8 @@ import React, { useState, useRef, useEffect, Suspense } from 'react';
 import * as THREE from 'three';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls, Grid, Center, PerspectiveCamera, useGLTF } from '@react-three/drei';
+import { USDZExporter } from 'three/examples/jsm/exporters/USDZExporter.js';
+import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
 
 /* ─────────────────────────────────────────────
    AR Platform Detection
@@ -724,7 +726,6 @@ export default function ThreeViewer({
 
     try {
       if (platform === 'ios') {
-        const { USDZExporter } = await import('three/examples/jsm/exporters/USDZExporter.js');
         new USDZExporter().parse(
           structureRef.current,
           (buf) => {
@@ -752,7 +753,6 @@ export default function ThreeViewer({
           { quickLookCompatible: true }
         );
       } else {
-        const { GLTFExporter } = await import('three/examples/jsm/exporters/GLTFExporter.js');
         new GLTFExporter().parse(
           structureRef.current,
           async (buf) => {
