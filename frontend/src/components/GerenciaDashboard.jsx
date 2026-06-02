@@ -207,8 +207,20 @@ const TabPerformanceComercial = ({ kpis, evolucion, topModelos, vendedores, filt
   allVentas.forEach(v => {
     if (v.latitud && v.longitud) {
       const k = `${Number(v.latitud).toFixed(3)},${Number(v.longitud).toFixed(3)}`;
-      if (!geoMap[k]) geoMap[k] = { lat: parseFloat(v.latitud), lng: parseFloat(v.longitud), count: 0, localidad: v.localidad || '' };
+      if (!geoMap[k]) {
+        geoMap[k] = { 
+          lat: parseFloat(v.latitud), 
+          lng: parseFloat(v.longitud), 
+          count: 0, 
+          localidad: v.localidad || '',
+          eventos: []
+        };
+      }
       geoMap[k].count++;
+      geoMap[k].eventos.push({
+        cliente: v.cliente_nombre || 'Cliente Desconocido',
+        fecha: v.fecha_armado ? String(v.fecha_armado).substring(0, 10) : 'Sin fecha'
+      });
     }
   });
   const geoPoints = Object.values(geoMap);
@@ -285,7 +297,26 @@ const TabPerformanceComercial = ({ kpis, evolucion, topModelos, vendedores, filt
             {geoPoints.map((p, i) => (
               <CircleMarker key={i} center={[p.lat, p.lng]} radius={Math.max(5, Math.min(20, p.count * 2))}
                 pathOptions={{ color: '#2563eb', fillColor: '#3b82f6', fillOpacity: 0.5 }}>
-                <Popup>{p.localidad || 'Sin localidad'}<br />{p.count} evento(s)</Popup>
+                <Popup>
+                  <div className="font-sans text-[11px] text-slate-600 max-w-[200px]">
+                    <div className="font-bold text-slate-800 border-b border-slate-100 pb-1.5 mb-1.5 flex justify-between items-center">
+                      <span>{p.localidad || 'Sin localidad'}</span>
+                      <span className="bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded-full font-black text-[9px] ml-2">
+                        {p.count} {p.count === 1 ? 'evento' : 'eventos'}
+                      </span>
+                    </div>
+                    <div className="max-h-[120px] overflow-y-auto space-y-1 pr-1">
+                      {p.eventos.map((ev, idx) => (
+                        <div key={idx} className="bg-slate-50 border border-slate-100 rounded-lg p-1.5 flex flex-col">
+                          <span className="font-bold text-slate-700 truncate">{ev.cliente}</span>
+                          <span className="text-[9px] text-slate-400 font-medium flex items-center gap-1 mt-0.5">
+                            📅 {ev.fecha}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </Popup>
               </CircleMarker>
             ))}
           </MapContainer>

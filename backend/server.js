@@ -5,6 +5,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { db } from './db.js';
+import XLSX from 'xlsx';
 
 dotenv.config();
 
@@ -2231,6 +2232,375 @@ app.get('/api/gerencia/demanda-predictiva', async (req, res) => {
       demanda_carpas: Object.values(demandaCarpas).sort((a, b) => b.cantidad - a.cantidad),
       adicionales_consolidado: adicionalesConsolidado
     });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ----------------------------------------------------
+// 8. MASTER DATA MANAGEMENT ENDPOINTS
+// ----------------------------------------------------
+
+app.get('/api/maestro/:table', async (req, res) => {
+  try {
+    const { table } = req.params;
+    let data = [];
+    if (table === 'personal') {
+      data = await db.getAllPersonal();
+    } else if (table === 'recursos') {
+      data = await db.getAllRecursos();
+    } else if (table === 'estructuras') {
+      data = await db.getStructures();
+    } else if (table === 'arcos') {
+      data = await db.getArches();
+    } else if (table === 'modulos') {
+      data = await db.getModules();
+    } else if (table === 'fijos') {
+      data = await db.getFijos();
+    } else if (table === 'clientes') {
+      data = await db.getClients();
+    } else if (table === 'vendedores') {
+      data = await db.getVendedores();
+    } else if (['lonas', 'telas', 'pisos', 'alfombras'].includes(table)) {
+      const allAcc = await db.getAccessories();
+      const catMap = { lonas: 'lona', telas: 'tela', pisos: 'piso', alfombras: 'alfombra' };
+      data = allAcc.filter(a => a.categoria === catMap[table]);
+    } else {
+      return res.status(400).json({ error: 'Tabla no reconocida' });
+    }
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/maestro/:table', async (req, res) => {
+  try {
+    const { table } = req.params;
+    let result = null;
+    const body = req.body;
+
+    if (table === 'personal') {
+      result = await db.savePersonal(body);
+    } else if (table === 'recursos') {
+      result = await db.saveRecurso(body);
+    } else if (table === 'estructuras') {
+      result = await db.saveStructure(body);
+    } else if (table === 'arcos') {
+      result = await db.saveArch(body);
+    } else if (table === 'modulos') {
+      result = await db.saveModule(body);
+    } else if (table === 'fijos') {
+      result = await db.saveFijo(body);
+    } else if (table === 'clientes') {
+      result = await db.saveClient(body);
+    } else if (table === 'vendedores') {
+      result = await db.saveVendedor(body);
+    } else if (['lonas', 'telas', 'pisos', 'alfombras'].includes(table)) {
+      const catMap = { lonas: 'lona', telas: 'tela', pisos: 'piso', alfombras: 'alfombra' };
+      body.categoria = catMap[table];
+      result = await db.saveAccessory(body);
+    } else {
+      return res.status(400).json({ error: 'Tabla no reconocida' });
+    }
+    res.status(201).json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/maestro/:table/:id', async (req, res) => {
+  try {
+    const { table, id } = req.params;
+    const numericId = parseInt(id);
+    let result = null;
+    const body = req.body;
+
+    if (table === 'personal') {
+      result = await db.updatePersonal(numericId, body);
+    } else if (table === 'recursos') {
+      result = await db.updateRecurso(numericId, body);
+    } else if (table === 'estructuras') {
+      result = await db.updateStructure(numericId, body);
+    } else if (table === 'arcos') {
+      result = await db.updateArch(numericId, body);
+    } else if (table === 'modulos') {
+      result = await db.updateModule(numericId, body);
+    } else if (table === 'fijos') {
+      result = await db.updateFijo(numericId, body);
+    } else if (table === 'clientes') {
+      result = await db.updateClient(numericId, body);
+    } else if (table === 'vendedores') {
+      result = await db.updateVendedor(numericId, body);
+    } else if (['lonas', 'telas', 'pisos', 'alfombras'].includes(table)) {
+      const catMap = { lonas: 'lona', telas: 'tela', pisos: 'piso', alfombras: 'alfombra' };
+      body.categoria = catMap[table];
+      result = await db.updateAccessory(numericId, body);
+    } else {
+      return res.status(400).json({ error: 'Tabla no reconocida' });
+    }
+
+    if (!result) return res.status(404).json({ error: 'Registro no encontrado' });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/maestro/:table/:id', async (req, res) => {
+  try {
+    const { table, id } = req.params;
+    const numericId = parseInt(id);
+    let success = false;
+
+    if (table === 'personal') {
+      success = await db.deletePersonal(numericId);
+    } else if (table === 'recursos') {
+      success = await db.deleteRecurso(numericId);
+    } else if (table === 'estructuras') {
+      success = await db.deleteStructure(numericId);
+    } else if (table === 'arcos') {
+      success = await db.deleteArch(numericId);
+    } else if (table === 'modulos') {
+      success = await db.deleteModule(numericId);
+    } else if (table === 'fijos') {
+      success = await db.deleteFijo(numericId);
+    } else if (table === 'clientes') {
+      success = await db.deleteClient(numericId);
+    } else if (table === 'vendedores') {
+      success = await db.deleteVendedor(numericId);
+    } else if (['lonas', 'telas', 'pisos', 'alfombras'].includes(table)) {
+      success = await db.deleteAccessory(numericId);
+    } else {
+      return res.status(400).json({ error: 'Tabla no reconocida' });
+    }
+
+    if (!success) return res.status(404).json({ error: 'Registro no encontrado' });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/maestro/import/:table', express.raw({ type: '*/*', limit: '50mb' }), async (req, res) => {
+  try {
+    const { table } = req.params;
+    if (!req.body || req.body.length === 0) {
+      return res.status(400).json({ error: 'El archivo está vacío' });
+    }
+
+    // Parse with SheetJS
+    const workbook = XLSX.read(req.body, { type: 'buffer' });
+    const sheetName = workbook.SheetNames[0];
+    const sheet = workbook.Sheets[sheetName];
+    const rows = XLSX.utils.sheet_to_json(sheet);
+
+    if (rows.length === 0) {
+      return res.status(400).json({ error: 'No se encontraron filas de datos en el archivo' });
+    }
+
+    // Helper to find a value case-insensitively with fallback names
+    const getVal = (row, fields, defaultVal = null) => {
+      for (const field of fields) {
+        const lowerField = field.toLowerCase().replace(/[\s\-_]/g, '');
+        for (const k of Object.keys(row)) {
+          const lowerK = k.toLowerCase().replace(/[\s\-_]/g, '');
+          if (lowerK === lowerField) {
+            if (row[k] !== undefined && row[k] !== null && row[k] !== '') {
+              return row[k];
+            }
+          }
+        }
+      }
+      return defaultVal;
+    };
+
+    let insertedCount = 0;
+
+    if (table === 'personal') {
+      await db.clearPersonal();
+      for (const row of rows) {
+        const nombre = getVal(row, ['Nombre', 'nombre']);
+        if (!nombre) continue;
+        const cuit = getVal(row, ['CUIT', 'cuit']);
+        const telefono = getVal(row, ['Teléfono', 'Telefono', 'telefono']);
+        const rol_funcion = getVal(row, ['Rol', 'Función', 'Funcion', 'rol_funcion', 'rol'], 'Operario');
+        const activo = getVal(row, ['Activo', 'activo'], 'sí') !== 'no' && getVal(row, ['Activo', 'activo'], true) !== false;
+        await db.savePersonal({ nombre, cuit, telefono, rol_funcion, activo });
+        insertedCount++;
+      }
+    } else if (table === 'recursos') {
+      await db.clearRecursos();
+      for (const row of rows) {
+        const nombre = getVal(row, ['Nombre', 'nombre']);
+        if (!nombre) continue;
+        const tipo = getVal(row, ['Tipo', 'tipo'], 'Maquinaria');
+        const patente_identificador = getVal(row, ['Patente', 'Identificador', 'patente_identificador', 'patente']);
+        const descripcion = getVal(row, ['Descripción', 'Descripcion', 'descripcion']);
+        const activo = getVal(row, ['Activo', 'activo'], 'sí') !== 'no' && getVal(row, ['Activo', 'activo'], true) !== false;
+        await db.saveRecurso({ nombre, tipo, patente_identificador, descripcion, activo });
+        insertedCount++;
+      }
+    } else if (table === 'estructuras') {
+      await db.clearStructures();
+      for (const row of rows) {
+        const modelo_estructura = getVal(row, ['Modelo_Estructura', 'Modelo', 'Nombre', 'modelo_estructura']);
+        if (!modelo_estructura) continue;
+        const arcos_totales = parseInt(getVal(row, ['Arcos totales', 'Arcos Totales', 'arcos_totales', 'arcos'], 0)) || 0;
+        const estructura_tipo = getVal(row, ['Estructura', 'Tipo', 'estructura_tipo'], 'Aluminio');
+        const frente = parseFloat(getVal(row, ['Frente', 'frente'], 0)) || 0;
+        const largo_maximo = parseFloat(getVal(row, ['Largo_Maximo', 'Largo Máximo', 'largo_maximo'], 0)) || 0;
+        const arcos_disponibles = parseInt(getVal(row, ['Arcos_Disponibles_Seleccion', 'Arcos Disponibles', 'arcos_disponibles'], arcos_totales)) || 0;
+        await db.saveStructure({ modelo_estructura, arcos_totales, estructura_tipo, frente, largo_maximo, arcos_disponibles });
+        insertedCount++;
+      }
+    } else if (table === 'arcos') {
+      await db.clearArches();
+      for (const row of rows) {
+        const producto = getVal(row, ['Producto', 'Nombre', 'producto']);
+        if (!producto) continue;
+        const arco = getVal(row, ['Arco', 'arco']);
+        const modelo_estructura = getVal(row, ['Modelo_Estructura', 'Modelo', 'Estructura', 'modelo_estructura']);
+        const sector = getVal(row, ['Sector', 'sector'], 'Planta');
+        const qty_fija_arco = parseInt(getVal(row, ['Qty_fija_arco', 'Cantidad', 'Qty', 'qty_fija_arco'], 0)) || 0;
+        await db.saveArch({ producto, arco, modelo_estructura, sector, qty_fija_arco });
+        insertedCount++;
+      }
+    } else if (table === 'modulos') {
+      await db.clearModules();
+      for (const row of rows) {
+        const producto = getVal(row, ['Producto', 'Nombre', 'producto']);
+        if (!producto) continue;
+        const modulo_val = getVal(row, ['Modulo', 'modulo', 'modulo_val']);
+        let baseModel = modulo_val || '';
+        if (modulo_val) {
+          let parts = modulo_val.includes('_') ? modulo_val.split('_') : modulo_val.split('-');
+          if (parts.length > 1) {
+            const lastPart = parts[parts.length - 1];
+            if (lastPart.startsWith('M') || lastPart === 'F') {
+              parts.pop();
+              baseModel = parts.join(modulo_val.includes('_') ? '_' : '-');
+            }
+          }
+        }
+        if (baseModel.includes("2MTS") || baseModel.includes("3MTS")) {
+          baseModel = baseModel.replace(/-/g, "_");
+        }
+        const sector = getVal(row, ['Sector', 'sector'], 'Planta');
+        const modulacion = parseInt(getVal(row, ['Modulacion', 'modulacion'], 5)) || 5;
+        const stock_inicial = parseInt(getVal(row, ['Qty_fija_modulo', 'Qty-fija-modulo', 'Stock', 'Cantidad', 'stock_inicial'], 0)) || 0;
+        await db.saveModule({ producto, modelo_estructura: baseModel, sector, modulacion, stock_inicial, modulo_val });
+        insertedCount++;
+      }
+    } else if (table === 'fijos') {
+      await db.clearFijos();
+      for (const row of rows) {
+        const producto = getVal(row, ['Producto', 'Nombre', 'producto']);
+        if (!producto) continue;
+        const fijo_val = getVal(row, ['Fijos', 'fijo', 'fijo_val']);
+        let baseModel = fijo_val || '';
+        if (fijo_val) {
+          let parts = fijo_val.includes('_') ? fijo_val.split('_') : fijo_val.split('-');
+          if (parts.length > 1 && parts[parts.length - 1] === 'F') {
+            parts.pop();
+            baseModel = parts.join(fijo_val.includes('_') ? '_' : '-');
+          }
+        }
+        if (baseModel.includes("2MTS") || baseModel.includes("3MTS")) {
+          baseModel = baseModel.replace(/-/g, "_");
+        }
+        const sector = getVal(row, ['Sector', 'sector'], 'Planta');
+        const qty_fija_carpa = parseInt(getVal(row, ['Qty_fija_carpa', 'Qty-fija-carpa', 'Cantidad', 'qty_fija_carpa'], 0)) || 0;
+        await db.saveFijo({ producto, modelo_estructura: baseModel, sector, qty_fija_carpa });
+        insertedCount++;
+      }
+    } else if (table === 'clientes') {
+      await db.clearClients();
+      for (const row of rows) {
+        const nombre = getVal(row, ['Nombre', 'nombre']);
+        if (!nombre) continue;
+        const cuenta = getVal(row, ['Cuenta', 'cuenta']) || `CL-${insertedCount + 1}`;
+        const cuit = getVal(row, ['CUIT', 'cuit']);
+        const actividad = getVal(row, ['Actividad', 'actividad']);
+        const estado = getVal(row, ['Estado', 'estado']);
+        const observacion = getVal(row, ['Observación', 'Observacion', 'observacion']);
+        const domicilio = getVal(row, ['Domicilio', 'domicilio']);
+        const localidad = getVal(row, ['Localidad', 'localidad']);
+        const provincia = getVal(row, ['Provincia', 'provincia']);
+        const pais = getVal(row, ['País', 'Pais', 'pais'], 'ARGENTINA');
+        const telefono = getVal(row, ['Teléfono', 'Telefono', 'telefono']);
+        const email = getVal(row, ['Email_1', 'Email', 'email']);
+        const vendedores = getVal(row, ['Vendedores', 'vendedores']);
+        const responsables = getVal(row, ['Responsables', 'responsables']);
+        const latitud = parseFloat(getVal(row, ['Latitud', 'latitud'])) || null;
+        const longitud = parseFloat(getVal(row, ['Longitud', 'longitud'])) || null;
+
+        await db.saveClient({
+          cuenta, nombre, cuit, actividad, estado, observacion, domicilio,
+          localidad, provincia, pais, telefono, email, vendedores, responsables, latitud, longitud
+        });
+        insertedCount++;
+      }
+    } else if (table === 'vendedores') {
+      await db.clearVendedores();
+      for (const row of rows) {
+        const nombre = getVal(row, ['Nombre', 'Vendedor', 'nombre']);
+        if (!nombre) continue;
+        const activo = getVal(row, ['Activo', 'activo'], 'sí') !== 'no' && getVal(row, ['Activo', 'activo'], true) !== false;
+        await db.saveVendedor({ nombre, activo });
+        insertedCount++;
+      }
+    } else if (['lonas', 'telas', 'pisos', 'alfombras'].includes(table)) {
+      const catMap = { lonas: 'lona', telas: 'tela', pisos: 'piso', alfombras: 'alfombra' };
+      const categoria = catMap[table];
+      await db.clearAccessoriesByCategory(categoria);
+
+      for (const row of rows) {
+        let nombre = '';
+        let color = null;
+        let tipo = null;
+        let medida = null;
+        let estado = 'Regular';
+        let stock_total = 0;
+
+        if (table === 'pisos') {
+          const est = getVal(row, ['Estructura', 'estructura', 'nombre']);
+          if (!est) continue;
+          nombre = est;
+          medida = getVal(row, ['Medida', 'medida']);
+          estado = getVal(row, ['Estado', 'estado'], 'Regular');
+          stock_total = parseInt(getVal(row, ['Cantidad', 'Cantidad total', 'stock', 'stock_total'], 0)) || 0;
+        } else if (table === 'lonas') {
+          color = getVal(row, ['Color', 'color']);
+          tipo = getVal(row, ['Tipo', 'tipo']);
+          if (!color || !tipo) continue;
+          medida = getVal(row, ['Medida', 'medida']);
+          nombre = `Lona ${tipo} ${color} ${medida || ''}`.trim();
+          stock_total = parseInt(getVal(row, ['Cantidad', 'Cantidad total', 'stock', 'stock_total'], 0)) || 0;
+        } else if (table === 'telas') {
+          color = getVal(row, ['Color', 'color']);
+          const cortina = getVal(row, ['Cortina', 'cortina']);
+          if (!color || !cortina) continue;
+          tipo = cortina;
+          nombre = `Tela ${cortina} ${color}`;
+          estado = getVal(row, ['Tipo', 'Estado', 'estado'], 'Nuevo');
+          stock_total = parseInt(getVal(row, ['Stock', 'stock', 'Cantidad', 'stock_total'], 0)) || 0;
+        } else if (table === 'alfombras') {
+          color = getVal(row, ['Colores', 'Color', 'color']);
+          if (!color) continue;
+          nombre = `Alfombra ${color}`;
+          estado = getVal(row, ['Estado', 'estado'], 'Nueva');
+          stock_total = parseInt(getVal(row, ['Metros', 'metros', 'Cantidad', 'stock', 'stock_total'], 0)) || 0;
+        }
+
+        await db.saveAccessory({ categoria, nombre, color, tipo, medida, estado, stock_total });
+        insertedCount++;
+      }
+    } else {
+      return res.status(400).json({ error: 'Tabla no reconocida' });
+    }
+
+    res.json({ success: true, insertados: insertedCount, total_enviados: rows.length });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

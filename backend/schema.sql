@@ -13,6 +13,7 @@ DROP TABLE IF EXISTS clientes CASCADE;
 DROP TABLE IF EXISTS usuarios CASCADE;
 DROP TABLE IF EXISTS personal CASCADE;
 DROP TABLE IF EXISTS recursos CASCADE;
+DROP TABLE IF EXISTS vendedores CASCADE;
 
 -- 0. Usuarios
 CREATE TABLE usuarios (
@@ -223,6 +224,14 @@ CREATE TABLE IF NOT EXISTS recursos (
     tipo VARCHAR(100) NOT NULL, -- 'Vehículo / Camión', 'Maquinaria', 'Herramienta', 'Otro'
     patente_identificador VARCHAR(50),
     descripcion TEXT,
+    activo BOOLEAN DEFAULT TRUE,
+    fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 13. Vendedores
+CREATE TABLE IF NOT EXISTS vendedores (
+    id SERIAL PRIMARY KEY,
+    nombre VARCHAR(255) UNIQUE NOT NULL,
     activo BOOLEAN DEFAULT TRUE,
     fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

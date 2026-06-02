@@ -15,6 +15,7 @@ import PDFReplicator from './components/PDFReplicator';
 import RoleDashboard from './components/RoleDashboard';
 import GerenciaDashboard from './components/GerenciaDashboard';
 import PersonalRecursos from './components/PersonalRecursos';
+import MaestroDatos from './components/MaestroDatos';
 
 export default function App() {
   // Roles list
@@ -2206,6 +2207,15 @@ export default function App() {
           )}
           {currentUser && (currentUser.rol === 'SuperAdmin' || currentUser.rol === 'Gerencia') && (
             <button
+              onClick={() => setCurrentTab('maestro')}
+              className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all-300 cursor-pointer ${currentTab === 'maestro' ? 'bg-blue-900 text-white shadow' : 'text-slate-650 hover:bg-slate-200/50'
+                }`}
+            >
+              Maestro de Datos
+            </button>
+          )}
+          {currentUser && (currentUser.rol === 'SuperAdmin' || currentUser.rol === 'Gerencia') && (
+            <button
               onClick={() => setCurrentTab('admin')}
               className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all-300 cursor-pointer ${currentTab === 'admin' ? 'bg-blue-900 text-white shadow' : 'text-slate-600 hover:bg-slate-200/50'
                 }`}
@@ -2302,6 +2312,10 @@ export default function App() {
             userName={currentUser?.nombre || userName}
             onSelectOT={handleSelectOT}
           />
+        )}
+
+        {currentTab === 'maestro' && (currentUser?.rol === 'SuperAdmin' || currentUser?.rol === 'Gerencia') && (
+          <MaestroDatos currentUser={currentUser} />
         )}
 
         {currentTab === 'admin' && (currentUser?.rol === 'SuperAdmin' || currentUser?.rol === 'Gerencia') && (

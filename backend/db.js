@@ -58,9 +58,10 @@ const loadJsonDb = () => {
   }
   if (!jsonDb.personal) jsonDb.personal = [];
   if (!jsonDb.recursos) jsonDb.recursos = [];
+  if (!jsonDb.vendedores) jsonDb.vendedores = [];
   return jsonDb;
 };
-
+ 
 // Save JSON db helper
 const saveJsonDb = () => {
   if (jsonDb) {
@@ -71,7 +72,7 @@ const saveJsonDb = () => {
     }
   }
 };
-
+ 
 // Initialize connection
 const initDb = async () => {
   if (connectionString) {
@@ -88,6 +89,15 @@ const initDb = async () => {
       console.log('Connected to PostgreSQL successfully.');
       // Auto migration to add usuario_id column
       await pool.query('ALTER TABLE personal ADD COLUMN IF NOT EXISTS usuario_id INTEGER REFERENCES usuarios(id) ON DELETE SET NULL');
+      // Create vendedores table
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS vendedores (
+          id SERIAL PRIMARY KEY,
+          nombre VARCHAR(255) UNIQUE NOT NULL,
+          activo BOOLEAN DEFAULT TRUE,
+          fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
     } catch (err) {
       console.warn('PostgreSQL connection failed. Falling back to local JSON database.', err.message);
       usePostgreSQL = false;
@@ -115,7 +125,7 @@ export const db = {
       try {
         await client.query('BEGIN');
         
-        await client.query('TRUNCATE chat_mensajes, ordenes_desarme, ordenes_trabajo, inventario_accesorios, base_fijo, base_modulo, base_arco, estructuras_maestras, clientes, usuarios, log_transacciones, personal, recursos RESTART IDENTITY CASCADE');
+        await client.query('TRUNCATE chat_mensajes, ordenes_desarme, ordenes_trabajo, inventario_accesorios, base_fijo, base_modulo, base_arco, estructuras_maestras, clientes, usuarios, log_transacciones, personal, recursos, vendedores RESTART IDENTITY CASCADE');
 
         // Seed structures
         for (const est of data.estructuras_maestras) {
@@ -205,7 +215,8 @@ export const db = {
         log_transacciones: [],
         ordenes_desarme: [],
         personal: [],
-        recursos: []
+        recursos: [],
+        vendedores: []
       };
       saveJsonDb();
       console.log("Local JSON database reset complete.");
@@ -226,7 +237,7 @@ export const db = {
     if (usePostgreSQL) {
       const res = await pool.query(
         `INSERT INTO clientes (cuenta, nombre, actividad, estado, observacion, domicilio, localidad, provincia, pais, telefono, email, cuit, vendedores, responsables, latitud, longitud)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
          RETURNING *`,
         [client.cuenta, client.nombre, client.actividad, client.estado, client.observacion, client.domicilio, client.localidad, client.provincia, client.pais, client.telefono, client.email, client.cuit, client.vendedores, client.responsables, client.latitud, client.longitud]
       );
@@ -238,6 +249,493 @@ export const db = {
       db.clientes.push(newClient);
       saveJsonDb();
       return newClient;
+    }
+  },
+
+  updateClient: async (id, client) => {
+    if (usePostgreSQL) {
+      const res = await pool.query(
+        `UPDATE clientes
+         SET cuenta = $1, nombre = $2, actividad = $3, estado = $4, observacion = $5, domicilio = $6, localidad = $7, provincia = $8, pais = $9, telefono = $10, email = $11, cuit = $12, vendedores = $13, responsables = $14, latitud = $15, longitud = $16
+         WHERE id = $17
+         RETURNING *`,
+        [client.cuenta, client.nombre, client.actividad, client.estado, client.observacion, client.domicilio, client.localidad, client.provincia, client.pais, client.telefono, client.email, client.cuit, client.vendedores, client.responsables, client.latitud, client.longitud, id]
+      );
+      return res.rows[0];
+    } else {
+      const db = loadJsonDb();
+      const idx = db.clientes.findIndex(c => c.id === id);
+      if (idx !== -1) {
+        db.clientes[idx] = { ...db.clientes[idx], ...client };
+        saveJsonDb();
+        return db.clientes[idx];
+      }
+      return null;
+    }
+  },
+
+  deleteClient: async (id) => {
+    if (usePostgreSQL) {
+      const res = await pool.query('DELETE FROM clientes WHERE id = $1 RETURNING id', [id]);
+      return res.rowCount > 0;
+    } else {
+      const db = loadJsonDb();
+      const idx = db.clientes.findIndex(c => c.id === id);
+      if (idx !== -1) {
+        db.clientes.splice(idx, 1);
+        saveJsonDb();
+        return true;
+      }
+      return false;
+    }
+  },
+
+  clearClients: async () => {
+    if (usePostgreSQL) {
+      await pool.query('DELETE FROM clientes');
+      return true;
+    } else {
+      const db = loadJsonDb();
+      db.clientes = [];
+      saveJsonDb();
+      return true;
+    }
+  },
+
+  saveStructure: async (est) => {
+    if (usePostgreSQL) {
+      const res = await pool.query(
+        `INSERT INTO estructuras_maestras (modelo_estructura, arcos_totales, estructura_tipo, frente, largo_maximo, arcos_disponibles)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         RETURNING *`,
+        [est.modelo_estructura, est.arcos_totales, est.estructura_tipo, est.frente, est.largo_maximo, est.arcos_disponibles]
+      );
+      return res.rows[0];
+    } else {
+      const db = loadJsonDb();
+      const nextId = db.estructuras_maestras.length > 0 ? Math.max(...db.estructuras_maestras.map(e => e.id)) + 1 : 1;
+      const newEst = { id: nextId, ...est };
+      db.estructuras_maestras.push(newEst);
+      saveJsonDb();
+      return newEst;
+    }
+  },
+
+  updateStructure: async (id, est) => {
+    if (usePostgreSQL) {
+      const res = await pool.query(
+        `UPDATE estructuras_maestras
+         SET modelo_estructura = $1, arcos_totales = $2, estructura_tipo = $3, frente = $4, largo_maximo = $5, arcos_disponibles = $6
+         WHERE id = $7
+         RETURNING *`,
+        [est.modelo_estructura, est.arcos_totales, est.estructura_tipo, est.frente, est.largo_maximo, est.arcos_disponibles, id]
+      );
+      return res.rows[0];
+    } else {
+      const db = loadJsonDb();
+      const idx = db.estructuras_maestras.findIndex(e => e.id === id);
+      if (idx !== -1) {
+        db.estructuras_maestras[idx] = { ...db.estructuras_maestras[idx], ...est };
+        saveJsonDb();
+        return db.estructuras_maestras[idx];
+      }
+      return null;
+    }
+  },
+
+  deleteStructure: async (id) => {
+    if (usePostgreSQL) {
+      const res = await pool.query('DELETE FROM estructuras_maestras WHERE id = $1 RETURNING id', [id]);
+      return res.rowCount > 0;
+    } else {
+      const db = loadJsonDb();
+      const idx = db.estructuras_maestras.findIndex(e => e.id === id);
+      if (idx !== -1) {
+        db.estructuras_maestras.splice(idx, 1);
+        saveJsonDb();
+        return true;
+      }
+      return false;
+    }
+  },
+
+  clearStructures: async () => {
+    if (usePostgreSQL) {
+      await pool.query('DELETE FROM estructuras_maestras');
+      return true;
+    } else {
+      const db = loadJsonDb();
+      db.estructuras_maestras = [];
+      saveJsonDb();
+      return true;
+    }
+  },
+
+  saveArch: async (arc) => {
+    if (usePostgreSQL) {
+      const res = await pool.query(
+        `INSERT INTO base_arco (producto, arco, modelo_estructura, sector, qty_fija_arco)
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING *`,
+        [arc.producto, arc.arco, arc.modelo_estructura, arc.sector, arc.qty_fija_arco]
+      );
+      return res.rows[0];
+    } else {
+      const db = loadJsonDb();
+      const nextId = db.base_arco.length > 0 ? Math.max(...db.base_arco.map(a => a.id)) + 1 : 1;
+      const newArc = { id: nextId, ...arc };
+      db.base_arco.push(newArc);
+      saveJsonDb();
+      return newArc;
+    }
+  },
+
+  updateArch: async (id, arc) => {
+    if (usePostgreSQL) {
+      const res = await pool.query(
+        `UPDATE base_arco
+         SET producto = $1, arco = $2, modelo_estructura = $3, sector = $4, qty_fija_arco = $5
+         WHERE id = $6
+         RETURNING *`,
+        [arc.producto, arc.arco, arc.modelo_estructura, arc.sector, arc.qty_fija_arco, id]
+      );
+      return res.rows[0];
+    } else {
+      const db = loadJsonDb();
+      const idx = db.base_arco.findIndex(a => a.id === id);
+      if (idx !== -1) {
+        db.base_arco[idx] = { ...db.base_arco[idx], ...arc };
+        saveJsonDb();
+        return db.base_arco[idx];
+      }
+      return null;
+    }
+  },
+
+  deleteArch: async (id) => {
+    if (usePostgreSQL) {
+      const res = await pool.query('DELETE FROM base_arco WHERE id = $1 RETURNING id', [id]);
+      return res.rowCount > 0;
+    } else {
+      const db = loadJsonDb();
+      const idx = db.base_arco.findIndex(a => a.id === id);
+      if (idx !== -1) {
+        db.base_arco.splice(idx, 1);
+        saveJsonDb();
+        return true;
+      }
+      return false;
+    }
+  },
+
+  clearArches: async () => {
+    if (usePostgreSQL) {
+      await pool.query('DELETE FROM base_arco');
+      return true;
+    } else {
+      const db = loadJsonDb();
+      db.base_arco = [];
+      saveJsonDb();
+      return true;
+    }
+  },
+
+  saveModule: async (mod) => {
+    if (usePostgreSQL) {
+      const res = await pool.query(
+        `INSERT INTO base_modulo (producto, modelo_estructura, sector, modulacion, stock_inicial, modulo_val)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         RETURNING *`,
+        [mod.producto, mod.modelo_estructura, mod.sector, mod.modulacion, mod.stock_inicial, mod.modulo_val]
+      );
+      return res.rows[0];
+    } else {
+      const db = loadJsonDb();
+      const nextId = db.base_modulo.length > 0 ? Math.max(...db.base_modulo.map(m => m.id)) + 1 : 1;
+      const newMod = { id: nextId, ...mod };
+      db.base_modulo.push(newMod);
+      saveJsonDb();
+      return newMod;
+    }
+  },
+
+  updateModule: async (id, mod) => {
+    if (usePostgreSQL) {
+      const res = await pool.query(
+        `UPDATE base_modulo
+         SET producto = $1, modelo_estructura = $2, sector = $3, modulacion = $4, stock_inicial = $5, modulo_val = $6
+         WHERE id = $7
+         RETURNING *`,
+        [mod.producto, mod.modelo_estructura, mod.sector, mod.modulacion, mod.stock_inicial, mod.modulo_val, id]
+      );
+      return res.rows[0];
+    } else {
+      const db = loadJsonDb();
+      const idx = db.base_modulo.findIndex(m => m.id === id);
+      if (idx !== -1) {
+        db.base_modulo[idx] = { ...db.base_modulo[idx], ...mod };
+        saveJsonDb();
+        return db.base_modulo[idx];
+      }
+      return null;
+    }
+  },
+
+  deleteModule: async (id) => {
+    if (usePostgreSQL) {
+      const res = await pool.query('DELETE FROM base_modulo WHERE id = $1 RETURNING id', [id]);
+      return res.rowCount > 0;
+    } else {
+      const db = loadJsonDb();
+      const idx = db.base_modulo.findIndex(m => m.id === id);
+      if (idx !== -1) {
+        db.base_modulo.splice(idx, 1);
+        saveJsonDb();
+        return true;
+      }
+      return false;
+    }
+  },
+
+  clearModules: async () => {
+    if (usePostgreSQL) {
+      await pool.query('DELETE FROM base_modulo');
+      return true;
+    } else {
+      const db = loadJsonDb();
+      db.base_modulo = [];
+      saveJsonDb();
+      return true;
+    }
+  },
+
+  saveFijo: async (fj) => {
+    if (usePostgreSQL) {
+      const res = await pool.query(
+        `INSERT INTO base_fijo (producto, modelo_estructura, sector, qty_fija_carpa)
+         VALUES ($1, $2, $3, $4)
+         RETURNING *`,
+        [fj.producto, fj.modelo_estructura, fj.sector, fj.qty_fija_carpa]
+      );
+      return res.rows[0];
+    } else {
+      const db = loadJsonDb();
+      const nextId = db.base_fijo.length > 0 ? Math.max(...db.base_fijo.map(f => f.id)) + 1 : 1;
+      const newFj = { id: nextId, ...fj };
+      db.base_fijo.push(newFj);
+      saveJsonDb();
+      return newFj;
+    }
+  },
+
+  updateFijo: async (id, fj) => {
+    if (usePostgreSQL) {
+      const res = await pool.query(
+        `UPDATE base_fijo
+         SET producto = $1, modelo_estructura = $2, sector = $3, qty_fija_carpa = $4
+         WHERE id = $5
+         RETURNING *`,
+        [fj.producto, fj.modelo_estructura, fj.sector, fj.qty_fija_carpa, id]
+      );
+      return res.rows[0];
+    } else {
+      const db = loadJsonDb();
+      const idx = db.base_fijo.findIndex(f => f.id === id);
+      if (idx !== -1) {
+        db.base_fijo[idx] = { ...db.base_fijo[idx], ...fj };
+        saveJsonDb();
+        return db.base_fijo[idx];
+      }
+      return null;
+    }
+  },
+
+  deleteFijo: async (id) => {
+    if (usePostgreSQL) {
+      const res = await pool.query('DELETE FROM base_fijo WHERE id = $1 RETURNING id', [id]);
+      return res.rowCount > 0;
+    } else {
+      const db = loadJsonDb();
+      const idx = db.base_fijo.findIndex(f => f.id === id);
+      if (idx !== -1) {
+        db.base_fijo.splice(idx, 1);
+        saveJsonDb();
+        return true;
+      }
+      return false;
+    }
+  },
+
+  clearFijos: async () => {
+    if (usePostgreSQL) {
+      await pool.query('DELETE FROM base_fijo');
+      return true;
+    } else {
+      const db = loadJsonDb();
+      db.base_fijo = [];
+      saveJsonDb();
+      return true;
+    }
+  },
+
+  saveAccessory: async (acc) => {
+    if (usePostgreSQL) {
+      const res = await pool.query(
+        `INSERT INTO inventario_accesorios (categoria, nombre, color, tipo, medida, estado, stock_total)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         RETURNING *`,
+        [acc.categoria, acc.nombre, acc.color, acc.tipo, acc.medida, acc.estado, acc.stock_total]
+      );
+      return res.rows[0];
+    } else {
+      const db = loadJsonDb();
+      const nextId = db.inventario_accesorios.length > 0 ? Math.max(...db.inventario_accesorios.map(a => a.id)) + 1 : 1;
+      const newAcc = { id: nextId, ...acc };
+      db.inventario_accesorios.push(newAcc);
+      saveJsonDb();
+      return newAcc;
+    }
+  },
+
+  updateAccessory: async (id, acc) => {
+    if (usePostgreSQL) {
+      const res = await pool.query(
+        `UPDATE inventario_accesorios
+         SET categoria = $1, nombre = $2, color = $3, tipo = $4, medida = $5, estado = $6, stock_total = $7
+         WHERE id = $8
+         RETURNING *`,
+        [acc.categoria, acc.nombre, acc.color, acc.tipo, acc.medida, acc.estado, acc.stock_total, id]
+      );
+      return res.rows[0];
+    } else {
+      const db = loadJsonDb();
+      const idx = db.inventario_accesorios.findIndex(a => a.id === id);
+      if (idx !== -1) {
+        db.inventario_accesorios[idx] = { ...db.inventario_accesorios[idx], ...acc };
+        saveJsonDb();
+        return db.inventario_accesorios[idx];
+      }
+      return null;
+    }
+  },
+
+  deleteAccessory: async (id) => {
+    if (usePostgreSQL) {
+      const res = await pool.query('DELETE FROM inventario_accesorios WHERE id = $1 RETURNING id', [id]);
+      return res.rowCount > 0;
+    } else {
+      const db = loadJsonDb();
+      const idx = db.inventario_accesorios.findIndex(a => a.id === id);
+      if (idx !== -1) {
+        db.inventario_accesorios.splice(idx, 1);
+        saveJsonDb();
+        return true;
+      }
+      return false;
+    }
+  },
+
+  clearAccessoriesByCategory: async (categoria) => {
+    if (usePostgreSQL) {
+      await pool.query('DELETE FROM inventario_accesorios WHERE categoria = $1', [categoria]);
+      return true;
+    } else {
+      const db = loadJsonDb();
+      db.inventario_accesorios = db.inventario_accesorios.filter(a => a.categoria !== categoria);
+      saveJsonDb();
+      return true;
+    }
+  },
+
+  getVendedores: async () => {
+    if (usePostgreSQL) {
+      const res = await pool.query('SELECT * FROM vendedores ORDER BY nombre ASC');
+      return res.rows;
+    } else {
+      const db = loadJsonDb();
+      if (!db.vendedores) db.vendedores = [];
+      return db.vendedores.sort((a, b) => a.nombre.localeCompare(b.nombre));
+    }
+  },
+
+  saveVendedor: async (vend) => {
+    if (usePostgreSQL) {
+      const res = await pool.query(
+        `INSERT INTO vendedores (nombre, activo)
+         VALUES ($1, $2)
+         RETURNING *`,
+        [vend.nombre, vend.activo !== false]
+      );
+      return res.rows[0];
+    } else {
+      const db = loadJsonDb();
+      if (!db.vendedores) db.vendedores = [];
+      const nextId = db.vendedores.length > 0 ? Math.max(...db.vendedores.map(v => v.id)) + 1 : 1;
+      const newVend = {
+        id: nextId,
+        nombre: vend.nombre,
+        activo: vend.activo !== false,
+        fecha_creacion: new Date().toISOString()
+      };
+      db.vendedores.push(newVend);
+      saveJsonDb();
+      return newVend;
+    }
+  },
+
+  updateVendedor: async (id, vend) => {
+    if (usePostgreSQL) {
+      const res = await pool.query(
+        `UPDATE vendedores
+         SET nombre = $1, activo = $2
+         WHERE id = $3
+         RETURNING *`,
+        [vend.nombre, vend.activo !== false, id]
+      );
+      return res.rows[0];
+    } else {
+      const db = loadJsonDb();
+      if (!db.vendedores) db.vendedores = [];
+      const idx = db.vendedores.findIndex(v => v.id === id);
+      if (idx !== -1) {
+        db.vendedores[idx] = {
+          ...db.vendedores[idx],
+          nombre: vend.nombre,
+          activo: vend.activo !== false
+        };
+        saveJsonDb();
+        return db.vendedores[idx];
+      }
+      return null;
+    }
+  },
+
+  deleteVendedor: async (id) => {
+    if (usePostgreSQL) {
+      const res = await pool.query('DELETE FROM vendedores WHERE id = $1 RETURNING id', [id]);
+      return res.rowCount > 0;
+    } else {
+      const db = loadJsonDb();
+      if (!db.vendedores) db.vendedores = [];
+      const idx = db.vendedores.findIndex(v => v.id === id);
+      if (idx !== -1) {
+        db.vendedores.splice(idx, 1);
+        saveJsonDb();
+        return true;
+      }
+      return false;
+    }
+  },
+
+  clearVendedores: async () => {
+    if (usePostgreSQL) {
+      await pool.query('DELETE FROM vendedores');
+      return true;
+    } else {
+      const db = loadJsonDb();
+      db.vendedores = [];
+      saveJsonDb();
+      return true;
     }
   },
 
@@ -1185,6 +1683,30 @@ export const db = {
         return true;
       }
       return false;
+    }
+  },
+
+  clearPersonal: async () => {
+    if (usePostgreSQL) {
+      await pool.query('DELETE FROM personal');
+      return true;
+    } else {
+      const db = loadJsonDb();
+      db.personal = [];
+      saveJsonDb();
+      return true;
+    }
+  },
+
+  clearRecursos: async () => {
+    if (usePostgreSQL) {
+      await pool.query('DELETE FROM recursos');
+      return true;
+    } else {
+      const db = loadJsonDb();
+      db.recursos = [];
+      saveJsonDb();
+      return true;
     }
   }
 };
