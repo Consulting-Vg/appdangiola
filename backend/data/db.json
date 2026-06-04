@@ -55193,7 +55193,11 @@
             "qty": 1
           }
         ],
-        "modulado_por": "Admin"
+        "modulado_por": "Admin",
+        "chofer_llegada": true,
+        "chofer_llegada_fecha": "2026-06-03T16:50:33.630Z",
+        "chofer_llegada_coords": "-34.757651, -58.403512",
+        "modificado_superadmin_por": "Admin"
       },
       "georef": {
         "direccion": "PARAGUAY 1186 4º, C.A.B.A., 901-C.A.B.A",
@@ -55870,6 +55874,86 @@
   "chat_mensajes": [],
   "log_transacciones": [
     {
+      "id": 15,
+      "ot_id": 4,
+      "ot_numero": "OT-PICK-9999",
+      "usuario": "SuperAdminUser",
+      "rol": "SuperAdmin",
+      "accion": "ELIMINAR_OT",
+      "detalles": "Eliminación permanente de la OT OT-PICK-9999 (Cliente: +EVENTOS SA)",
+      "fecha": "2026-06-02T11:30:47.495Z"
+    },
+    {
+      "id": 14,
+      "ot_id": 4,
+      "ot_numero": "OT-PICK-9999",
+      "usuario": "SuperAdmin",
+      "rol": "Comercial",
+      "accion": "CREACION",
+      "detalles": "Se generó el contrato comercial de la OT",
+      "fecha": "2026-06-02T11:30:47.443Z"
+    },
+    {
+      "id": 13,
+      "ot_id": 4,
+      "ot_numero": "OT-PICK-9999",
+      "usuario": "SuperAdminUser",
+      "rol": "SuperAdmin",
+      "accion": "ELIMINAR_OT",
+      "detalles": "Eliminación permanente de la OT OT-PICK-9999 (Cliente: +EVENTOS SA)",
+      "fecha": "2026-06-02T11:23:48.292Z"
+    },
+    {
+      "id": 12,
+      "ot_id": 4,
+      "ot_numero": "OT-PICK-9999",
+      "usuario": "SuperAdmin",
+      "rol": "Comercial",
+      "accion": "CREACION",
+      "detalles": "Se generó el contrato comercial de la OT",
+      "fecha": "2026-06-02T11:23:48.261Z"
+    },
+    {
+      "id": 11,
+      "ot_id": 3,
+      "ot_numero": "OT-728865",
+      "usuario": "Admin",
+      "rol": "SuperAdmin",
+      "accion": "MODULACION",
+      "detalles": "Se realizó la modulación y conformación completa de la estructura",
+      "fecha": "2026-06-02T11:23:01.560Z"
+    },
+    {
+      "id": 10,
+      "ot_id": 3,
+      "ot_numero": "OT-728865",
+      "usuario": "Admin",
+      "rol": "SuperAdmin",
+      "accion": "APROBACION",
+      "detalles": "Se actualizó el estado de la OT a: Aprobada por Gerencia",
+      "fecha": "2026-06-02T11:22:45.968Z"
+    },
+    {
+      "id": 9,
+      "ot_id": 4,
+      "ot_numero": "OT-PICK-9999",
+      "usuario": "SuperAdminUser",
+      "rol": "SuperAdmin",
+      "accion": "ELIMINAR_OT",
+      "detalles": "Eliminación permanente de la OT OT-PICK-9999 (Cliente: +EVENTOS SA)",
+      "fecha": "2026-06-02T11:21:14.847Z"
+    },
+    {
+      "id": 8,
+      "ot_id": 4,
+      "ot_numero": "OT-PICK-9999",
+      "usuario": "SuperAdmin",
+      "rol": "Comercial",
+      "accion": "CREACION",
+      "detalles": "Se generó el contrato comercial de la OT",
+      "fecha": "2026-06-02T11:21:14.813Z"
+    },
+    {
       "id": 7,
       "ot_id": 4,
       "ot_numero": "OT-PICK-9999",
@@ -55940,84 +56024,14 @@
       "fecha": "2026-06-02T10:58:30.410Z"
     },
     {
-      "id": 8,
-      "ot_id": 4,
-      "ot_numero": "OT-PICK-9999",
-      "usuario": "SuperAdmin",
-      "rol": "Comercial",
-      "accion": "CREACION",
-      "detalles": "Se generó el contrato comercial de la OT",
-      "fecha": "2026-06-02T11:21:14.813Z"
-    },
-    {
-      "id": 9,
-      "ot_id": 4,
-      "ot_numero": "OT-PICK-9999",
-      "usuario": "SuperAdminUser",
-      "rol": "SuperAdmin",
-      "accion": "ELIMINAR_OT",
-      "detalles": "Eliminación permanente de la OT OT-PICK-9999 (Cliente: +EVENTOS SA)",
-      "fecha": "2026-06-02T11:21:14.847Z"
-    },
-    {
-      "id": 10,
+      "id": 16,
       "ot_id": 3,
       "ot_numero": "OT-728865",
       "usuario": "Admin",
       "rol": "SuperAdmin",
-      "accion": "APROBACION",
-      "detalles": "Se actualizó el estado de la OT a: Aprobada por Gerencia",
-      "fecha": "2026-06-02T11:22:45.968Z"
-    },
-    {
-      "id": 11,
-      "ot_id": 3,
-      "ot_numero": "OT-728865",
-      "usuario": "Admin",
-      "rol": "SuperAdmin",
-      "accion": "MODULACION",
-      "detalles": "Se realizó la modulación y conformación completa de la estructura",
-      "fecha": "2026-06-02T11:23:01.560Z"
-    },
-    {
-      "id": 12,
-      "ot_id": 4,
-      "ot_numero": "OT-PICK-9999",
-      "usuario": "SuperAdmin",
-      "rol": "Comercial",
-      "accion": "CREACION",
-      "detalles": "Se generó el contrato comercial de la OT",
-      "fecha": "2026-06-02T11:23:48.261Z"
-    },
-    {
-      "id": 13,
-      "ot_id": 4,
-      "ot_numero": "OT-PICK-9999",
-      "usuario": "SuperAdminUser",
-      "rol": "SuperAdmin",
-      "accion": "ELIMINAR_OT",
-      "detalles": "Eliminación permanente de la OT OT-PICK-9999 (Cliente: +EVENTOS SA)",
-      "fecha": "2026-06-02T11:23:48.292Z"
-    },
-    {
-      "id": 14,
-      "ot_id": 4,
-      "ot_numero": "OT-PICK-9999",
-      "usuario": "SuperAdmin",
-      "rol": "Comercial",
-      "accion": "CREACION",
-      "detalles": "Se generó el contrato comercial de la OT",
-      "fecha": "2026-06-02T11:30:47.443Z"
-    },
-    {
-      "id": 15,
-      "ot_id": 4,
-      "ot_numero": "OT-PICK-9999",
-      "usuario": "SuperAdminUser",
-      "rol": "SuperAdmin",
-      "accion": "ELIMINAR_OT",
-      "detalles": "Eliminación permanente de la OT OT-PICK-9999 (Cliente: +EVENTOS SA)",
-      "fecha": "2026-06-02T11:30:47.495Z"
+      "accion": "ENTREGA_CHOFER",
+      "detalles": "Llegada confirmada en destino. Coordenadas de entrega: -34.757651, -58.403512",
+      "fecha": "2026-06-03T16:50:33.655Z"
     }
   ],
   "ordenes_desarme": [],

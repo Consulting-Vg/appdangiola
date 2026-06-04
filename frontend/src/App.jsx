@@ -2937,10 +2937,10 @@ export default function App() {
                     </div>
                     {formLonas && (
                       <select className="bg-slate-50 border border-slate-200 rounded-lg p-1.5 text-[10px] font-bold focus:outline-none" value={formLonasColor} onChange={(e) => setFormLonasColor(e.target.value)}>
-                        <option value="Blanco">Blanco</option>
-                        <option value="Negro">Negro</option>
-                        <option value="Cristal/Blanco">Cristal/Blanco</option>
-                        <option value="Cristal/Negro">Cristal/Negro</option>
+                        <option value="Blanco">Blanca</option>
+                        <option value="Negro">Negra</option>
+                        <option value="Cristal/Blanca">Cristal/Blanca</option>
+                        <option value="Cristal/Negra">Cristal/Negra</option>
                       </select>
                     )}
                   </div>

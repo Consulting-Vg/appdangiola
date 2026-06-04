@@ -32,10 +32,6 @@ function createTriangleGeometry(w, h) {
   return geom;
 }
 
-/* ─────────────────────────────────────────────
-   Material properties helper for dynamic canvas styling
-   Supports the custom glass (Vidrio) material
-───────────────────────────────────────────── */
 function getLonaMaterialProps(colorHex, internalLight) {
   const isGlass = colorHex === '#e2e8f0';
 
@@ -165,9 +161,155 @@ function OutdoorSpotlight({ position, targetObject, color = '#fffaed', intensity
 }
 
 /* ─────────────────────────────────────────────
+   Windowed Mesh (Cristal with Border)
+───────────────────────────────────────────── */
+function WindowedMesh({ args, color, internalLight, materialFn }) {
+  const [x, y, z] = args;
+  const isBlancoCristal = color === 'Cristal/Blanca';
+  const frameColor = isBlancoCristal ? '#ffffff' : '#0f172a';
+  const border = 0.2; // 20cm
+  const thicknessIndex = [x, y, z].indexOf(Math.min(x, y, z));
+  
+  if (thicknessIndex === 0) {
+     const t = x, h = y, w = z;
+     const gH = Math.max(0, h - 2 * border);
+     const gW = Math.max(0, w - 2 * border);
+     return (
+       <group>
+         <mesh position={[0, h/2 - border/2, 0]} castShadow receiveShadow>
+           <boxGeometry args={[t, border, w]} />
+           <meshStandardMaterial {...materialFn(frameColor, internalLight)} />
+         </mesh>
+         <mesh position={[0, -h/2 + border/2, 0]} castShadow receiveShadow>
+           <boxGeometry args={[t, border, w]} />
+           <meshStandardMaterial {...materialFn(frameColor, internalLight)} />
+         </mesh>
+         <mesh position={[0, 0, -w/2 + border/2]} castShadow receiveShadow>
+           <boxGeometry args={[t, gH, border]} />
+           <meshStandardMaterial {...materialFn(frameColor, internalLight)} />
+         </mesh>
+         <mesh position={[0, 0, w/2 - border/2]} castShadow receiveShadow>
+           <boxGeometry args={[t, gH, border]} />
+           <meshStandardMaterial {...materialFn(frameColor, internalLight)} />
+         </mesh>
+         <mesh castShadow receiveShadow>
+           <boxGeometry args={[t, gH, gW]} />
+           <meshStandardMaterial {...materialFn('#e2e8f0', internalLight)} />
+         </mesh>
+       </group>
+     );
+  } else if (thicknessIndex === 1) {
+     const w = x, t = y, l = z;
+     const gW = Math.max(0, w - 2 * border);
+     const gL = Math.max(0, l - 2 * border);
+     return (
+       <group>
+         <mesh position={[w/2 - border/2, 0, 0]} castShadow receiveShadow>
+           <boxGeometry args={[border, t, l]} />
+           <meshStandardMaterial {...materialFn(frameColor, internalLight)} />
+         </mesh>
+         <mesh position={[-w/2 + border/2, 0, 0]} castShadow receiveShadow>
+           <boxGeometry args={[border, t, l]} />
+           <meshStandardMaterial {...materialFn(frameColor, internalLight)} />
+         </mesh>
+         <mesh position={[0, 0, l/2 - border/2]} castShadow receiveShadow>
+           <boxGeometry args={[gW, t, border]} />
+           <meshStandardMaterial {...materialFn(frameColor, internalLight)} />
+         </mesh>
+         <mesh position={[0, 0, -l/2 + border/2]} castShadow receiveShadow>
+           <boxGeometry args={[gW, t, border]} />
+           <meshStandardMaterial {...materialFn(frameColor, internalLight)} />
+         </mesh>
+         <mesh castShadow receiveShadow>
+           <boxGeometry args={[gW, t, gL]} />
+           <meshStandardMaterial {...materialFn('#e2e8f0', internalLight)} />
+         </mesh>
+       </group>
+     );
+  } else {
+     const w = x, h = y, t = z;
+     const gW = Math.max(0, w - 2 * border);
+     const gH = Math.max(0, h - 2 * border);
+     return (
+       <group>
+         <mesh position={[0, h/2 - border/2, 0]} castShadow receiveShadow>
+           <boxGeometry args={[w, border, t]} />
+           <meshStandardMaterial {...materialFn(frameColor, internalLight)} />
+         </mesh>
+         <mesh position={[0, -h/2 + border/2, 0]} castShadow receiveShadow>
+           <boxGeometry args={[w, border, t]} />
+           <meshStandardMaterial {...materialFn(frameColor, internalLight)} />
+         </mesh>
+         <mesh position={[-w/2 + border/2, 0, 0]} castShadow receiveShadow>
+           <boxGeometry args={[border, gH, t]} />
+           <meshStandardMaterial {...materialFn(frameColor, internalLight)} />
+         </mesh>
+         <mesh position={[w/2 - border/2, 0, 0]} castShadow receiveShadow>
+           <boxGeometry args={[border, gH, t]} />
+           <meshStandardMaterial {...materialFn(frameColor, internalLight)} />
+         </mesh>
+         <mesh castShadow receiveShadow>
+           <boxGeometry args={[gW, gH, t]} />
+           <meshStandardMaterial {...materialFn('#e2e8f0', internalLight)} />
+         </mesh>
+       </group>
+     );
+  }
+}
+
+function PanelMesh({ position, rotation, args, color, internalLight, materialFn }) {
+  const isCristal = color === 'Cristal/Blanca' || color === 'Cristal/Negra';
+  
+  if (isCristal) {
+    return (
+      <group position={position} rotation={rotation || [0,0,0]}>
+         <WindowedMesh args={args} color={color} internalLight={internalLight} materialFn={materialFn} />
+      </group>
+    );
+  }
+  
+  return (
+    <mesh position={position} rotation={rotation || [0,0,0]} castShadow receiveShadow>
+      <boxGeometry args={args} />
+      <meshStandardMaterial {...materialFn(color, internalLight)} />
+    </mesh>
+  );
+}
+
+/* ─────────────────────────────────────────────
    Gable Triangle Panel
 ───────────────────────────────────────────── */
 function FrontTriangle({ position, width, height, color, internalLight, rotation = [0, 0, 0] }) {
+  const isCristal = color === 'Cristal/Blanca' || color === 'Cristal/Negra';
+  
+  if (isCristal) {
+    const frameColor = color === 'Cristal/Blanca' ? '#ffffff' : '#0f172a';
+    const border = 0.2;
+    const sideLength = Math.sqrt(Math.pow(width/2, 2) + Math.pow(height, 2));
+    const sideAngle = Math.atan2(height, width/2);
+    
+    return (
+      <group position={position} rotation={rotation}>
+         <mesh position={[0, border/2, 0]} castShadow receiveShadow>
+           <boxGeometry args={[width, border, 0.015]} />
+           <meshStandardMaterial {...getLonaMaterialProps(frameColor, internalLight)} />
+         </mesh>
+         <mesh position={[-width/4, height/2, 0]} rotation={[0, 0, sideAngle]} castShadow receiveShadow>
+           <boxGeometry args={[sideLength, border, 0.015]} />
+           <meshStandardMaterial {...getLonaMaterialProps(frameColor, internalLight)} />
+         </mesh>
+         <mesh position={[width/4, height/2, 0]} rotation={[0, 0, -sideAngle]} castShadow receiveShadow>
+           <boxGeometry args={[sideLength, border, 0.015]} />
+           <meshStandardMaterial {...getLonaMaterialProps(frameColor, internalLight)} />
+         </mesh>
+         <mesh position={[0, 0, 0]} castShadow receiveShadow>
+           <primitive object={createTriangleGeometry(width, height)} attach="geometry" />
+           <meshStandardMaterial {...getLonaMaterialProps('#e2e8f0', internalLight)} />
+         </mesh>
+      </group>
+    );
+  }
+
   return (
     <group position={position} rotation={rotation}>
       <mesh castShadow receiveShadow>
@@ -385,24 +527,12 @@ function TentStructure({
         const zMid = m.zStart + modLength / 2;
         return (
           <group key={`mod-${index}`}>
-            <mesh position={[halfWidth / 2, legHeight + ridgeOffset / 2 + 0.02, zMid]} rotation={[0, 0, roofAngle]} castShadow receiveShadow>
-              <boxGeometry args={[rafterLength, 0.015, modLength]} />
-              <meshStandardMaterial {...getLonaMaterialProps(m.color, internalLight)} />
-            </mesh>
-            <mesh position={[halfWidth + halfWidth / 2, legHeight + ridgeOffset / 2 + 0.02, zMid]} rotation={[0, 0, -roofAngle]} castShadow receiveShadow>
-              <boxGeometry args={[rafterLength, 0.015, modLength]} />
-              <meshStandardMaterial {...getLonaMaterialProps(m.color, internalLight)} />
-            </mesh>
+            <PanelMesh position={[halfWidth / 2, legHeight + ridgeOffset / 2 + 0.02, zMid]} rotation={[0, 0, roofAngle]} args={[rafterLength, 0.015, modLength]} color={m.color} internalLight={internalLight} materialFn={getLonaMaterialProps} />
+            <PanelMesh position={[halfWidth + halfWidth / 2, legHeight + ridgeOffset / 2 + 0.02, zMid]} rotation={[0, 0, -roofAngle]} args={[rafterLength, 0.015, modLength]} color={m.color} internalLight={internalLight} materialFn={getLonaMaterialProps} />
             {showLaterales && (
               <>
-                <mesh position={[0, legHeight / 2, zMid]} castShadow receiveShadow>
-                  <boxGeometry args={[0.005, legHeight, modLength]} />
-                  <meshStandardMaterial {...getLateralMaterialProps(lateralColor, internalLight)} />
-                </mesh>
-                <mesh position={[width, legHeight / 2, zMid]} castShadow receiveShadow>
-                  <boxGeometry args={[0.005, legHeight, modLength]} />
-                  <meshStandardMaterial {...getLateralMaterialProps(lateralColor, internalLight)} />
-                </mesh>
+                <PanelMesh position={[0, legHeight / 2, zMid]} args={[0.005, legHeight, modLength]} color={lateralColor} internalLight={internalLight} materialFn={getLateralMaterialProps} />
+                <PanelMesh position={[width, legHeight / 2, zMid]} args={[0.005, legHeight, modLength]} color={lateralColor} internalLight={internalLight} materialFn={getLateralMaterialProps} />
               </>
             )}
           </group>
@@ -416,22 +546,10 @@ function TentStructure({
         color={colors.backTriangle || colors.frontTriangle || '#ffffff'} internalLight={internalLight} rotation={[0, Math.PI, 0]} />
 
       {/* ── Tapachata walls (front/back vertical panels) ── */}
-      <mesh position={[width / 4, legHeight / 2, 0.005]} castShadow receiveShadow>
-        <boxGeometry args={[width / 2 - 0.04, legHeight, 0.01]} />
-        <meshStandardMaterial {...getLonaMaterialProps(colors.frontTapachata || '#ffffff', internalLight)} />
-      </mesh>
-      <mesh position={[3 * width / 4, legHeight / 2, 0.005]} castShadow receiveShadow>
-        <boxGeometry args={[width / 2 - 0.04, legHeight, 0.01]} />
-        <meshStandardMaterial {...getLonaMaterialProps(colors.frontTapachata || '#ffffff', internalLight)} />
-      </mesh>
-      <mesh position={[width / 4, legHeight / 2, totalLength - 0.005]} castShadow receiveShadow>
-        <boxGeometry args={[width / 2 - 0.04, legHeight, 0.01]} />
-        <meshStandardMaterial {...getLonaMaterialProps(colors.backTapachata || '#ffffff', internalLight)} />
-      </mesh>
-      <mesh position={[3 * width / 4, legHeight / 2, totalLength - 0.005]} castShadow receiveShadow>
-        <boxGeometry args={[width / 2 - 0.04, legHeight, 0.01]} />
-        <meshStandardMaterial {...getLonaMaterialProps(colors.backTapachata || '#ffffff', internalLight)} />
-      </mesh>
+      <PanelMesh position={[width / 4, legHeight / 2, 0.005]} args={[width / 2 - 0.04, legHeight, 0.01]} color={colors.frontTapachata || '#ffffff'} internalLight={internalLight} materialFn={getLonaMaterialProps} />
+      <PanelMesh position={[3 * width / 4, legHeight / 2, 0.005]} args={[width / 2 - 0.04, legHeight, 0.01]} color={colors.frontTapachata || '#ffffff'} internalLight={internalLight} materialFn={getLonaMaterialProps} />
+      <PanelMesh position={[width / 4, legHeight / 2, totalLength - 0.005]} args={[width / 2 - 0.04, legHeight, 0.01]} color={colors.backTapachata || '#ffffff'} internalLight={internalLight} materialFn={getLonaMaterialProps} />
+      <PanelMesh position={[3 * width / 4, legHeight / 2, totalLength - 0.005]} args={[width / 2 - 0.04, legHeight, 0.01]} color={colors.backTapachata || '#ffffff'} internalLight={internalLight} materialFn={getLonaMaterialProps} />
 
       {/* ── Tied event curtains at each structural column (photo-matching gather) ── */}
       {showCurtains && Array.from({ length: modules.length + 1 }).map((_, i) => {
@@ -547,32 +665,38 @@ function ARPanel({ onExport, arLoading }) {
    Color Swatch helper
 ───────────────────────────────────────────── */
 const COLORS = [
-  { hex: '#ffffff', label: 'Blanco' },
-  { hex: '#0f172a', label: 'Negro' },
-  { hex: '#e2e8f0', label: 'Vidrio/Transparente' },
+  { hex: '#ffffff', label: 'Blanca' },
+  { hex: '#0f172a', label: 'Negra' },
+  { hex: 'Cristal/Blanca', label: 'Cristal/Blanca' },
+  { hex: 'Cristal/Negra', label: 'Cristal/Negra' },
 ];
 
 function ColorSwatches({ selected, onChange }) {
   return (
     <div className="flex flex-wrap gap-1.5">
       {COLORS.map(({ hex, label }) => {
-        const isGlass = hex === '#e2e8f0';
+        const isCristal = hex === 'Cristal/Blanca' || hex === 'Cristal/Negra';
+        const frameColor = hex === 'Cristal/Blanca' ? '#ffffff' : '#0f172a';
+        
         return (
           <button
             key={hex}
             type="button"
             onClick={() => onChange(hex)}
-            style={{
-              background: isGlass
-                ? 'linear-gradient(135deg, rgba(226, 232, 240, 0.4) 0%, rgba(226, 232, 240, 0.9) 100%)'
-                : hex,
-            }}
-            className={`w-6 h-6 rounded-full border-2 transition-all-300 hover:scale-110 relative overflow-hidden ${
-              selected === hex ? 'ring-2 ring-blue-600 ring-offset-1 border-blue-400' : 'border-slate-300'
+            style={
+              isCristal
+                ? {
+                    background: 'linear-gradient(135deg, rgba(226, 232, 240, 0.4) 0%, rgba(226, 232, 240, 0.9) 100%)',
+                    border: `3px solid ${frameColor}`,
+                  }
+                : { background: hex, border: '2px solid transparent' }
+            }
+            className={`w-6 h-6 rounded-full transition-all-300 hover:scale-110 relative overflow-hidden box-border ${
+              selected === hex ? 'ring-2 ring-blue-600 ring-offset-1' : 'ring-1 ring-slate-300 ring-offset-1'
             }`}
             title={label}
           >
-            {isGlass && (
+            {isCristal && (
               <span className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/40 to-transparent transform rotate-45 pointer-events-none scale-150" />
             )}
           </button>
