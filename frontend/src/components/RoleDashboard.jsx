@@ -75,6 +75,31 @@ export default function RoleDashboard({
     return n.includes('tela') || n.includes('cortina') || n.includes('cielorraso');
   };
 
+  const aggregateProducts = (items) => {
+    const aggregated = {};
+    items.forEach(item => {
+      let cleanName = String(item.producto).replace(/[-_][a-zA-Z]\d*$/i, '');
+      if (!aggregated[cleanName]) {
+        aggregated[cleanName] = { ...item, producto: cleanName, qty: 0 };
+        if (item.total !== undefined) aggregated[cleanName].total = 0;
+        if (item.reserved !== undefined) aggregated[cleanName].reserved = 0;
+        if (item.inUse !== undefined) aggregated[cleanName].inUse = 0;
+        if (item.available !== undefined) aggregated[cleanName].available = 0;
+      }
+      aggregated[cleanName].qty += Number(item.qty || 1);
+      if (item.total !== undefined) aggregated[cleanName].total += Number(item.total || 0);
+      if (item.reserved !== undefined) aggregated[cleanName].reserved += Number(item.reserved || 0);
+      if (item.inUse !== undefined) aggregated[cleanName].inUse += Number(item.inUse || 0);
+      if (item.available !== undefined) aggregated[cleanName].available += Number(item.available || 0);
+    });
+    return Object.values(aggregated).sort((a, b) => {
+      const secA = a.sector || '';
+      const secB = b.sector || '';
+      if (secA !== secB) return secA.localeCompare(secB);
+      return a.producto.localeCompare(b.producto);
+    });
+  };
+
   const isUserAssignedToOT = (ot, uId, uName, pList = []) => {
     const asignaciones = ot.adicionales?.asignaciones_tareas || {};
     // Find all personal IDs associated with this app user ID
@@ -456,10 +481,12 @@ export default function RoleDashboard({
       });
     }
     
+    const aggregatedList = aggregateProducts(list);
+    
     // Draw table box
     doc.setDrawColor(220, 220, 220);
     doc.setLineWidth(0.2);
-    const boxH = list.length * 6 + 7;
+    const boxH = aggregatedList.length * 6 + 7;
     doc.rect(startX, y, 180, boxH);
 
     doc.setFont('Helvetica', 'bold');
@@ -473,7 +500,7 @@ export default function RoleDashboard({
     let itemY = y + 11;
     doc.setFont('Helvetica', 'normal');
     doc.setFontSize(7.5);
-    list.forEach(item => {
+    aggregatedList.forEach(item => {
       doc.text(String(item.producto).toUpperCase(), startX + 4, itemY);
       doc.text(String(item.qty), startX + 100, itemY);
       doc.text(String(item.sector).toUpperCase(), startX + 130, itemY);
@@ -550,10 +577,12 @@ export default function RoleDashboard({
     doc.line(startX, y + 2, startX + 180, y + 2);
     y += 7;
 
+    const aggregatedItems = aggregateProducts(remito.items);
+
     // Draw table box
     doc.setDrawColor(220, 220, 220);
     doc.setLineWidth(0.2);
-    const boxH = remito.items.length * 6 + 7;
+    const boxH = aggregatedItems.length * 6 + 7;
     doc.rect(startX, y, 180, boxH);
 
     doc.setFont('Helvetica', 'bold');
@@ -565,7 +594,7 @@ export default function RoleDashboard({
     let itemY = y + 11;
     doc.setFont('Helvetica', 'normal');
     doc.setFontSize(7.5);
-    remito.items.forEach(item => {
+    aggregatedItems.forEach(item => {
       doc.text(String(item.producto).toUpperCase(), startX + 4, itemY);
       doc.text(String(item.qty), startX + 120, itemY);
       itemY += 6;
@@ -605,7 +634,8 @@ export default function RoleDashboard({
     const planta = typeof ot.planta_status === 'string' ? JSON.parse(ot.planta_status) : ot.planta_status;
     const allItems = [...(panol?.items || []), ...(planta?.items || [])];
     const loadedItems = allItems.filter(i => i.checked);
-    const itemsToPrint = loadedItems.length > 0 ? loadedItems : allItems;
+    const itemsToPrintRaw = loadedItems.length > 0 ? loadedItems : allItems;
+    const itemsToPrint = aggregateProducts(itemsToPrintRaw);
 
     const geo = typeof ot.georef === 'string' ? JSON.parse(ot.georef) : ot.georef;
     const direccion = geo?.direccion || 'No especificada';
@@ -871,7 +901,7 @@ export default function RoleDashboard({
       const filteredMats = filterMaterials(est.materiales || [], activeRole);
       return {
         ...est,
-        materiales: filteredMats
+        materiales: aggregateProducts(filteredMats)
       };
     }).filter(est => est.materiales.length > 0);
 
@@ -1155,6 +1185,10 @@ export default function RoleDashboard({
 
         <div className="space-y-8">
           {structuresStock.map((est) => {
+            const activeRole = currentUser?.rol || userRole;
+            const filteredMats = filterMaterials(est.materiales || [], activeRole);
+            const aggregatedMats = aggregateProducts(filteredMats);
+            if (aggregatedMats.length === 0) return null;
             return (
               <div key={est.modelo_estructura} className="glass-panel rounded-[2rem] p-6 space-y-4">
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-slate-100 pb-3">
@@ -1181,7 +1215,7 @@ export default function RoleDashboard({
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {est.materiales.map((item) => {
+                      {aggregatedMats.map((item) => {
                         const totalOccupied = item.reserved + item.inUse;
                         const occupancyPct = item.total > 0 ? (totalOccupied / item.total) * 100 : 0;
 
@@ -1456,7 +1490,7 @@ export default function RoleDashboard({
                       </td>
                       <td className="py-4">
                         <div className="flex items-center gap-2">
-                          <span className="badge-carpa">{ot.modelo_estructura}</span>
+                          <span className="badge-carpa">{['Pendiente', 'Aprobada por Gerencia'].includes(ot.estado) ? 'A Confirmar' : ot.modelo_estructura}</span>
                           <span className="text-[10px] font-semibold text-slate-500 uppercase">{ot.estructura_tipo}</span>
                         </div>
                       </td>
@@ -1693,7 +1727,7 @@ export default function RoleDashboard({
                           </td>
                           <td className="py-4">
                             <div className="flex items-center gap-2">
-                              <span className="badge-carpa">{ot.modelo_estructura}</span>
+                              <span className="badge-carpa">{['Pendiente', 'Aprobada por Gerencia'].includes(ot.estado) ? 'A Confirmar' : ot.modelo_estructura}</span>
                               <span className="text-[10px] font-semibold text-slate-500 uppercase">{ot.estructura_tipo}</span>
                             </div>
                           </td>
@@ -2361,6 +2395,7 @@ export default function RoleDashboard({
                     
                     // Find the disassembly record for this OT if it's Desarmada
                     const record = desarmeRecords.find(d => d.ot_origen_id === ot.id);
+                    const adObj = typeof ot.adicionales === 'string' ? JSON.parse(ot.adicionales) : ot.adicionales || {};
                     
                     return (
                       <div
@@ -2933,7 +2968,7 @@ export default function RoleDashboard({
                             <td className="py-3 font-semibold text-slate-600">
                               {new Date(ot.fecha_inicio).toLocaleDateString('es-ES')} a {new Date(ot.fecha_fin).toLocaleDateString('es-ES')}
                             </td>
-                            <td className="py-3"><span className="badge-carpa">{ot.modelo_estructura}</span></td>
+                            <td className="py-3"><span className="badge-carpa">{['Pendiente', 'Aprobada por Gerencia'].includes(ot.estado) ? 'A Confirmar' : ot.modelo_estructura}</span></td>
                             <td className="py-3 pr-4">
                               <div className="flex items-center gap-2">
                                 <span className="font-black text-slate-800 whitespace-nowrap">{ot.superficie || (ot.frente * ot.largo)} m²</span>
@@ -2996,7 +3031,7 @@ export default function RoleDashboard({
                             <td className="py-3 font-semibold text-slate-600">
                               {new Date(ot.fecha_inicio).toLocaleDateString('es-ES')} a {new Date(ot.fecha_fin).toLocaleDateString('es-ES')}
                             </td>
-                            <td className="py-3"><span className="badge-carpa">{ot.modelo_estructura}</span></td>
+                            <td className="py-3"><span className="badge-carpa">{['Pendiente', 'Aprobada por Gerencia'].includes(ot.estado) ? 'A Confirmar' : ot.modelo_estructura}</span></td>
                             <td className="py-3 pr-4">
                               <div className="flex items-center gap-2">
                                 <span className="font-black text-slate-800 whitespace-nowrap">{ot.superficie || (ot.frente * ot.largo)} m²</span>

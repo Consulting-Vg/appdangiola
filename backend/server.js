@@ -211,7 +211,7 @@ app.post('/api/estructuras/check-availability', async (req, res) => {
         ot.estado !== 'Cancelada' &&
         ot.estado !== 'Rechazada' &&
         (!exclude_ot_id || ot.id !== exclude_ot_id) &&
-        datesOverlap(ot.fecha_inicio, ot.fecha_fin, fecha_inicio, fecha_fin)
+        datesOverlap(ot.fecha_inicio, ot.fecha_comienzo_desarmado || ot.fecha_fin, fecha_inicio, fecha_fin)
       );
 
       // Map reserved arches → which OT/client holds them
@@ -293,7 +293,7 @@ app.post('/api/estructuras/arcos-status', async (req, res) => {
       ot.estado !== 'Cancelada' &&
       ot.estado !== 'Rechazada' &&
       (!exclude_ot_id || ot.id !== exclude_ot_id) &&
-      datesOverlap(ot.fecha_inicio, ot.fecha_fin, fecha_inicio, fecha_fin)
+      datesOverlap(ot.fecha_inicio, ot.fecha_comienzo_desarmado || ot.fecha_fin, fecha_inicio, fecha_fin)
     );
 
     const reservedArchMap = {};
@@ -1265,84 +1265,24 @@ app.get('/api/inventario/estructuras', async (req, res) => {
       const isEnUso = ot.estado === 'Completada';
       const targetMap = isEnUso ? inUseCapacity : reservedCapacity;
 
-      let totalModules = 0;
-      const selectedModules = modConfig?.modulos || [];
-      selectedModules.forEach(m => { totalModules += m.qty; });
-      const archesCount = totalModules + 1;
+      const key = model;
+      if (!targetMap[key]) targetMap[key] = {};
 
-      // A. Arches occupied
-      const arcosReservados = adicionales.arcos_reservados || [];
-      const archIds = arcosReservados.length > 0 
-        ? arcosReservados 
-        : Array.from({ length: archesCount }, (_, i) => `${model}_A${i + 1}`);
-
-      const archComponents = archesData.filter(a => 
-        a.modelo_estructura === model && 
-        archIds.includes(a.arco)
-      );
-
-      archComponents.forEach(c => {
-        const key = model;
-        if (!targetMap[key]) targetMap[key] = {};
-        if (!targetMap[key][c.producto]) targetMap[key][c.producto] = 0;
-        targetMap[key][c.producto] += c.qty_fija_arco;
-      });
-
-      // B. Modules occupied
-      const conformedModulosList = adicionales.conformed_modulos_list || [];
-      if (conformedModulosList.length > 0) {
-        conformedModulosList.forEach(m => {
-          let lookupModel = m.modelo_estructura;
-          if (m.largo === 2) lookupModel = `${prefix}_2MTS`;
-          else if (m.largo === 3) lookupModel = `${prefix}_3MTS`;
-
-          const modComponents = modulesData.filter(mod => {
-            const matchModel = m.largo === 5
-              ? (mod.modulo_val === lookupModel)
-              : (mod.modelo_estructura === lookupModel);
-            return matchModel && mod.modulacion === m.largo;
-          });
-
-          modComponents.forEach(c => {
-            const key = model;
-            if (!targetMap[key]) targetMap[key] = {};
-            if (!targetMap[key][c.producto]) targetMap[key][c.producto] = 0;
-            const qtyPerMod = c.stock_inicial || c.qty_fija_modulo || 0;
-            targetMap[key][c.producto] += qtyPerMod * m.qty;
-          });
-        });
-      } else {
-        selectedModules.forEach(m => {
-          let lookupModel = adicionales.modulo_modelo_estructura || model;
-          if (m.largo === 2) lookupModel = `${prefix}_2MTS`;
-          else if (m.largo === 3) lookupModel = `${prefix}_3MTS`;
-
-          const modComponents = modulesData.filter(mod => {
-            const matchModel = m.largo === 5
-              ? (mod.modulo_val === `${lookupModel}-M1` || mod.modulo_val === `${model}-M1`)
-              : (mod.modelo_estructura === lookupModel);
-            return matchModel && mod.modulacion === m.largo;
-          });
-
-          modComponents.forEach(c => {
-            const key = model;
-            if (!targetMap[key]) targetMap[key] = {};
-            if (!targetMap[key][c.producto]) targetMap[key][c.producto] = 0;
-            const qtyPerMod = c.stock_inicial || c.qty_fija_modulo || 0;
-            targetMap[key][c.producto] += qtyPerMod * m.qty;
-          });
+      const panol = typeof ot.panol_status === 'string' ? JSON.parse(ot.panol_status) : ot.panol_status;
+      if (panol && panol.items) {
+        panol.items.forEach(item => {
+          if (!targetMap[key][item.producto]) targetMap[key][item.producto] = 0;
+          targetMap[key][item.producto] += Number(item.qty || 1);
         });
       }
 
-      // C. Fijos occupied
-      const lookupFijoModel = adicionales.fijo_modelo_estructura || model;
-      const fixedComponents = fijosData.filter(f => f.modelo_estructura === lookupFijoModel);
-      fixedComponents.forEach(f => {
-        const key = model;
-        if (!targetMap[key]) targetMap[key] = {};
-        if (!targetMap[key][f.producto]) targetMap[key][f.producto] = 0;
-        targetMap[key][f.producto] += f.qty_fija_carpa;
-      });
+      const planta = typeof ot.planta_status === 'string' ? JSON.parse(ot.planta_status) : ot.planta_status;
+      if (planta && planta.items) {
+        planta.items.forEach(item => {
+          if (!targetMap[key][item.producto]) targetMap[key][item.producto] = 0;
+          targetMap[key][item.producto] += Number(item.qty || 1);
+        });
+      }
     }
 
     // 3. Compute total capacity for each master structure

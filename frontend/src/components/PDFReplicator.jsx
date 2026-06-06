@@ -198,7 +198,7 @@ export default function PDFReplicator({ ot, explosion }) {
     const panol = typeof ot.panol_status === 'string' ? JSON.parse(ot.panol_status) : ot.panol_status;
     const planta = typeof ot.planta_status === 'string' ? JSON.parse(ot.planta_status) : ot.planta_status;
     
-    const checklistItems = [];
+    let checklistItems = [];
     if (panol?.items?.length > 0 || planta?.items?.length > 0) {
       if (panol?.items) {
         panol.items.forEach(i => checklistItems.push({ ...i, sector: 'Pañol' }));
@@ -208,13 +208,34 @@ export default function PDFReplicator({ ot, explosion }) {
       }
     }
 
+    const aggregateProducts = (items) => {
+      const aggregated = {};
+      items.forEach(item => {
+        let cleanName = String(item.producto || item.nombre || '').replace(/[-_][a-zA-Z]\d*$/i, '');
+        if (!aggregated[cleanName]) {
+          aggregated[cleanName] = { ...item, producto: cleanName, nombre: cleanName, qty: 0 };
+        }
+        aggregated[cleanName].qty += Number(item.qty !== undefined ? item.qty : (item.cantidad !== undefined ? item.cantidad : 1));
+      });
+      return Object.values(aggregated).sort((a, b) => {
+      const secA = a.sector || '';
+      const secB = b.sector || '';
+      if (secA !== secB) return secA.localeCompare(secB);
+      return a.producto.localeCompare(b.producto);
+    });
+    };
+
     if (checklistItems.length > 0) {
+      checklistItems = aggregateProducts(checklistItems);
       checklistItems.forEach(processItem);
     } else if (explosion) {
-      if (explosion.arcos) explosion.arcos.forEach(processItem);
-      if (explosion.modulos) explosion.modulos.forEach(processItem);
-      if (explosion.fijos) explosion.fijos.forEach(processItem);
-      if (explosion.accesorios) explosion.accesorios.forEach(processItem);
+      let expItems = [];
+      if (explosion.arcos) expItems.push(...explosion.arcos);
+      if (explosion.modulos) expItems.push(...explosion.modulos);
+      if (explosion.fijos) expItems.push(...explosion.fijos);
+      if (explosion.accesorios) expItems.push(...explosion.accesorios);
+      expItems = aggregateProducts(expItems);
+      expItems.forEach(processItem);
     }
 
     // Move to Page 2 for Materials Checklist

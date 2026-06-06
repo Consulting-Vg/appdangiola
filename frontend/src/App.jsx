@@ -139,7 +139,8 @@ export default function App() {
     backTriangle: '#ffffff',
     frontTapachata: '#ffffff',
     backTapachata: '#ffffff',
-    lateral: '#ffffff'
+    lateral: '#ffffff',
+    laterals: []
   });
 
   const fetchUsers = async () => {
@@ -616,8 +617,8 @@ export default function App() {
   // Submit Work Order Form
   const handleSubmitOT = async (e) => {
     e.preventDefault();
-    if (!formClient || !formFechaInicio || !formFechaFin || !formFechaEvento || !formObservaciones || !formGeo.direccion) {
-      alert("Faltan campos obligatorios: Cliente, Fechas (Inicio, Evento, Fin), Observaciones y Geolocalización.");
+    if (!formClient || !formFechaInicio || !formFechaFin || !formFechaEvento || !formGeo.direccion) {
+      alert("Faltan campos obligatorios: Cliente, Fechas (Inicio, Evento, Fin) y Geolocalización.");
       return;
     }
 
@@ -1307,6 +1308,29 @@ export default function App() {
     const adicionales = typeof ot.adicionales === 'string' ? JSON.parse(ot.adicionales) : ot.adicionales || {};
     const prevFijo = adicionales?.fijo_modelo_estructura;
 
+    // Inicializar colores del modulo 3D basado en lo que Comercial cargó (o colores guardados)
+    if (adicionales.viewerColors) {
+      setViewerColors(adicionales.viewerColors);
+    } else {
+      const baseColorName = adicionales?.lonas?.color || 'Blanco';
+      let baseColorHex = '#ffffff';
+      if (baseColorName === 'Negro' || baseColorName === 'Negra') baseColorHex = '#0f172a';
+      else if (baseColorName === 'Cristal/Blanca') baseColorHex = 'Cristal/Blanca';
+      else if (baseColorName === 'Cristal/Negra') baseColorHex = 'Cristal/Negra';
+      
+      const modConfig = typeof ot.modulacion_config === 'string' ? JSON.parse(ot.modulacion_config) : (ot.modulacion_config || {});
+      const numModules = modConfig?.modulos?.reduce((acc, m) => acc + m.qty, 0) || 0;
+
+      setViewerColors({
+        modules: Array(numModules).fill(baseColorHex),
+        frontTriangle: baseColorHex,
+        backTriangle: baseColorHex,
+        frontTapachata: baseColorHex,
+        backTapachata: baseColorHex,
+        lateral: baseColorHex
+      });
+    }
+
     // Check which fijos are reserved by other overlapping OTs
     const overlapping = ots.filter(o =>
       o.id !== ot.id &&
@@ -1418,17 +1442,55 @@ export default function App() {
     }
   };
 
-  const handleUpdateChecklistItem = async (itemIndex, sector, value) => {
+  const handleUpdateChecklistQty = async (itemIndices, sector, delta) => {
     if (!selectedOT) return;
     const ot = { ...selectedOT };
 
     const panol = typeof ot.panol_status === 'string' ? JSON.parse(ot.panol_status) : ot.panol_status;
     const planta = typeof ot.planta_status === 'string' ? JSON.parse(ot.planta_status) : ot.planta_status;
 
+    const indicesArray = Array.isArray(itemIndices) ? itemIndices : [itemIndices];
+    const targetList = sector === 'Pañol' ? panol : planta;
+    
+    // For grouped items, we add the delta to the FIRST item in the group.
+    if (indicesArray.length > 0) {
+      const targetItem = targetList.items[indicesArray[0]];
+      targetItem.qty = Math.max(0, (Number(targetItem.qty) || 1) + delta);
+    }
+
+    try {
+      const res = await fetch(`/api/ots/${ot.id}/checklist`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          panol_status: JSON.stringify(panol),
+          planta_status: JSON.stringify(planta),
+          estado: ot.estado,
+          usuario: currentUser?.nombre || userRole
+        })
+      });
+      if (res.ok) {
+        const updatedOT = await res.json();
+        setOts(ots.map(o => o.id === ot.id ? updatedOT : o));
+        setSelectedOT(updatedOT);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleUpdateChecklistItem = async (itemIndices, sector, value) => {
+    if (!selectedOT) return;
+    const ot = { ...selectedOT };
+
+    const panol = typeof ot.panol_status === 'string' ? JSON.parse(ot.panol_status) : ot.panol_status;
+    const planta = typeof ot.planta_status === 'string' ? JSON.parse(ot.planta_status) : ot.planta_status;
+
+    const indicesArray = Array.isArray(itemIndices) ? itemIndices : [itemIndices];
     if (sector === 'Pañol') {
-      panol.items[itemIndex].checked = value;
+      indicesArray.forEach(idx => panol.items[idx].checked = value);
     } else {
-      planta.items[itemIndex].checked = value;
+      indicesArray.forEach(idx => planta.items[idx].checked = value);
     }
 
     // Auto-update status to "Bulto Completo" if all Pañol items are checked
@@ -2761,9 +2823,8 @@ export default function App() {
               </div>
 
               <div>
-                <label className="text-[10px] uppercase tracking-widest font-black text-slate-400 block mb-1">Observaciones / Comentarios del Terreno o Cliente *</label>
+                <label className="text-[10px] uppercase tracking-widest font-black text-slate-400 block mb-1">Observaciones / Comentarios del Terreno o Cliente</label>
                 <textarea
-                  required
                   rows="3"
                   placeholder="ej. El cliente solicita que el armado se inicie por la mañana. Terreno de césped blando, se requieren estacas largas..."
                   className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-3 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all-300"
@@ -3095,7 +3156,7 @@ export default function App() {
                 <h3 className="text-xs uppercase tracking-widest font-black text-slate-400 Poppins">Plano y Renderizado 3D</h3>
                 <span className="text-[10px] font-black text-blue-900 border border-blue-200 px-2 py-0.5 rounded-md bg-blue-50/50 uppercase">Modular Doble Pendiente</span>
               </div>
-              <div className="rounded-3xl border border-slate-250 bg-slate-50 shadow-sm p-4 h-auto lg:h-[650px] overflow-hidden">
+              <div className="rounded-3xl border border-slate-250 bg-slate-50 shadow-sm p-4 h-auto lg:h-[850px] overflow-hidden">
                 {(() => {
                   const isWizardActive = selectedOT.estado === 'Aprobada por Gerencia';
                   const normalizedModules = [];
@@ -3127,15 +3188,27 @@ export default function App() {
                   const adicionales = typeof selectedOT.adicionales === 'string' ? JSON.parse(selectedOT.adicionales) : selectedOT.adicionales || {};
                   const telasCortinas = adicionales.telas_cortinas || { si: false, color: 'Blanco' };
                   return (
-                    <ThreeViewer
-                      modules={normalizedModules}
-                      legHeight={resolvedLegHeight}
-                      width={parseFloat(selectedOT.frente || 10)}
-                      modelName={selectedOT.modelo_estructura}
-                      telasCortinas={telasCortinas}
-                      colors={viewerColors}
-                      setColors={setViewerColors}
-                    />
+                    <div className="relative h-full">
+                      <ThreeViewer
+                        modules={normalizedModules}
+                        legHeight={resolvedLegHeight}
+                        width={parseFloat(selectedOT.frente || 10)}
+                        modelName={selectedOT.modelo_estructura}
+                        telasCortinas={telasCortinas}
+                        colors={viewerColors}
+                        setColors={setViewerColors}
+                      />
+                      {/* Botón para guardar las modificaciones del modelo 3D (para Operaciones) */}
+                      {selectedOT.estado !== 'Cancelada' && (
+                        <button
+                          onClick={() => handleUpdateOTAdicionales(selectedOT.id, { ...adicionales, viewerColors })}
+                          className="absolute top-4 left-4 bg-white/90 backdrop-blur px-3 py-1.5 rounded-lg text-xs font-bold text-slate-700 shadow-sm border border-slate-200 hover:bg-white z-10 transition-all-300"
+                          title="Guarda la configuración actual de colores de lonas en la OT."
+                        >
+                          Guardar Diseño 3D
+                        </button>
+                      )}
+                    </div>
                   );
                 })()}
               </div>
@@ -3618,7 +3691,36 @@ export default function App() {
                       const panol = typeof selectedOT.panol_status === 'string' ? JSON.parse(selectedOT.panol_status) : selectedOT.panol_status;
                       const planta = typeof selectedOT.planta_status === 'string' ? JSON.parse(selectedOT.planta_status) : selectedOT.planta_status;
 
-                      const isLona = (name) => {
+                      const aggregateOperarioItems = (items) => {
+                        const aggregated = {};
+                        items.forEach(item => {
+                          let cleanName = String(item.producto || item.nombre || '').replace(/[-_][a-zA-Z]+\d*\s*$/i, '');
+                          if (!aggregated[cleanName]) {
+                            aggregated[cleanName] = { 
+                              producto: cleanName, 
+                              qty: 0, 
+                              checkedCount: 0,
+                              indices: [],
+                              sourceList: item.sourceList
+                            };
+                          }
+                          aggregated[cleanName].qty += Number(item.qty || 1);
+                          if (item.checked) aggregated[cleanName].checkedCount += 1;
+                          aggregated[cleanName].indices.push(item.originalIndex !== undefined ? item.originalIndex : item.idx);
+                        });
+                        
+                        return Object.values(aggregated).map(agg => ({
+                          ...agg,
+                          checked: agg.checkedCount === agg.indices.length
+                        })).sort((a, b) => {
+                          const secA = a.sourceList || '';
+                          const secB = b.sourceList || '';
+                          if (secA !== secB) return secA.localeCompare(secB);
+                          return a.producto.localeCompare(b.producto);
+                        });
+                      };
+
+  const isLona = (name) => {
                         const n = name.toLowerCase();
                         return n.includes('lona') || n.includes('techo') || n.includes('lateral') || n.includes('triangulo') || n.includes('tapachata') || n.includes('puerta');
                       };
@@ -3662,20 +3764,29 @@ export default function App() {
                             <div className="space-y-2 border-r border-slate-200/80 pr-2">
                               <h4 className="text-[10px] font-black uppercase text-purple-700 tracking-wider font-mono">1. Checklist Pañol</h4>
                               <div className="space-y-1">
-                                {panol?.items?.map((item, idx) => {
-                                  const isEditable = userRole === 'Pañol' || userRole === 'Gerencia' || userRole === 'SuperAdmin';
+                                {aggregateOperarioItems(panol?.items?.map((item, idx) => ({...item, idx})) || []).map((item, aggIdx) => {
+                                  const isEditable = userRole === 'Pañol' || userRole === 'Gerencia' || userRole === 'SuperAdmin' || userRole === 'Operaciones';
                                   return (
-                                    <div key={idx} className="flex items-start gap-2 py-1">
-                                      <input
-                                        type="checkbox"
-                                        disabled={!isEditable}
-                                        checked={item.checked}
-                                        onChange={(e) => handleUpdateChecklistItem(idx, 'Pañol', e.target.checked)}
-                                        className="w-4 h-4 mt-0.5 rounded border-slate-300 text-purple-600 focus:ring-purple-500 cursor-pointer"
-                                      />
-                                      <span className={`text-[10px] font-semibold leading-tight ${item.checked ? 'line-through text-slate-400' : 'text-slate-700'}`}>
-                                        {item.producto} <span className="font-extrabold text-purple-800">x{item.qty}</span>
-                                      </span>
+                                    <div key={aggIdx} className="flex flex-col gap-1 py-1 border-b border-slate-100 last:border-0">
+                                      <div className="flex items-start gap-2">
+                                        <input
+                                          type="checkbox"
+                                          disabled={!isEditable}
+                                          checked={item.checked}
+                                          onChange={(e) => handleUpdateChecklistItem(item.indices, 'Pañol', e.target.checked)}
+                                          className="w-4 h-4 mt-0.5 rounded border-slate-300 text-purple-600 focus:ring-purple-500 cursor-pointer"
+                                        />
+                                        <div className="flex-1 flex justify-between items-center">
+                                          <div className={`text-[11px] font-bold leading-tight flex-1 ${item.checked ? 'line-through text-slate-400' : 'text-slate-700'}`}>
+                                            {item.producto}
+                                          </div>
+                                          <div className="flex items-center gap-1 bg-white border border-slate-200 rounded px-1 ml-2">
+                                            <button onClick={() => isEditable && handleUpdateChecklistQty(item.indices, 'Pañol', -1)} className="text-slate-400 hover:text-red-500 font-bold px-1.5" disabled={!isEditable || item.qty <= 0}>-</button>
+                                            <span className="text-purple-700 font-black text-[11px] min-w-[20px] text-center">x{item.qty}</span>
+                                            <button onClick={() => isEditable && handleUpdateChecklistQty(item.indices, 'Pañol', 1)} className="text-slate-400 hover:text-green-500 font-bold px-1.5" disabled={!isEditable}>+</button>
+                                          </div>
+                                        </div>
+                                      </div>
                                     </div>
                                   );
                                 })}
@@ -3685,20 +3796,29 @@ export default function App() {
                             <div className="space-y-2 pl-2">
                               <h4 className="text-[10px] font-black uppercase text-orange-700 tracking-wider font-mono">2. Checklist Planta</h4>
                               <div className="space-y-1">
-                                {planta?.items?.map((item, idx) => {
-                                  const isEditable = userRole === 'Planta' || userRole === 'Gerencia' || userRole === 'SuperAdmin';
+                                {aggregateOperarioItems(planta?.items?.map((item, idx) => ({...item, idx})) || []).map((item, aggIdx) => {
+                                  const isEditable = userRole === 'Planta' || userRole === 'Gerencia' || userRole === 'SuperAdmin' || userRole === 'Operaciones';
                                   return (
-                                    <div key={idx} className="flex items-start gap-2 py-1">
-                                      <input
-                                        type="checkbox"
-                                        disabled={!isEditable}
-                                        checked={item.checked}
-                                        onChange={(e) => handleUpdateChecklistItem(idx, 'Planta', e.target.checked)}
-                                        className="w-4 h-4 mt-0.5 rounded border-slate-300 text-orange-600 focus:ring-orange-500 cursor-pointer"
-                                      />
-                                      <span className={`text-[10px] font-semibold leading-tight ${item.checked ? 'line-through text-slate-400' : 'text-slate-700'}`}>
-                                        {item.producto} <span className="font-extrabold text-orange-850">x{item.qty}</span>
-                                      </span>
+                                    <div key={aggIdx} className="flex flex-col gap-1 py-1 border-b border-slate-100 last:border-0">
+                                      <div className="flex items-start gap-2">
+                                        <input
+                                          type="checkbox"
+                                          disabled={!isEditable}
+                                          checked={item.checked}
+                                          onChange={(e) => handleUpdateChecklistItem(item.indices, 'Planta', e.target.checked)}
+                                          className="w-4 h-4 mt-0.5 rounded border-slate-300 text-orange-600 focus:ring-orange-500 cursor-pointer"
+                                        />
+                                        <div className="flex-1 flex justify-between items-center">
+                                          <div className={`text-[11px] font-bold leading-tight flex-1 ${item.checked ? 'line-through text-slate-400' : 'text-slate-700'}`}>
+                                            {item.producto}
+                                          </div>
+                                          <div className="flex items-center gap-1 bg-white border border-slate-200 rounded px-1 ml-2">
+                                            <button onClick={() => isEditable && handleUpdateChecklistQty(item.indices, 'Planta', -1)} className="text-slate-400 hover:text-red-500 font-bold px-1.5" disabled={!isEditable || item.qty <= 0}>-</button>
+                                            <span className="text-orange-700 font-black text-[11px] min-w-[20px] text-center">x{item.qty}</span>
+                                            <button onClick={() => isEditable && handleUpdateChecklistQty(item.indices, 'Planta', 1)} className="text-slate-400 hover:text-green-500 font-bold px-1.5" disabled={!isEditable}>+</button>
+                                          </div>
+                                        </div>
+                                      </div>
                                     </div>
                                   );
                                 })}
@@ -3716,6 +3836,8 @@ export default function App() {
                         );
                       }
 
+                      
+                      
                       const actualRole = currentUser?.rol || userRole;
                       const isOperario = actualRole === 'Operario';
 
@@ -3782,13 +3904,13 @@ export default function App() {
                                   <div className="space-y-2">
                                     <h4 className={`text-[10px] font-black uppercase ${style.colColor} tracking-wider font-mono`}>{style.title}</h4>
                                     <div className="space-y-1">
-                                      {sectorItems.map((item, index) => (
+                                      {aggregateOperarioItems(sectorItems).map((item, index) => (
                                         <div key={index} className="flex items-start gap-2 py-1">
                                           <input
                                             type="checkbox"
                                             disabled={!isEditable}
                                             checked={item.checked}
-                                            onChange={(e) => handleUpdateChecklistItem(item.originalIndex, item.sourceList, e.target.checked)}
+                                            onChange={(e) => handleUpdateChecklistItem(item.indices, item.sourceList, e.target.checked)}
                                             className={`w-4 h-4 mt-0.5 rounded border-slate-300 ${style.checkColor} cursor-pointer`}
                                           />
                                           <span className={`text-[10px] font-semibold leading-tight ${item.checked ? 'line-through text-slate-400' : 'text-slate-700'} ${!isEditable ? 'opacity-60' : ''}`}>

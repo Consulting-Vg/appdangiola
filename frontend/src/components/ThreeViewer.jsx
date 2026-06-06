@@ -531,8 +531,8 @@ function TentStructure({
             <PanelMesh position={[halfWidth + halfWidth / 2, legHeight + ridgeOffset / 2 + 0.02, zMid]} rotation={[0, 0, -roofAngle]} args={[rafterLength, 0.015, modLength]} color={m.color} internalLight={internalLight} materialFn={getLonaMaterialProps} />
             {showLaterales && (
               <>
-                <PanelMesh position={[0, legHeight / 2, zMid]} args={[0.005, legHeight, modLength]} color={lateralColor} internalLight={internalLight} materialFn={getLateralMaterialProps} />
-                <PanelMesh position={[width, legHeight / 2, zMid]} args={[0.005, legHeight, modLength]} color={lateralColor} internalLight={internalLight} materialFn={getLateralMaterialProps} />
+                <PanelMesh position={[0, legHeight / 2, zMid]} args={[0.005, legHeight, modLength]} color={colors.laterals?.[index] || colors.lateral || '#ffffff'} internalLight={internalLight} materialFn={getLateralMaterialProps} />
+                <PanelMesh position={[width, legHeight / 2, zMid]} args={[0.005, legHeight, modLength]} color={colors.laterals?.[index] || colors.lateral || '#ffffff'} internalLight={internalLight} materialFn={getLateralMaterialProps} />
               </>
             )}
           </group>
@@ -923,6 +923,11 @@ export default function ThreeViewer({
   const handleFrontTapachataColor = (c) => setColors({ ...colors, frontTapachata: c });
   const handleBackTapachataColor  = (c) => setColors({ ...colors, backTapachata: c });
   const handleLateralColor        = (c) => setColors({ ...colors, lateral: c });
+  const handleLateralModuleColor  = (i, c) => { 
+    const lats = [...(colors.laterals || [])];
+    lats[i] = c;
+    setColors({ ...colors, laterals: lats });
+  };
 
   const handleZoom = (f) => {
     if (!controlsRef.current) return;
@@ -1281,7 +1286,7 @@ export default function ThreeViewer({
             {/* Lonas del Techo */}
             <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 shadow-sm">
               <h3 className="text-xs uppercase tracking-widest font-black text-slate-400 mb-3">Lonas del Techo</h3>
-              <div className="space-y-3 max-h-[200px] overflow-y-auto pr-1">
+              <div className="space-y-3 pr-1">
                 {modules.map((m, idx) => (
                   <div key={idx} className="p-2 bg-white rounded-xl border border-slate-100 shadow-sm space-y-1.5">
                     <span className="text-xs font-bold text-slate-700">Módulo {idx + 1} ({m.largo}m)</span>
@@ -1320,9 +1325,13 @@ export default function ThreeViewer({
             {/* Laterales */}
             <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 shadow-sm">
               <h3 className="text-xs uppercase tracking-widest font-black text-slate-400 mb-3">Color Laterales</h3>
-              <div className="p-2 bg-white rounded-xl border border-slate-100 shadow-sm space-y-1.5">
-                <span className="text-xs font-bold text-slate-700">Pared lateral (todos)</span>
-                <ColorSwatches selected={colors.lateral || '#ffffff'} onChange={handleLateralColor} />
+              <div className="space-y-3 pr-1">
+                {modules.map((m, idx) => (
+                  <div key={idx} className="p-2 bg-white rounded-xl border border-slate-100 shadow-sm space-y-1.5">
+                    <span className="text-xs font-bold text-slate-700">Módulo {idx + 1} ({m.largo}m)</span>
+                    <ColorSwatches selected={colors.laterals?.[idx] || colors.lateral || '#ffffff'} onChange={(c) => handleLateralModuleColor(idx, c)} />
+                  </div>
+                ))}
               </div>
             </div>
           </>

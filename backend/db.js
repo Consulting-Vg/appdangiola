@@ -1043,19 +1043,37 @@ export const db = {
       }
       currentAdicionales.modulado_por = usuario || 'Sistema';
 
-      const res = await pool.query(
-        `UPDATE ordenes_trabajo 
-         SET modulacion_config = $1, adicionales = $2, panol_status = $3, planta_status = $4, estado = 'Aprobada'
-         WHERE id = $5 
-         RETURNING *`,
-        [
-          JSON.stringify(modulacion_config),
-          JSON.stringify(currentAdicionales),
-          JSON.stringify(panol_status),
-          JSON.stringify(planta_status),
-          id
-        ]
-      );
+
+      let derivedModelo = null;
+      if (arcos_reservados && arcos_reservados.length > 0) {
+        const uniqueModels = new Set();
+        arcos_reservados.forEach(arco => {
+          const parts = arco.split('_');
+          if (parts.length >= 2) {
+            uniqueModels.add(parts[0]);
+          }
+        });
+        if (uniqueModels.size > 0) {
+          derivedModelo = Array.from(uniqueModels).join(' + ');
+        }
+      }
+      
+      const queryStr = derivedModelo 
+        ? `UPDATE ordenes_trabajo 
+           SET modulacion_config = $1, adicionales = $2, panol_status = $3, planta_status = $4, estado = 'Aprobada', modelo_estructura = $6
+           WHERE id = $5 
+           RETURNING *`
+        : `UPDATE ordenes_trabajo 
+           SET modulacion_config = $1, adicionales = $2, panol_status = $3, planta_status = $4, estado = 'Aprobada'
+           WHERE id = $5 
+           RETURNING *`;
+           
+      const queryParams = derivedModelo
+        ? [JSON.stringify(modulacion_config), JSON.stringify(currentAdicionales), JSON.stringify(panol_status), JSON.stringify(planta_status), id, derivedModelo]
+        : [JSON.stringify(modulacion_config), JSON.stringify(currentAdicionales), JSON.stringify(panol_status), JSON.stringify(planta_status), id];
+
+      const res = await pool.query(queryStr, queryParams);
+
       return res.rows[0];
     } else {
       const db = loadJsonDb();
@@ -1081,6 +1099,14 @@ export const db = {
         ot.adicionales = currentAdicionales;
         ot.panol_status = panol_status;
         ot.planta_status = planta_status;
+        if (arcos_reservados && arcos_reservados.length > 0) {
+          const uniqueModels = new Set();
+          arcos_reservados.forEach(arco => {
+            const parts = arco.split('_');
+            if (parts.length >= 2) uniqueModels.add(parts[0]);
+          });
+          if (uniqueModels.size > 0) ot.modelo_estructura = Array.from(uniqueModels).join(' + ');
+        }
         ot.estado = 'Aprobada';
         saveJsonDb();
         return ot;
