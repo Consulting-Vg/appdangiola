@@ -78,7 +78,7 @@ if os.path.exists(clientes_path):
 est_path = os.path.join(workspace_dir, "estructuras.xlsx")
 if os.path.exists(est_path):
     print("Parsing Estructuras Maestras...")
-    df = pd.read_excel(est_path, sheet_name="Hoja1")
+    df = pd.read_excel(est_path, sheet_name="Estructuras")
     for idx, row in df.iterrows():
         modelo = clean_val(row.get("Modelo_Estructura"))
         if not modelo:
