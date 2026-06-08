@@ -2355,10 +2355,13 @@ app.post('/api/maestro/import/:table', express.raw({ type: '*/*', limit: '50mb' 
       return defaultVal;
     };
 
+    // Determine import mode: 'replace' (default) clears table first; 'append' just inserts new rows
+    const importMode = (req.query.mode === 'append') ? 'append' : 'replace';
+    const shouldClear = importMode === 'replace';
     let insertedCount = 0;
 
     if (table === 'personal') {
-      await db.clearPersonal();
+      if (shouldClear) await db.clearPersonal();
       for (const row of rows) {
         const nombre = getVal(row, ['Nombre', 'nombre']);
         if (!nombre) continue;
@@ -2370,7 +2373,7 @@ app.post('/api/maestro/import/:table', express.raw({ type: '*/*', limit: '50mb' 
         insertedCount++;
       }
     } else if (table === 'recursos') {
-      await db.clearRecursos();
+      if (shouldClear) await db.clearRecursos();
       for (const row of rows) {
         const nombre = getVal(row, ['Nombre', 'nombre']);
         if (!nombre) continue;
@@ -2382,7 +2385,7 @@ app.post('/api/maestro/import/:table', express.raw({ type: '*/*', limit: '50mb' 
         insertedCount++;
       }
     } else if (table === 'estructuras') {
-      await db.clearStructures();
+      if (shouldClear) await db.clearStructures();
       for (const row of rows) {
         const modelo_estructura = getVal(row, ['Modelo_Estructura', 'Modelo', 'Nombre', 'modelo_estructura']);
         if (!modelo_estructura) continue;
@@ -2395,7 +2398,7 @@ app.post('/api/maestro/import/:table', express.raw({ type: '*/*', limit: '50mb' 
         insertedCount++;
       }
     } else if (table === 'arcos') {
-      await db.clearArches();
+      if (shouldClear) await db.clearArches();
       for (const row of rows) {
         const producto = getVal(row, ['Producto', 'Nombre', 'producto']);
         if (!producto) continue;
@@ -2407,7 +2410,7 @@ app.post('/api/maestro/import/:table', express.raw({ type: '*/*', limit: '50mb' 
         insertedCount++;
       }
     } else if (table === 'modulos') {
-      await db.clearModules();
+      if (shouldClear) await db.clearModules();
       for (const row of rows) {
         const producto = getVal(row, ['Producto', 'Nombre', 'producto']);
         if (!producto) continue;
@@ -2433,7 +2436,7 @@ app.post('/api/maestro/import/:table', express.raw({ type: '*/*', limit: '50mb' 
         insertedCount++;
       }
     } else if (table === 'fijos') {
-      await db.clearFijos();
+      if (shouldClear) await db.clearFijos();
       for (const row of rows) {
         const producto = getVal(row, ['Producto', 'Nombre', 'producto']);
         if (!producto) continue;
@@ -2455,7 +2458,7 @@ app.post('/api/maestro/import/:table', express.raw({ type: '*/*', limit: '50mb' 
         insertedCount++;
       }
     } else if (table === 'clientes') {
-      await db.clearClients();
+      if (shouldClear) await db.clearClients();
       for (const row of rows) {
         const nombre = getVal(row, ['Nombre', 'nombre']);
         if (!nombre) continue;
@@ -2482,7 +2485,7 @@ app.post('/api/maestro/import/:table', express.raw({ type: '*/*', limit: '50mb' 
         insertedCount++;
       }
     } else if (table === 'vendedores') {
-      await db.clearVendedores();
+      if (shouldClear) await db.clearVendedores();
       for (const row of rows) {
         const nombre = getVal(row, ['Nombre', 'Vendedor', 'nombre']);
         if (!nombre) continue;
@@ -2493,7 +2496,7 @@ app.post('/api/maestro/import/:table', express.raw({ type: '*/*', limit: '50mb' 
     } else if (['lonas', 'telas', 'pisos', 'alfombras'].includes(table)) {
       const catMap = { lonas: 'lona', telas: 'tela', pisos: 'piso', alfombras: 'alfombra' };
       const categoria = catMap[table];
-      await db.clearAccessoriesByCategory(categoria);
+      if (shouldClear) await db.clearAccessoriesByCategory(categoria);
 
       for (const row of rows) {
         let nombre = '';
@@ -2540,7 +2543,7 @@ app.post('/api/maestro/import/:table', express.raw({ type: '*/*', limit: '50mb' 
       return res.status(400).json({ error: 'Tabla no reconocida' });
     }
 
-    res.json({ success: true, insertados: insertedCount, total_enviados: rows.length });
+    res.json({ success: true, insertados: insertedCount, total_enviados: rows.length, mode: importMode });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

@@ -17,6 +17,7 @@ export default function MaestroDatos({ currentUser }) {
   const [formData, setFormData] = useState({});
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState(null);
+  const [importMode, setImportMode] = useState('replace'); // 'replace' | 'append'
   const fileInputRef = useRef(null);
 
   const tabs = [
@@ -141,6 +142,15 @@ export default function MaestroDatos({ currentUser }) {
 
   const handleImportFile = async (file) => {
     if (!file) return;
+
+    // Confirm destructive action
+    if (importMode === 'replace') {
+      const confirmed = window.confirm(
+        `⚠️ ATENCIÓN: Vas a REEMPLAZAR COMPLETAMENTE la tabla "${activeTabConfig?.label}".\n\nTodos los registros actuales serán eliminados antes de insertar los datos del archivo.\n\n¿Confirmas que querés continuar?`
+      );
+      if (!confirmed) return;
+    }
+
     setImporting(true);
     setImportResult(null);
     setError('');
@@ -150,7 +160,7 @@ export default function MaestroDatos({ currentUser }) {
       reader.onload = async (e) => {
         try {
           const buffer = e.target.result;
-          const res = await fetch(`/api/maestro/import/${activeTab}`, {
+          const res = await fetch(`/api/maestro/import/${activeTab}?mode=${importMode}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/octet-stream' },
             body: buffer
@@ -163,12 +173,14 @@ export default function MaestroDatos({ currentUser }) {
           
           const result = await res.json();
           setImportResult(result);
-          alert(`¡Carga masiva completada! Se insertaron ${result.insertados} registros.`);
+          const modeLabel = importMode === 'append' ? 'anexados' : 'cargados (reemplazando tabla)';
+          alert(`✅ ¡Carga masiva completada!\n\nSe ${modeLabel} ${result.insertados} registros de ${result.total_enviados} filas en el archivo.`);
           fetchData();
         } catch (err) {
           setError(err.message);
         } finally {
           setImporting(false);
+          if (fileInputRef.current) fileInputRef.current.value = '';
         }
       };
       reader.readAsArrayBuffer(file);
@@ -590,10 +602,54 @@ export default function MaestroDatos({ currentUser }) {
               <Upload className="w-5 h-5 text-indigo-300" />
               <h3 className="text-sm font-black uppercase tracking-wider">Carga Masiva</h3>
             </div>
+
             
             <p className="text-[11px] text-indigo-200 leading-relaxed font-medium">
-              Sube una planilla Excel (`.xlsx`) o archivo separado por comas (`.csv`) para reemplazar por completo la tabla de <strong>{activeTabConfig?.label}</strong>.
+              Sube una planilla Excel (`.xlsx`) o CSV para gestionar la tabla de <strong>{activeTabConfig?.label}</strong>.
             </p>
+
+            {/* Mode selector */}
+            <div className="space-y-1.5">
+              <div className="text-[9px] font-black uppercase tracking-widest text-indigo-300 mb-2">Modo de carga</div>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setImportMode('replace')}
+                  className={`flex flex-col items-center gap-1.5 py-3 px-2 rounded-xl border text-[10px] font-black uppercase tracking-wide transition-all cursor-pointer ${
+                    importMode === 'replace'
+                      ? 'bg-red-500/20 border-red-400 text-red-200'
+                      : 'bg-white/5 border-white/10 text-indigo-300 hover:bg-white/10'
+                  }`}
+                >
+                  <span className="text-lg leading-none">{importMode === 'replace' ? '🔴' : '🔄'}</span>
+                  <span>Reemplazar</span>
+                  <span className="font-medium normal-case text-[9px] opacity-70">Borra y recarga</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setImportMode('append')}
+                  className={`flex flex-col items-center gap-1.5 py-3 px-2 rounded-xl border text-[10px] font-black uppercase tracking-wide transition-all cursor-pointer ${
+                    importMode === 'append'
+                      ? 'bg-emerald-500/20 border-emerald-400 text-emerald-200'
+                      : 'bg-white/5 border-white/10 text-indigo-300 hover:bg-white/10'
+                  }`}
+                >
+                  <span className="text-lg leading-none">{importMode === 'append' ? '🟢' : '➕'}</span>
+                  <span>Agregar</span>
+                  <span className="font-medium normal-case text-[9px] opacity-70">Suma sin borrar</span>
+                </button>
+              </div>
+              {importMode === 'replace' && (
+                <div className="text-[9px] text-red-300 font-semibold bg-red-500/10 border border-red-400/30 rounded-lg px-2.5 py-1.5 flex items-center gap-1.5">
+                  <span>⚠️</span> Acción destructiva: pedirá confirmación antes de proceder.
+                </div>
+              )}
+              {importMode === 'append' && (
+                <div className="text-[9px] text-emerald-300 font-semibold bg-emerald-500/10 border border-emerald-400/30 rounded-lg px-2.5 py-1.5 flex items-center gap-1.5">
+                  <span>✅</span> Los registros actuales se conservan.
+                </div>
+              )}
+            </div>
 
             <div 
               onDrop={(e) => {
@@ -603,7 +659,11 @@ export default function MaestroDatos({ currentUser }) {
               }}
               onDragOver={e => e.preventDefault()}
               onClick={() => fileInputRef.current?.click()}
-              className="border border-dashed border-indigo-400 hover:border-white hover:bg-white/5 rounded-2xl p-6 text-center cursor-pointer transition-all-300 space-y-2 bg-black/15"
+              className={`border border-dashed rounded-2xl p-6 text-center cursor-pointer transition-all space-y-2 ${
+                importing ? 'opacity-50 pointer-events-none' : 'hover:border-white hover:bg-white/5'
+              } ${
+                importMode === 'replace' ? 'border-red-400/60 bg-red-900/10' : 'border-indigo-400 bg-black/15'
+              }`}
             >
               <input 
                 ref={fileInputRef}
@@ -612,17 +672,40 @@ export default function MaestroDatos({ currentUser }) {
                 className="hidden" 
                 onChange={(e) => e.target.files[0] && handleImportFile(e.target.files[0])} 
               />
-              <FileText className="w-8 h-8 mx-auto text-indigo-300" />
-              <div className="text-[11px] font-bold">Arrastra el archivo o haz click para seleccionar</div>
-              <div className="text-[9px] text-indigo-300 font-medium">Formatos: .csv / .xlsx</div>
+              {importing ? (
+                <>
+                  <RefreshCw className="w-8 h-8 mx-auto text-indigo-300 animate-spin" />
+                  <div className="text-[11px] font-bold">Procesando archivo...</div>
+                </>
+              ) : (
+                <>
+                  <FileText className="w-8 h-8 mx-auto text-indigo-300" />
+                  <div className="text-[11px] font-bold">Arrastrá el archivo o hacé click para seleccionar</div>
+                  <div className="text-[9px] text-indigo-300 font-medium">Formatos: .csv / .xlsx</div>
+                </>
+              )}
             </div>
+
+            {/* Result badge */}
+            {importResult && (
+              <div className={`text-[10px] font-bold rounded-xl px-3 py-2.5 flex items-center gap-2 ${
+                importResult.mode === 'append'
+                  ? 'bg-emerald-500/20 border border-emerald-400/40 text-emerald-200'
+                  : 'bg-blue-500/20 border border-blue-400/40 text-blue-200'
+              }`}>
+                <Check className="w-3.5 h-3.5 shrink-0" />
+                <span>
+                  {importResult.insertados} registros {importResult.mode === 'append' ? 'agregados' : 'cargados'} de {importResult.total_enviados} en el archivo
+                </span>
+              </div>
+            )}
 
             <button
               onClick={downloadTemplate}
-              className="w-full flex items-center justify-center gap-2 py-2.5 bg-white/10 hover:bg-white/20 border border-white/10 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all-300 cursor-pointer"
+              className="w-full flex items-center justify-center gap-2 py-2.5 bg-white/10 hover:bg-white/20 border border-white/10 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer"
             >
               <Download className="w-4 h-4" />
-              <span>Descargar Plantilla</span>
+              <span>Descargar Plantilla CSV</span>
             </button>
           </div>
 
@@ -632,7 +715,9 @@ export default function MaestroDatos({ currentUser }) {
               <AlertCircle className="w-3.5 h-3.5 text-blue-900" /> Nota de consistencia:
             </div>
             <p className="leading-relaxed">
-              La carga de archivos vaciará la tabla activa antes de insertar las nuevas filas. Asegúrate de incluir todos los campos obligatorios.
+              En modo <strong>Reemplazar</strong>, la tabla activa se vaciará antes de insertar las nuevas filas.
+              En modo <strong>Agregar</strong>, las filas del archivo se suman a los registros existentes sin borrar nada.
+              Asegurate de que el archivo respete el formato de la plantilla.
             </p>
           </div>
         </div>
