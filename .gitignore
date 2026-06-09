@@ -38,3 +38,8 @@ ENV/
 # Local JSON database fallback
 backend/data/db.json
 
+# Local database binaries
+*.db
+covelia.db
+
+
