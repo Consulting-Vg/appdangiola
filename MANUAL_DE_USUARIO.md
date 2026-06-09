@@ -7,11 +7,11 @@ Este manual detalla las funcionalidades del sistema ERP unificado de **Carpas D'
 ## 1. Módulos por Roles de Usuario
 El sistema adapta su interfaz dinámicamente según el rol asignado al usuario. Los roles disponibles y sus módulos asociados son:
 
-*   **Gerencia / SuperAdmin**: Acceso total a todos los módulos (Comercial, Operaciones, Almacén, Chofer y el Panel de Gerencia BI).
-*   **Comercial**: Gestión de clientes, cotizaciones y creación de Órdenes de Trabajo (OT).
-*   **Operaciones**: Planificación y supervisión de OTs, asignación de personal y recursos.
-*   **Almacén (Planta / Pañol / Lonas / Pisos / Telas)**: Preparación de carga, control de stock y listas de empaque.
-*   **Chofer**: Seguimiento de rutas, registro de entregas por GPS y logística de retornos.
+*   **Gerencia / SuperAdmin**: Acceso total a todos los módulos (Comercial, Operaciones, Almacén, Chofer, Maestro de Datos y el Panel de Gerencia BI con Asistente de IA).
+*   **Comercial**: Gestión de clientes, cotizaciones, creación de Órdenes de Trabajo (OT) y visualización del renderizado 3D interactivo.
+*   **Operaciones**: Planificación y supervisión de OTs, asignación de personal y recursos, verificación temporal de disponibilidad de arcos y análisis climático preventivo.
+*   **Almacén (Planta / Pañol / Lonas / Pisos / Telas)**: Preparación de carga mediante checklists segmentados en 6 áreas físicas independientes y generación de remitos oficiales agrupados.
+*   **Chofer**: Seguimiento de rutas, registro de entregas por GPS, análisis climático para la obra de entrega y logística de retornos.
 *   **Operario**: Visualización de tareas asignadas específicas según su área física.
 
 ---
@@ -19,23 +19,31 @@ El sistema adapta su interfaz dinámicamente según el rol asignado al usuario. 
 ## 2. Flujo y Estados de una Orden de Trabajo (OT)
 La Orden de Trabajo es el núcleo operativo. Su ciclo de vida pasa por los siguientes estados:
 
-1.  **Pendiente**: Creada por el área Comercial. Se especifican las medidas de la carpa, modulación, adicionales (lonas, pisos, cortinas, etc.) y georreferenciación.
-2.  **Aprobada**: Confirmada para producción. El sistema realiza la explosión de materiales (BOM) y calcula las piezas exactas necesarias de arcos, fijos y módulos de extensión.
+1.  **Pendiente**: Creada por el área Comercial. Se especifican las medidas de la carpa, modulación, adicionales (lonas, pisos, cortinas, etc.) y georreferenciación. En este estado, los usuarios de **Gerencia** y **Operaciones** pueden ejecutar la **"VERIFICACIÓN TEMPORAL DE ARCOS"** para comprobar la viabilidad del stock según las fechas comprometidas.
+2.  **Aprobada**: Confirmada para producción. El sistema realiza la explosión de materiales (BOM) y calcula las piezas exactas necesarias de arcos, fijos y módulos de extensión. Durante la modulación inicial en el asistente (Paso 1), se dispone del botón de **"VERIFICAR TEMPORAL DE ARCOS"** para realizar simulaciones en tiempo real antes de confirmar el diseño final.
 3.  **Bulto Completo**: El almacén prepara el cargamento. Pañol y Planta confirman las piezas mediante checklists digitales.
 4.  **En Planta**: Los materiales están consolidados en zona de despacho y listos para transporte.
 5.  **Completada (Entregada / Armada)**: El chofer traslada la carga (registrando la llegada por GPS) y se inicia el armado en la ubicación del cliente.
 6.  **Cancelada**: Cancelación de la OT antes de la salida de stock.
 
+*Nota sobre Visualización 3D*: La sección "Plano y Renderizado 3D" está restringida a los roles autorizados (`Gerencia`, `Comercial`, `Operaciones`, `SuperAdmin`). Para optimizar el rendimiento de la aplicación, el motor de renderizado 3D cuenta con un botón de alternancia (**"Ver Render 3D" / "Ocultar Render 3D"**) que carga e inicializa la simulación tridimensional a demanda.*
+
 ---
 
 ## 3. Preparación de Carga y Remisión Automática
-### Checklist de Almacén
-El personal de almacén dispone de un panel con los items requeridos desglosados en:
-*   **Pañol**: Piezas pequeñas de anclaje, tornillería, cables, tensores, etc.
-*   **Planta**: Estructuras mayores de aluminio/acero, vigas, columnas y arcos.
-*   **Lonas, Pisos y Telas**: Accesorios textiles o maderas según configuración de la OT.
+### Checklist de Almacén (6 Sectores Independientes)
+Para evitar confusiones durante la carga y consolidar un flujo ágil, el panel de preparación para el rol de Administrador (`Gerencia`, `Operaciones`, `SuperAdmin`) organiza los materiales requeridos en una cuadrícula de 3 columnas que muestra **6 checklists independientes**, cada uno correspondiente a un sector físico del depósito:
+1.  **Planta (Estructurales)**: Vigas de aluminio, columnas, riendas, etc. (Color naranja).
+2.  **Pañol (Rígidos)**: Anclajes, tornillos, estacas, cables y tensores. (Color púrpura).
+3.  **Lonas**: Techos, fondos y lonas laterales. (Color verde azulado).
+4.  **Pisos**: Placas y vigas de madera para la base. (Color esmeralda).
+5.  **Alfombras**: Rollo e insumos de alfombra de la OT. (Color verde lima).
+6.  **Telas**: Cielorraso de tela decorativa y cortinería especial. (Color índigo).
 
-Al completar el checklist, se habilita la **generación automática del Remito Oficial en PDF**, el cual cumple con la estructura formal de facturación y remisión (incluyendo el código de documento correspondiente, datos de emisor, receptor, desglose agrupado de materiales, distancia en kilómetros desde Burzaco HQ y campos de firma).
+El personal operario con roles específicos en el almacén visualizará únicamente el checklist de la categoría asociada a su sector asignado.
+
+### Remito Oficial y Hojas de Carga en PDF
+Una vez completados los checklists, el sistema genera automáticamente el **Remito Oficial en PDF** y las hojas de control. El diseño del PDF ha sido optimizado para estructurar los materiales en **6 tablas separadas**, reflejando exactamente los 6 sectores de carga del almacén. Esta separación permite distribuir las hojas físicas de remisión entre los distintos sectores para una recolección paralela sin interferencias.
 
 ---
 
@@ -48,7 +56,7 @@ Cuando se cumple la fecha de fin de evento (`fecha_fin`), el sistema genera aler
 ---
 
 ## 5. Panel de Gerencia BI y Analítica Predictiva
-El módulo de Gerencia consolida los datos históricos de facturación junto con la información operativa en tiempo real mediante cuatro tableros dinámicos:
+El módulo de Gerencia consolida los datos históricos de facturación junto con la información operativa en tiempo real mediante cinco tableros dinámicos:
 
 ### A. Performance Comercial
 *   **Métricas Clave**: m² traccionados, ticket promedio en m², cantidad total de eventos, y eventos georreferenciados.
@@ -70,18 +78,36 @@ El módulo de Gerencia consolida los datos históricos de facturación junto con
 *   **Horizonte de Planificación**: Permite predecir la demanda física a nivel de estructuras y accesorios para la próxima semana, mes, trimestre o meses específicos (p. ej., la temporada alta de diciembre o marzo).
 *   **Justificación de Demanda**: Listado de clientes que se prevé que contraten en el periodo, con el modelo de carpa esperado y nivel de confianza estadística del modelo predictivo.
 
+### E. Asistente VigIA (Chatbot Inteligente de Negocios)
+*   **Agente de IA Integrado**: Un chatbot interactivo inteligente en la consola BI de Gerencia, alimentado en tiempo real con las bases de datos unificadas del sistema (Clientes, OTs activas, inventario de accesorios, estructuras y resumen de ventas).
+*   **Procesamiento y Caché en Memoria**: Los datos se leen, condensan y almacenan en la memoria del servidor de forma instantánea (~10ms) para evitar procesamientos redundantes de archivos CSV o Excel. La caché se invalida y reconstruye automáticamente ante cualquier escritura.
+*   **Consultas de Negocio Avanzadas**: El asistente está capacitado para responder y proyectar consultas como:
+    *   *Proyecciones de Ventas*: Análisis del volumen y clientes probables para un mes de 2026 en comparación con las ventas reales del mismo mes de 2025.
+    *   *Estacionalidad y Recurrencia*: Identificación de clientes con un comportamiento recurrente en meses clave (por ejemplo, aquellos que contratan todos los meses de Julio o Agosto).
+    *   *Balance Real de Carpas y Arcos*: Cálculo de inventario físico real de arcos a partir de la tabla maestra de arcos (`arcos.xlsx`), descontando las reservas activas en OTs para proveer el stock libre neto en tiempo real.
+*   **Diseño Interactivo**: Interfaz premium con glassmorphism, burbujas de chat, sugerencias de consultas rápidas, renderizado de Markdown enriquecido (negritas, viñetas, tablas) y simulación visual de escritura ("VigIA está escribiendo...").
+
 ---
 
 ## 6. Gestión de Datos Maestros (Maestro de Datos)
 Para garantizar la integridad operativa, el sistema cuenta con un panel para administrar:
 1.  **Personal y Recursos**: Altas/bajas de operarios, choferes, camiones y herramientas.
-2.  **Estructuras, Arcos, Módulos y Fijos**: Catálogo técnico y BOM (Bill of Materials).
+2.  **Estructuras y Fijos**: Catálogo técnico y BOM (Bill of Materials). *Nota: Para evitar confusiones visuales, la columna estática de "Arcos Disponibles" ha sido oculta en este catálogo, delegando este cálculo al balance dinámico y temporal integrado en el sistema.*
 3.  **Clientes y Vendedores**: Base de contactos comerciales con georreferenciación obligatoria.
 4.  **Importación Masiva**: Carga rápida de catálogos y datos desde plantillas de Excel (XLSX).
 
 ---
 
-## 7. Próximas Mejoras y Funcionalidades Planificadas (Roadmap)
+## 7. Análisis Climático y Seguridad en Obra
+El sistema incorpora un módulo avanzado de monitoreo climático destinado a **Gerencia**, **Operaciones** y **Choferes** mediante el botón **"ANÁLISIS CLIMÁTICO"** integrado en las tarjetas de OTs (en estados de despacho pendiente, despachos completados, y desarmes):
+*   **Geolocalización Automática**: El sistema extrae las coordenadas de entrega asignadas a la Orden de Trabajo.
+*   **Integración con Weather API**: Conexión directa con Google Maps Platform / Open-Meteo Weather API para obtener las condiciones meteorológicas del día del evento y el pronóstico detallado para los próximos 7 días.
+*   **Evaluación de Riesgo de Seguridad (IA Gemini)**: Un modelo de IA analiza variables de velocidad del viento, ráfagas, precipitaciones extremas y temperaturas críticas.
+*   **Alertas Preventivas**: Genera recomendaciones automáticas (p. ej., suspender armado si los vientos superan los 35 km/h, asegurar anclajes adicionales en terrenos húmedos o reprogramar horarios por calor extremo) para proteger al personal y asegurar la estructura.
+
+---
+
+## 8. Próximas Mejoras y Funcionalidades Planificadas (Roadmap)
 
 ### A. Integración con WhatsApp
 *   **Para Clientes**: Envío automático de remitos en PDF una vez despachados del almacén, y notificaciones de confirmación de armado/desarme.
@@ -89,7 +115,7 @@ Para garantizar la integridad operativa, el sistema cuenta con un panel para adm
 *   **Para Almacén**: Alertas instantáneas en grupos de WhatsApp ante cambios urgentes en la modulación de OTs aprobadas.
 
 ### B. Módulo de Escucha Social e Inteligencia de Clientes (Social Media Feedback & Analysis)
-*   **Lectura Automática de Redes**: Conexión vía API con Facebook, Instagram y LinkedIn para extraer comentarios de publicaciones de Carpas D'Angiola.
+*   **Lectura Automática de Redes**: Conexión vía API con Facebook, Instagram y LinkedIn para extraer comentarios de comentarios públicos sobre Carpas D'Angiola.
 *   **Análisis de Sentimiento**: Clasificación automática de los comentarios en Positivo, Neutro o Negativo mediante Inteligencia Artificial (NLP/Gemini API), permitiendo evaluar la calidad percibida del servicio de armado y atención.
 *   **KPIs de Opinión y Engagement**:
     *   **Índice de Satisfacción (Sentiment Score)**: Evolución del clima de opinión de la marca.
