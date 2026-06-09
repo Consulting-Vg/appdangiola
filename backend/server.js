@@ -415,10 +415,15 @@ async function getDBCacheSummary() {
       top_clients: {},
       top_vendedores: {},
       top_carpas: {},
-      ventas_por_ano_mes: {}
+      ventas_por_ano_mes: {},
+      ventas_detalladas_por_mes: {}, // e.g. { "2025-07": { count: 3, total_m2: 450, clients: [...] } }
+      fidelidad_clientes: {} // e.g. { "Cliente X": { count: 3, months: ["2024-07", "2025-07"], repeating_months: ["07"] } }
     };
 
     (sales || []).forEach(v => {
+      const clientName = v.cliente_nombre || 'Cliente Desconocido';
+      const m2 = parseFloat(v.superficie_m2) || 0;
+
       if (v.cliente_nombre) {
         salesSummary.top_clients[v.cliente_nombre] = (salesSummary.top_clients[v.cliente_nombre] || 0) + 1;
       }
@@ -428,9 +433,33 @@ async function getDBCacheSummary() {
       if (v.carpa_raw) {
         salesSummary.top_carpas[v.carpa_raw] = (salesSummary.top_carpas[v.carpa_raw] || 0) + 1;
       }
+
       if (v.fecha_alta) {
         const month = v.fecha_alta.substring(0, 7); // YYYY-MM
+        const calMonth = v.fecha_alta.substring(5, 7); // MM
+
         salesSummary.ventas_por_ano_mes[month] = (salesSummary.ventas_por_ano_mes[month] || 0) + 1;
+
+        // Group by month
+        if (!salesSummary.ventas_detalladas_por_mes[month]) {
+          salesSummary.ventas_detalladas_por_mes[month] = { count: 0, total_m2: 0, clients: [] };
+        }
+        salesSummary.ventas_detalladas_por_mes[month].count += 1;
+        salesSummary.ventas_detalladas_por_mes[month].total_m2 += m2;
+        if (!salesSummary.ventas_detalladas_por_mes[month].clients.includes(clientName)) {
+          salesSummary.ventas_detalladas_por_mes[month].clients.push(clientName);
+        }
+
+        // Group by client loyalty
+        if (!salesSummary.fidelidad_clientes[clientName]) {
+          salesSummary.fidelidad_clientes[clientName] = { count: 0, total_m2: 0, months: [], calMonths: {} };
+        }
+        salesSummary.fidelidad_clientes[clientName].count += 1;
+        salesSummary.fidelidad_clientes[clientName].total_m2 += m2;
+        if (!salesSummary.fidelidad_clientes[clientName].months.includes(month)) {
+          salesSummary.fidelidad_clientes[clientName].months.push(month);
+        }
+        salesSummary.fidelidad_clientes[clientName].calMonths[calMonth] = (salesSummary.fidelidad_clientes[clientName].calMonths[calMonth] || 0) + 1;
       }
     });
 
@@ -445,6 +474,30 @@ async function getDBCacheSummary() {
     salesSummary.top_vendedores = getTopN(salesSummary.top_vendedores, 10);
     salesSummary.top_carpas = getTopN(salesSummary.top_carpas, 10);
     salesSummary.ventas_por_ano_mes = getTopN(salesSummary.ventas_por_ano_mes, 12);
+
+    // Finalize client loyalty calculation
+    const finalizedLoyalty = {};
+    Object.entries(salesSummary.fidelidad_clientes).forEach(([client, data]) => {
+      // Find calendar months where client has rented in at least 2 different years/records
+      const repeatingMonths = Object.entries(data.calMonths)
+        .filter(([month, count]) => count >= 2)
+        .map(([month]) => {
+          const names = {
+            "01": "Enero", "02": "Febrero", "03": "Marzo", "04": "Abril",
+            "05": "Mayo", "06": "Junio", "07": "Julio", "08": "Agosto",
+            "09": "Septiembre", "10": "Octubre", "11": "Noviembre", "12": "Diciembre"
+          };
+          return names[month] || month;
+        });
+
+      finalizedLoyalty[client] = {
+        total_alquileres: data.count,
+        total_m2: Math.round(data.total_m2),
+        historial_meses: data.months.sort(),
+        meses_recurrentes: repeatingMonths // calendar months with repeat patterns
+      };
+    });
+    salesSummary.fidelidad_clientes = finalizedLoyalty;
 
     const condensedAccessories = (accessories || []).map(a => ({
       categoria: a.categoria,
@@ -495,11 +548,14 @@ Datos de Memoria (Timestamp de carga: ${dbSummary.timestamp}):
 - Inventario de Accesorios (Lonas, pisos, alfombras, etc.): ${JSON.stringify(dbSummary.inventario_accesorios)}
 - Resumen de Ventas Históricas (KPIs y agregaciones comerciales): ${JSON.stringify(dbSummary.ventas_historicas_resumen)}
 
-Instrucciones de Respuesta:
-1. Responde a preguntas comerciales y de gerencia de forma profesional, clara, directa y en español.
-2. Utiliza los datos provistos en memoria para dar estadísticas, tendencias, comparativas, o responder detalles específicos de clientes u OTs.
-3. Si el usuario te pregunta por totales, haz los cálculos basándote en la información estructurada que tienes.
-4. Mantén tus respuestas concisas pero completas. No inventes datos que no existan en la base de datos de memoria. Si no encuentras algo, indícalo cortésmente.
+Directrices de Análisis de Ventas Históricas y Proyecciones:
+1. Análisis Temporal e Histórico: Tienes acceso a 'ventas_detalladas_por_mes' (agrupación mensual por YYYY-MM con alquileres, m2 totales y clientes) y a 'fidelidad_clientes' (historial y meses recurrentes en los que cada cliente repite, ej: "Julio").
+2. Proyecciones 2026: Cuando el usuario te pregunte por proyecciones para un mes específico de 2026 (ej: Julio 2026) en relación al mismo mes de 2025 (ej: Julio 2025):
+   - Consulta el historial en 'ventas_detalladas_por_mes' para ese mes en años anteriores (ej: "2025-07", "2024-07", etc.) para ver cuántos eventos se cerraron y cuántos m2 se alquilaron.
+   - Identifica a los clientes recurrentes de ese mes calendarizado consultando 'fidelidad_clientes' (aquellos que tengan ese mes en su lista de 'meses_recurrentes').
+   - Elabora una proyección estimando los m2 a alquilar basándote en la suma de consumos habituales de estos clientes recurrentes más una tendencia de crecimiento/decrecimiento interanual observada.
+3. Clientes Recurrentes Estacionales: Si te preguntan qué clientes suelen repetir en ciertos meses del año (ej: todos los julios), busca en 'fidelidad_clientes' a los que contengan ese mes en 'meses_recurrentes' y lista sus totales históricos.
+4. Responde de forma sumamente comercial, profesional, ejecutiva y clara en español. Mantén respuestas concisas pero con datos cuantitativos precisos sacados de los registros. Si no hay datos específicos en la base de datos de memoria para un periodo, indícalo claramente.
 5. Tu nombre es "VigIA Asistente Comercial". Eres el copiloto de la gerencia.`;
 
     const formattedContents = messages.map(msg => ({
