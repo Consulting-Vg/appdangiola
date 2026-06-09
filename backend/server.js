@@ -434,9 +434,10 @@ async function getDBCacheSummary() {
         salesSummary.top_carpas[v.carpa_raw] = (salesSummary.top_carpas[v.carpa_raw] || 0) + 1;
       }
 
-      if (v.fecha_alta) {
-        const month = v.fecha_alta.substring(0, 7); // YYYY-MM
-        const calMonth = v.fecha_alta.substring(5, 7); // MM
+      const dateStr = v.fecha_armado || v.fecha_alta;
+      if (dateStr && dateStr.length >= 7) {
+        const month = dateStr.substring(0, 7); // YYYY-MM
+        const calMonth = dateStr.substring(5, 7); // MM
 
         salesSummary.ventas_por_ano_mes[month] = (salesSummary.ventas_por_ano_mes[month] || 0) + 1;
 
