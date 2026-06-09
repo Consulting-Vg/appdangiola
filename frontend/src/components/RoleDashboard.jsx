@@ -472,43 +472,126 @@ export default function RoleDashboard({
     const planta = typeof ot.planta_status === 'string' ? JSON.parse(ot.planta_status) : ot.planta_status;
     if (panol?.items) {
       panol.items.forEach(item => {
-        list.push({ producto: item.producto, qty: item.qty, sector: 'Pañol' });
+        list.push({ producto: item.producto, qty: item.qty, sector: item.sector || 'Pañol' });
       });
     }
     if (planta?.items) {
       planta.items.forEach(item => {
-        list.push({ producto: item.producto, qty: item.qty, sector: 'Planta' });
+        list.push({ producto: item.producto, qty: item.qty, sector: item.sector || 'Planta' });
       });
     }
     
     const aggregatedList = aggregateProducts(list);
     
-    // Draw table box
-    doc.setDrawColor(220, 220, 220);
-    doc.setLineWidth(0.2);
-    const boxH = aggregatedList.length * 6 + 7;
-    doc.rect(startX, y, 180, boxH);
+    const isLona = (name) => {
+      const n = name.toLowerCase();
+      return n.includes('lona') || n.includes('techo') || n.includes('lateral') || n.includes('triangulo') || n.includes('tapachata') || n.includes('puerta');
+    };
+    const isPiso = (name) => {
+      const n = name.toLowerCase();
+      return n.includes('piso') || n.includes('placa') || n.includes('fenolico') || n.includes('caño');
+    };
+    const isAlfombra = (name) => {
+      const n = name.toLowerCase();
+      return n.includes('alfombra');
+    };
+    const isTela = (name) => {
+      const n = name.toLowerCase();
+      return n.includes('tela') || n.includes('cortina') || n.includes('cielorraso');
+    };
 
-    doc.setFont('Helvetica', 'bold');
-    doc.setFontSize(8);
-    doc.text("COMPONENTE", startX + 4, y + 5);
-    doc.text("CANTIDAD", startX + 100, y + 5);
-    doc.text("SECTOR", startX + 130, y + 5);
-    doc.text("ESTADO", startX + 160, y + 5);
-    doc.line(startX, y + 7, startX + 180, y + 7);
+    const plantaItems = [];
+    const panolItems = [];
+    const lonasItems = [];
+    const pisosItems = [];
+    const alfombrasItems = [];
+    const telasItems = [];
 
-    let itemY = y + 11;
-    doc.setFont('Helvetica', 'normal');
-    doc.setFontSize(7.5);
     aggregatedList.forEach(item => {
-      doc.text(String(item.producto).toUpperCase(), startX + 4, itemY);
-      doc.text(String(item.qty), startX + 100, itemY);
-      doc.text(String(item.sector).toUpperCase(), startX + 130, itemY);
-      doc.text("[ OK / DEF ]", startX + 160, itemY);
-      itemY += 6;
+      const name = item.producto || '';
+      const sector = item.sector || '';
+      if (sector === 'Lonas' || isLona(name)) {
+        lonasItems.push(item);
+      } else if (sector === 'Pisos' || isPiso(name)) {
+        pisosItems.push(item);
+      } else if (sector === 'Alfombras' || isAlfombra(name)) {
+        alfombrasItems.push(item);
+      } else if (sector === 'Telas' || isTela(name)) {
+        telasItems.push(item);
+      } else if (sector === 'Planta') {
+        plantaItems.push(item);
+      } else if (sector === 'Pañol') {
+        panolItems.push(item);
+      } else {
+        panolItems.push(item);
+      }
     });
 
-    y += boxH + 15;
+    let currentPage = 1;
+
+    const checkPageWrap = (heightNeeded) => {
+      if (y + heightNeeded > 235) {
+        doc.addPage();
+        currentPage++;
+        drawOfficialHeader(doc, "CONTROL DESARME", ot.ot_numero, matchingClient?.cuit, logoImg);
+        y = 60;
+      }
+    };
+
+    const printSectorSection = (title, items, titleColor) => {
+      if (items.length === 0) return;
+      const rowCount = items.length;
+      const boxH = rowCount * 6 + 7;
+      const totalH = 4 + boxH + 6;
+
+      checkPageWrap(totalH);
+
+      doc.setFont('Helvetica', 'bold');
+      doc.setFontSize(8.5);
+      doc.setTextColor(titleColor[0], titleColor[1], titleColor[2]);
+      doc.text(title, startX, y);
+      y += 4;
+
+      doc.setDrawColor(220, 220, 220);
+      doc.rect(startX, y, 180, boxH);
+      doc.setFont('Helvetica', 'bold');
+      doc.setFontSize(7.5);
+      doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+      doc.text("COMPONENTE", startX + 4, y + 5);
+      doc.text("CANTIDAD", startX + 100, y + 5);
+      doc.text("SECTOR", startX + 130, y + 5);
+      doc.text("ESTADO", startX + 160, y + 5);
+      doc.line(startX, y + 7, startX + 180, y + 7);
+
+      let itemY = y + 11;
+      doc.setFont('Helvetica', 'normal');
+      doc.setFontSize(7.5);
+      doc.setTextColor(0, 0, 0);
+
+      items.forEach((item, idx) => {
+        if (idx % 2 === 1) {
+          doc.setFillColor(248, 250, 252);
+          doc.rect(startX + 0.5, itemY - 3.5, 179.5, 5.5, 'F');
+        }
+        doc.text(String(item.producto).toUpperCase(), startX + 4, itemY);
+        doc.text(String(item.qty), startX + 100, itemY);
+        doc.text(String(item.sector || 'N/A').toUpperCase(), startX + 130, itemY);
+        doc.text("[ OK / DEF ]", startX + 160, itemY);
+        itemY += 6;
+      });
+
+      y += boxH + 5;
+    };
+
+    printSectorSection("SECTOR PLANTA (ESTRUCTURALES DE HIERRO/ALUMINIO)", plantaItems, [220, 104, 3]);
+    printSectorSection("SECTOR PAÑOL (BULONERÍA, HERRAJES Y RÍGIDOS)", panolItems, [109, 40, 217]);
+    printSectorSection("SECTOR TELAS (CORTINADOS Y CIELORRASOS)", telasItems, [79, 70, 229]);
+    printSectorSection("SECTOR PISOS ( fenolicos y caños )", pisosItems, [5, 150, 105]);
+    printSectorSection("SECTOR ALFOMBRAS ( revestimiento de pisos )", alfombrasItems, [101, 163, 13]);
+    printSectorSection("SECTOR LONAS (TECHO, LATERALES, TRIÁNGULOS Y TAPACHATAS)", lonasItems, [13, 148, 136]);
+
+    checkPageWrap(25);
+    y += 5;
     doc.setFont('Helvetica', 'bold');
     doc.text("FIRMA RESPONSABLE CARGA / CHOFER", startX + 10, y + 15);
     doc.line(startX + 10, y + 13, startX + 70, y + 13);
@@ -579,28 +662,111 @@ export default function RoleDashboard({
 
     const aggregatedItems = aggregateProducts(remito.items);
 
-    // Draw table box
-    doc.setDrawColor(220, 220, 220);
-    doc.setLineWidth(0.2);
-    const boxH = aggregatedItems.length * 6 + 7;
-    doc.rect(startX, y, 180, boxH);
+    const isLona = (name) => {
+      const n = name.toLowerCase();
+      return n.includes('lona') || n.includes('techo') || n.includes('lateral') || n.includes('triangulo') || n.includes('tapachata') || n.includes('puerta');
+    };
+    const isPiso = (name) => {
+      const n = name.toLowerCase();
+      return n.includes('piso') || n.includes('placa') || n.includes('fenolico') || n.includes('caño');
+    };
+    const isAlfombra = (name) => {
+      const n = name.toLowerCase();
+      return n.includes('alfombra');
+    };
+    const isTela = (name) => {
+      const n = name.toLowerCase();
+      return n.includes('tela') || n.includes('cortina') || n.includes('cielorraso');
+    };
 
-    doc.setFont('Helvetica', 'bold');
-    doc.setFontSize(8);
-    doc.text("PRODUCTO / COMPONENTE", startX + 4, y + 5);
-    doc.text("CANTIDAD DESPACHADA", startX + 120, y + 5);
-    doc.line(startX, y + 7, startX + 180, y + 7);
+    const plantaItems = [];
+    const panolItems = [];
+    const lonasItems = [];
+    const pisosItems = [];
+    const alfombrasItems = [];
+    const telasItems = [];
 
-    let itemY = y + 11;
-    doc.setFont('Helvetica', 'normal');
-    doc.setFontSize(7.5);
     aggregatedItems.forEach(item => {
-      doc.text(String(item.producto).toUpperCase(), startX + 4, itemY);
-      doc.text(String(item.qty), startX + 120, itemY);
-      itemY += 6;
+      const name = item.producto || '';
+      const sector = item.sector || '';
+      if (sector === 'Lonas' || isLona(name)) {
+        lonasItems.push(item);
+      } else if (sector === 'Pisos' || isPiso(name)) {
+        pisosItems.push(item);
+      } else if (sector === 'Alfombras' || isAlfombra(name)) {
+        alfombrasItems.push(item);
+      } else if (sector === 'Telas' || isTela(name)) {
+        telasItems.push(item);
+      } else if (sector === 'Planta') {
+        plantaItems.push(item);
+      } else if (sector === 'Pañol') {
+        panolItems.push(item);
+      } else {
+        panolItems.push(item);
+      }
     });
 
-    y += boxH + 15;
+    let currentPage = 1;
+
+    const checkPageWrap = (heightNeeded) => {
+      if (y + heightNeeded > 235) {
+        doc.addPage();
+        currentPage++;
+        drawOfficialHeader(doc, `REMITO: ${remito.tipo}`, otOrigen.ot_numero, matchingClient?.cuit, logoImg);
+        y = 60;
+      }
+    };
+
+    const printSectorSection = (title, items, titleColor) => {
+      if (items.length === 0) return;
+      const rowCount = items.length;
+      const boxH = rowCount * 6 + 7;
+      const totalH = 4 + boxH + 6;
+
+      checkPageWrap(totalH);
+
+      doc.setFont('Helvetica', 'bold');
+      doc.setFontSize(8.5);
+      doc.setTextColor(titleColor[0], titleColor[1], titleColor[2]);
+      doc.text(title, startX, y);
+      y += 4;
+
+      doc.setDrawColor(220, 220, 220);
+      doc.rect(startX, y, 180, boxH);
+      doc.setFont('Helvetica', 'bold');
+      doc.setFontSize(7.5);
+      doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+      doc.text("PRODUCTO / COMPONENTE", startX + 4, y + 5);
+      doc.text("CANTIDAD DESPACHADA", startX + 120, y + 5);
+      doc.line(startX, y + 7, startX + 180, y + 7);
+
+      let itemY = y + 11;
+      doc.setFont('Helvetica', 'normal');
+      doc.setFontSize(7.5);
+      doc.setTextColor(0, 0, 0);
+
+      items.forEach((item, idx) => {
+        if (idx % 2 === 1) {
+          doc.setFillColor(248, 250, 252);
+          doc.rect(startX + 0.5, itemY - 3.5, 179.5, 5.5, 'F');
+        }
+        doc.text(String(item.producto).toUpperCase(), startX + 4, itemY);
+        doc.text(String(item.qty), startX + 120, itemY);
+        itemY += 6;
+      });
+
+      y += boxH + 5;
+    };
+
+    printSectorSection("SECTOR PLANTA (ESTRUCTURALES DE HIERRO/ALUMINIO)", plantaItems, [220, 104, 3]);
+    printSectorSection("SECTOR PAÑOL (BULONERÍA, HERRAJES Y RÍGIDOS)", panolItems, [109, 40, 217]);
+    printSectorSection("SECTOR TELAS (CORTINADOS Y CIELORRASOS)", telasItems, [79, 70, 229]);
+    printSectorSection("SECTOR PISOS ( fenolicos y caños )", pisosItems, [5, 150, 105]);
+    printSectorSection("SECTOR ALFOMBRAS ( revestimiento de pisos )", alfombrasItems, [101, 163, 13]);
+    printSectorSection("SECTOR LONAS (TECHO, LATERALES, TRIÁNGULOS Y TAPACHATAS)", lonasItems, [13, 148, 136]);
+
+    checkPageWrap(25);
+    y += 5;
     doc.setFont('Helvetica', 'bold');
     doc.text("FIRMA RESPONSABLE TRANSPORTE", startX + 10, y + 15);
     doc.line(startX + 10, y + 13, startX + 70, y + 13);
@@ -632,10 +798,62 @@ export default function RoleDashboard({
 
     const panol = typeof ot.panol_status === 'string' ? JSON.parse(ot.panol_status) : ot.panol_status;
     const planta = typeof ot.planta_status === 'string' ? JSON.parse(ot.planta_status) : ot.planta_status;
-    const allItems = [...(panol?.items || []), ...(planta?.items || [])];
-    const loadedItems = allItems.filter(i => i.checked);
-    const itemsToPrintRaw = loadedItems.length > 0 ? loadedItems : allItems;
+    
+    let checklistItems = [];
+    if (panol?.items) {
+      panol.items.forEach(i => checklistItems.push({ ...i, sector: i.sector || 'Pañol' }));
+    }
+    if (planta?.items) {
+      planta.items.forEach(i => checklistItems.push({ ...i, sector: i.sector || 'Planta' }));
+    }
+
+    const loadedItems = checklistItems.filter(i => i.checked);
+    const itemsToPrintRaw = loadedItems.length > 0 ? loadedItems : checklistItems;
     const itemsToPrint = aggregateProducts(itemsToPrintRaw);
+
+    const isLona = (name) => {
+      const n = name.toLowerCase();
+      return n.includes('lona') || n.includes('techo') || n.includes('lateral') || n.includes('triangulo') || n.includes('tapachata') || n.includes('puerta');
+    };
+    const isPiso = (name) => {
+      const n = name.toLowerCase();
+      return n.includes('piso') || n.includes('placa') || n.includes('fenolico') || n.includes('caño');
+    };
+    const isAlfombra = (name) => {
+      const n = name.toLowerCase();
+      return n.includes('alfombra');
+    };
+    const isTela = (name) => {
+      const n = name.toLowerCase();
+      return n.includes('tela') || n.includes('cortina') || n.includes('cielorraso');
+    };
+
+    const plantaItems = [];
+    const panolItems = [];
+    const lonasItems = [];
+    const pisosItems = [];
+    const alfombrasItems = [];
+    const telasItems = [];
+
+    itemsToPrint.forEach(item => {
+      const name = item.producto || item.nombre || '';
+      const sector = item.sector || '';
+      if (sector === 'Lonas' || isLona(name)) {
+        lonasItems.push(item);
+      } else if (sector === 'Pisos' || isPiso(name)) {
+        pisosItems.push(item);
+      } else if (sector === 'Alfombras' || isAlfombra(name)) {
+        alfombrasItems.push(item);
+      } else if (sector === 'Telas' || isTela(name)) {
+        telasItems.push(item);
+      } else if (sector === 'Planta') {
+        plantaItems.push(item);
+      } else if (sector === 'Pañol') {
+        panolItems.push(item);
+      } else {
+        panolItems.push(item);
+      }
+    });
 
     const geo = typeof ot.georef === 'string' ? JSON.parse(ot.georef) : ot.georef;
     const direccion = geo?.direccion || 'No especificada';
@@ -650,11 +868,10 @@ export default function RoleDashboard({
 
     const splitDireccion = doc.splitTextToSize(`Dirección Entrega: ${direccion}`, 100);
     const clientBoxHeight = Math.max(28, 16 + (splitDireccion.length * 5));
-    const tableStartY = 60 + clientBoxHeight + 2;
-    const itemsStartY = tableStartY + 8;
+    const startX = 15;
 
     let currentPage = 1;
-    let y = itemsStartY; // Starting position for items list
+    let y = 60 + clientBoxHeight + 5; // Starting position for items list
 
     const drawHeader = (pageNum) => {
       // Draw outer box for the Remito header
@@ -749,18 +966,6 @@ export default function RoleDashboard({
       doc.text(`GPS Link: ${gpsLink ? 'Generado' : 'No disponible'}`, 125, 76);
     };
 
-    const drawTableHeaders = (startY) => {
-      doc.setFillColor(primaryColor[0], primaryColor[1], primaryColor[2]);
-      doc.rect(15, startY, 180, 6.5, 'F');
-
-      doc.setFont('Helvetica', 'bold');
-      doc.setFontSize(8);
-      doc.setTextColor(255, 255, 255);
-      doc.text("CANTIDAD", 18, startY + 4.5);
-      doc.text("DETALLE / PRODUCTO ENVIADO", 45, startY + 4.5);
-      doc.text("SECTOR ORIGEN", 160, startY + 4.5);
-    };
-
     const drawFooter = () => {
       // Draw signature boxes
       doc.setDrawColor(180, 180, 180);
@@ -787,20 +992,8 @@ export default function RoleDashboard({
       doc.text("DNI / Relación: ____________________", 113, 274);
     };
 
-    drawHeader(currentPage);
-    drawTableHeaders(tableStartY);
-
-    doc.setFont('Helvetica', 'normal');
-    doc.setFontSize(8);
-    doc.setTextColor(0, 0, 0);
-
-    let itemIndex = 0;
-    for (let i = 0; i < itemsToPrint.length; i++) {
-      const item = itemsToPrint[i];
-
-      // If we go over the vertical limit, page wrap!
-      if (y > 235) {
-        // Draw page footer for current page
+    const checkPageWrap = (heightNeeded) => {
+      if (y + heightNeeded > 235) {
         doc.setFont('Helvetica', 'italic');
         doc.setFontSize(7);
         doc.setTextColor(150, 150, 150);
@@ -810,44 +1003,74 @@ export default function RoleDashboard({
         currentPage++;
 
         drawHeader(currentPage);
-        drawTableHeaders(tableStartY);
-        y = itemsStartY;
-        doc.setFont('Helvetica', 'normal');
-        doc.setFontSize(8);
-        doc.setTextColor(0, 0, 0);
+        y = 60 + clientBoxHeight + 8;
       }
+    };
 
-      // Zebra striping
-      if (itemIndex % 2 === 1) {
-        doc.setFillColor(248, 250, 252);
-        doc.rect(15, y - 4, 180, 6, 'F');
-      }
+    const printSectorSection = (title, items, titleColor) => {
+      if (items.length === 0) return;
+      const rowCount = items.length;
+      const boxH = rowCount * 6 + 7;
+      const totalH = 4 + boxH + 6;
+
+      checkPageWrap(totalH);
 
       doc.setFont('Helvetica', 'bold');
-      doc.text(String(item.qty), 22, y);
+      doc.setFontSize(8.5);
+      doc.setTextColor(titleColor[0], titleColor[1], titleColor[2]);
+      doc.text(title, startX, y);
+      y += 4;
+
+      doc.setDrawColor(220, 220, 220);
+      doc.rect(startX, y, 180, boxH);
+      doc.setFont('Helvetica', 'bold');
+      doc.setFontSize(7.5);
+      doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+      doc.text("CANTIDAD", startX + 4, y + 5);
+      doc.text("DETALLE / PRODUCTO ENVIADO", startX + 30, y + 5);
+      doc.text("SECTOR ORIGEN", startX + 145, y + 5);
+      doc.line(startX, y + 7, startX + 180, y + 7);
+
+      let itemY = y + 11;
       doc.setFont('Helvetica', 'normal');
+      doc.setFontSize(7.5);
+      doc.setTextColor(0, 0, 0);
 
-      // Let's clip or wrap product text if it's too long
-      const prodText = item.producto || 'Componente';
-      const textWidth = doc.getTextWidth(prodText);
-      let displayName = prodText;
-      if (textWidth > 110) {
-        displayName = doc.splitTextToSize(prodText, 110)[0] + '...';
-      }
-      doc.text(displayName, 45, y);
+      items.forEach((item, idx) => {
+        if (idx % 2 === 1) {
+          doc.setFillColor(248, 250, 252);
+          doc.rect(startX + 0.5, itemY - 3.5, 179.5, 5.5, 'F');
+        }
+        doc.setFont('Helvetica', 'bold');
+        doc.text(String(item.qty), startX + 6, itemY);
+        doc.setFont('Helvetica', 'normal');
 
-      // Sector
-      const itemSector = item.sector || item.computedSector || 'N/A';
-      doc.text(String(itemSector).toUpperCase(), 160, y);
+        const prodText = item.producto || 'Componente';
+        const textWidth = doc.getTextWidth(prodText);
+        let displayName = prodText;
+        if (textWidth > 110) {
+          displayName = doc.splitTextToSize(prodText, 110)[0] + '...';
+        }
+        doc.text(displayName, startX + 30, itemY);
 
-      // Bottom border for row
-      doc.setDrawColor(240, 240, 240);
-      doc.setLineWidth(0.1);
-      doc.line(15, y + 2, 195, y + 2);
+        const secLabel = item.sector || item.computedSector || title.split(' ')[1] || 'OT';
+        doc.text(String(secLabel).toUpperCase(), startX + 145, itemY);
 
-      y += 6;
-      itemIndex++;
-    }
+        itemY += 6;
+      });
+
+      y += boxH + 5;
+    };
+
+    drawHeader(currentPage);
+
+    // Render the 6 tables
+    printSectorSection("SECTOR PLANTA (ESTRUCTURALES DE HIERRO/ALUMINIO)", plantaItems, [220, 104, 3]);
+    printSectorSection("SECTOR PAÑOL (BULONERÍA, HERRAJES Y RÍGIDOS)", panolItems, [109, 40, 217]);
+    printSectorSection("SECTOR TELAS (CORTINADOS Y CIELORRASOS)", telasItems, [79, 70, 229]);
+    printSectorSection("SECTOR PISOS ( fenolicos y caños )", pisosItems, [5, 150, 105]);
+    printSectorSection("SECTOR ALFOMBRAS ( revestimiento de pisos )", alfombrasItems, [101, 163, 13]);
+    printSectorSection("SECTOR LONAS (TECHO, LATERALES, TRIÁNGULOS Y TAPACHATAS)", lonasItems, [13, 148, 136]);
 
     // Now draw the final footer on the last page
     drawFooter();

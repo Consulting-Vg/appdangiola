@@ -410,7 +410,6 @@ export default function MaestroDatos({ currentUser }) {
                         <th className="p-3">Tipo</th>
                         <th className="p-3">Frente (m)</th>
                         <th className="p-3">Largo Máx (m)</th>
-                        <th className="p-3">Arcos Disp.</th>
                       </>
                     )}
                     {activeTab === 'arcos' && (
@@ -508,7 +507,6 @@ export default function MaestroDatos({ currentUser }) {
                           <td className="p-3 text-blue-800 font-bold">{item.estructura_tipo}</td>
                           <td className="p-3">{item.frente} m</td>
                           <td className="p-3">{item.largo_maximo} m</td>
-                          <td className="p-3 text-amber-600 font-black">{item.arcos_disponibles}</td>
                         </>
                       )}
                       {activeTab === 'arcos' && (

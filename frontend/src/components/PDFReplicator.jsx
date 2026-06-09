@@ -143,7 +143,7 @@ export default function PDFReplicator({ ot, explosion }) {
 
     // Add page break or check height. Since A4 height is 297mm, and we are at y=154, we can fit the materials!
     // But to ensure it fits neatly, we will make a clean 2-page document or list materials here.
-    // Segment items into the 5 sectors: PAÑOL, PLANTA, TELAS, PISOS, LONAS
+    // Segment items into the 6 sectors: PAÑOL, PLANTA, TELAS, PISOS, ALFOMBRAS, LONAS
     const isLona = (name) => {
       const n = name.toLowerCase();
       return n.includes('lona') || n.includes('techo') || n.includes('lateral') || n.includes('triangulo') || n.includes('tapachata') || n.includes('puerta');
@@ -151,7 +151,12 @@ export default function PDFReplicator({ ot, explosion }) {
 
     const isPiso = (name) => {
       const n = name.toLowerCase();
-      return n.includes('piso') || n.includes('placa') || n.includes('fenolico') || n.includes('caño') || n.includes('alfombra');
+      return n.includes('piso') || n.includes('placa') || n.includes('fenolico') || n.includes('caño');
+    };
+
+    const isAlfombra = (name) => {
+      const n = name.toLowerCase();
+      return n.includes('alfombra');
     };
 
     const isTela = (name) => {
@@ -163,6 +168,7 @@ export default function PDFReplicator({ ot, explosion }) {
     const plantaItems = [];
     const telasItems = [];
     const pisosItems = [];
+    const alfombrasItems = [];
     const lonasItems = [];
 
     const processItem = (item) => {
@@ -180,11 +186,13 @@ export default function PDFReplicator({ ot, explosion }) {
 
       const enrichedItem = { producto: name, qty, sector, provenance };
 
-      if (isLona(name)) {
+      if (sector === 'Lonas' || isLona(name)) {
         lonasItems.push(enrichedItem);
-      } else if (isPiso(name)) {
+      } else if (sector === 'Pisos' || isPiso(name)) {
         pisosItems.push(enrichedItem);
-      } else if (isTela(name)) {
+      } else if (sector === 'Alfombras' || isAlfombra(name)) {
+        alfombrasItems.push(enrichedItem);
+      } else if (sector === 'Telas' || isTela(name)) {
         telasItems.push(enrichedItem);
       } else if (sector === 'Planta') {
         plantaItems.push(enrichedItem);
@@ -201,10 +209,10 @@ export default function PDFReplicator({ ot, explosion }) {
     let checklistItems = [];
     if (panol?.items?.length > 0 || planta?.items?.length > 0) {
       if (panol?.items) {
-        panol.items.forEach(i => checklistItems.push({ ...i, sector: 'Pañol' }));
+        panol.items.forEach(i => checklistItems.push({ ...i, sector: i.sector || 'Pañol' }));
       }
       if (planta?.items) {
-        planta.items.forEach(i => checklistItems.push({ ...i, sector: 'Planta' }));
+        planta.items.forEach(i => checklistItems.push({ ...i, sector: i.sector || 'Planta' }));
       }
     }
 
@@ -218,11 +226,11 @@ export default function PDFReplicator({ ot, explosion }) {
         aggregated[cleanName].qty += Number(item.qty !== undefined ? item.qty : (item.cantidad !== undefined ? item.cantidad : 1));
       });
       return Object.values(aggregated).sort((a, b) => {
-      const secA = a.sector || '';
-      const secB = b.sector || '';
-      if (secA !== secB) return secA.localeCompare(secB);
-      return a.producto.localeCompare(b.producto);
-    });
+        const secA = a.sector || '';
+        const secB = b.sector || '';
+        if (secA !== secB) return secA.localeCompare(secB);
+        return a.producto.localeCompare(b.producto);
+      });
     };
 
     if (checklistItems.length > 0) {
@@ -290,11 +298,12 @@ export default function PDFReplicator({ ot, explosion }) {
       yPage2 += boxH + 5;
     };
 
-    // Render the 5 sectorizations
+    // Render the 6 sectorizations
     printSectorSection("SECTOR PLANTA (ESTRUCTURALES DE HIERRO/ALUMINIO)", plantaItems, [220, 104, 3]);
     printSectorSection("SECTOR PAÑOL (BULONERÍA, HERRAJES Y RÍGIDOS)", panolItems, [109, 40, 217]);
     printSectorSection("SECTOR TELAS (CORTINADOS Y CIELORRASOS)", telasItems, [79, 70, 229]);
-    printSectorSection("SECTOR PISOS ( fenolicos, alfombras y caños )", pisosItems, [5, 150, 105]);
+    printSectorSection("SECTOR PISOS ( fenolicos y caños )", pisosItems, [5, 150, 105]);
+    printSectorSection("SECTOR ALFOMBRAS ( revestimiento de pisos )", alfombrasItems, [101, 163, 13]);
     printSectorSection("SECTOR LONAS (TECHO, LATERALES, TRIÁNGULOS Y TAPACHATAS)", lonasItems, [13, 148, 136]);
 
     // Signature boxes

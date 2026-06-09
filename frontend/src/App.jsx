@@ -132,6 +132,16 @@ export default function App() {
   const [stockCheckStatus, setStockCheckStatus] = useState('unchecked'); // 'unchecked', 'ok', 'error'
   const [suggestedModulation, setSuggestedModulation] = useState([]);
 
+  // 3D Render visibility toggle (role-gated: Gerencia, Comercial, Operaciones, SuperAdmin)
+  const [show3DRender, setShow3DRender] = useState(false);
+
+  // Step 5: Accessory selection state for conformance wizard
+  // Each array holds items: { catalogId, nombre, color, qty, panos, mts }
+  const [conformanceLonas, setConformanceLonas] = useState([]);
+  const [conformancePisos, setConformancePisos] = useState([]);
+  const [conformanceAlfombras, setConformanceAlfombras] = useState([]);
+  const [conformanceTelas, setConformanceTelas] = useState([]);
+
   // 3D Color parameters for active viewer
   const [viewerColors, setViewerColors] = useState({
     modules: [],
@@ -1191,16 +1201,50 @@ export default function App() {
     conformanceExplosion.accesorios.forEach(i => {
       let sec = 'Pañol';
       if (i.categoria === 'lona') sec = 'Lonas';
-      else if (i.categoria === 'piso' || i.categoria === 'alfombra') sec = 'Pisos';
+      else if (i.categoria === 'piso') sec = 'Pisos';
+      else if (i.categoria === 'alfombra') sec = 'Alfombras';
       else if (i.categoria === 'tela') sec = 'Telas';
 
       const item = { producto: i.producto, qty: i.qty, sector: sec, checked: false };
-      if (sec === 'Lonas' || sec === 'Pisos' || sec === 'Planta') {
+      if (sec === 'Lonas' || sec === 'Pisos' || sec === 'Alfombras' || sec === 'Planta') {
         plantaItems.push(item);
+      } else if (sec === 'Telas') {
+        panolItems.push(item);
       } else {
         panolItems.push(item);
       }
     });
+
+    // --- Step 5: Inject operator-selected accessories into checklist ---
+    const buildAccLabel = (item) => {
+      const parts = [item.nombre || 'Accesorio'];
+      if (item.color) parts.push(`Color: ${item.color}`);
+      if (item.panos) parts.push(`Paños: ${item.panos}`);
+      if (item.mts) parts.push(`${item.mts} mts`);
+      return parts.join(' | ');
+    };
+
+    conformanceLonas.forEach(item => {
+      if (item.nombre) {
+        plantaItems.push({ producto: buildAccLabel(item), qty: Number(item.qty) || 1, sector: 'Lonas', checked: false });
+      }
+    });
+    conformancePisos.forEach(item => {
+      if (item.nombre) {
+        plantaItems.push({ producto: buildAccLabel(item), qty: Number(item.qty) || 1, sector: 'Pisos', checked: false });
+      }
+    });
+    conformanceAlfombras.forEach(item => {
+      if (item.nombre) {
+        plantaItems.push({ producto: buildAccLabel(item), qty: Number(item.qty) || 1, sector: 'Alfombras', checked: false });
+      }
+    });
+    conformanceTelas.forEach(item => {
+      if (item.nombre) {
+        panolItems.push({ producto: buildAccLabel(item), qty: Number(item.qty) || 1, sector: 'Telas', checked: false });
+      }
+    });
+    // --- End Step 5 ---
 
     const groups = {};
     conformanceSelectedModulesList.forEach(m => {
@@ -1244,6 +1288,12 @@ export default function App() {
         confetti({ particleCount: 150, spread: 80 });
         setSelectedOT(null);
         setOtDetailsExplosion(null);
+        // Reset Step 5 state
+        setConformanceLonas([]);
+        setConformancePisos([]);
+        setConformanceAlfombras([]);
+        setConformanceTelas([]);
+        setConformanceStep(1);
         fetchData();
         alert("Estructura conformada y OT Aprobada exitosamente.");
       } else {
@@ -3151,68 +3201,86 @@ export default function App() {
             })()}
 
             {/* Plano y Renderizado 3D (Full Width) */}
-            <div className="space-y-4">
-              <div className="flex justify-between items-center">
-                <h3 className="text-xs uppercase tracking-widest font-black text-slate-400 Poppins">Plano y Renderizado 3D</h3>
-                <span className="text-[10px] font-black text-blue-900 border border-blue-200 px-2 py-0.5 rounded-md bg-blue-50/50 uppercase">Modular Doble Pendiente</span>
-              </div>
-              <div className="rounded-3xl border border-slate-250 bg-slate-50 shadow-sm p-4 h-auto lg:h-[850px] overflow-hidden">
-                {(() => {
-                  const isWizardActive = selectedOT.estado === 'Aprobada por Gerencia';
-                  const normalizedModules = [];
-                  if (isWizardActive) {
-                    if (conformanceModType === 'simple') {
-                      const qty = Math.ceil(selectedOT.largo / conformanceSimpleLen);
-                      for (let i = 0; i < qty; i++) {
-                        normalizedModules.push({ largo: conformanceSimpleLen });
-                      }
-                    } else {
-                      [5, 4, 3, 2].forEach(len => {
-                        const qty = conformanceCompoundModulos[len] || 0;
-                        for (let i = 0; i < qty; i++) {
-                          normalizedModules.push({ largo: len });
+            {(() => {
+              const canSee3D = ['Gerencia', 'Comercial', 'Operaciones', 'SuperAdmin'].includes(currentUser?.rol || userRole);
+              if (!canSee3D) return null;
+              return (
+                <div className="space-y-4">
+                  <div className="flex justify-between items-center">
+                    <h3 className="text-xs uppercase tracking-widest font-black text-slate-400 Poppins">Plano y Renderizado 3D</h3>
+                    <button
+                      type="button"
+                      onClick={() => setShow3DRender(!show3DRender)}
+                      className="bg-blue-600 hover:bg-blue-700 text-white rounded-lg px-3 py-1.5 text-[10px] font-black uppercase tracking-wider shadow-sm transition-all cursor-pointer"
+                    >
+                      {show3DRender ? 'Ocultar Render 3D' : 'Ver Render 3D'}
+                    </button>
+                  </div>
+                  {show3DRender ? (
+                    <div className="rounded-3xl border border-slate-250 bg-slate-50 shadow-sm p-4 h-auto lg:h-[850px] overflow-hidden">
+                      {(() => {
+                        const isWizardActive = selectedOT.estado === 'Aprobada por Gerencia';
+                        const normalizedModules = [];
+                        if (isWizardActive) {
+                          if (conformanceModType === 'simple') {
+                            const qty = Math.ceil(selectedOT.largo / conformanceSimpleLen);
+                            for (let i = 0; i < qty; i++) {
+                              normalizedModules.push({ largo: conformanceSimpleLen });
+                            }
+                          } else {
+                            [5, 4, 3, 2].forEach(len => {
+                              const qty = conformanceCompoundModulos[len] || 0;
+                              for (let i = 0; i < qty; i++) {
+                                normalizedModules.push({ largo: len });
+                              }
+                            });
+                          }
+                        } else {
+                          const modConfig = typeof selectedOT.modulacion_config === 'string' ? JSON.parse(selectedOT.modulacion_config) : selectedOT.modulacion_config;
+                          const items = modConfig?.modulos || [];
+                          items.forEach(m => {
+                            for (let i = 0; i < m.qty; i++) {
+                              normalizedModules.push({ largo: m.largo });
+                            }
+                          });
                         }
-                      });
-                    }
-                  } else {
-                    const modConfig = typeof selectedOT.modulacion_config === 'string' ? JSON.parse(selectedOT.modulacion_config) : selectedOT.modulacion_config;
-                    const items = modConfig?.modulos || [];
-                    items.forEach(m => {
-                      for (let i = 0; i < m.qty; i++) {
-                        normalizedModules.push({ largo: m.largo });
-                      }
-                    });
-                  }
-                  const hasHighLeg = selectedOT.modelo_estructura.includes('-H') || selectedOT.modelo_estructura.includes(' H');
-                  const resolvedLegHeight = hasHighLeg ? 4 : 3;
-                  const adicionales = typeof selectedOT.adicionales === 'string' ? JSON.parse(selectedOT.adicionales) : selectedOT.adicionales || {};
-                  const telasCortinas = adicionales.telas_cortinas || { si: false, color: 'Blanco' };
-                  return (
-                    <div className="relative h-full">
-                      <ThreeViewer
-                        modules={normalizedModules}
-                        legHeight={resolvedLegHeight}
-                        width={parseFloat(selectedOT.frente || 10)}
-                        modelName={selectedOT.modelo_estructura}
-                        telasCortinas={telasCortinas}
-                        colors={viewerColors}
-                        setColors={setViewerColors}
-                      />
-                      {/* Botón para guardar las modificaciones del modelo 3D (para Operaciones) */}
-                      {selectedOT.estado !== 'Cancelada' && (
-                        <button
-                          onClick={() => handleUpdateOTAdicionales(selectedOT.id, { ...adicionales, viewerColors })}
-                          className="absolute top-4 left-4 bg-white/90 backdrop-blur px-3 py-1.5 rounded-lg text-xs font-bold text-slate-700 shadow-sm border border-slate-200 hover:bg-white z-10 transition-all-300"
-                          title="Guarda la configuración actual de colores de lonas en la OT."
-                        >
-                          Guardar Diseño 3D
-                        </button>
-                      )}
+                        const hasHighLeg = selectedOT.modelo_estructura.includes('-H') || selectedOT.modelo_estructura.includes(' H');
+                        const resolvedLegHeight = hasHighLeg ? 4 : 3;
+                        const adicionales = typeof selectedOT.adicionales === 'string' ? JSON.parse(selectedOT.adicionales) : selectedOT.adicionales || {};
+                        const telasCortinas = adicionales.telas_cortinas || { si: false, color: 'Blanco' };
+                        return (
+                          <div className="relative h-full">
+                            <ThreeViewer
+                              modules={normalizedModules}
+                              legHeight={resolvedLegHeight}
+                              width={parseFloat(selectedOT.frente || 10)}
+                              modelName={selectedOT.modelo_estructura}
+                              telasCortinas={telasCortinas}
+                              colors={viewerColors}
+                              setColors={setViewerColors}
+                            />
+                            {/* Botón para guardar las modificaciones del modelo 3D (para Operaciones) */}
+                            {selectedOT.estado !== 'Cancelada' && (
+                              <button
+                                onClick={() => handleUpdateOTAdicionales(selectedOT.id, { ...adicionales, viewerColors })}
+                                className="absolute top-4 left-4 bg-white/90 backdrop-blur px-3 py-1.5 rounded-lg text-xs font-bold text-slate-700 shadow-sm border border-slate-200 hover:bg-white z-10 transition-all-300"
+                                title="Guarda la configuración actual de colores de lonas en la OT."
+                              >
+                                Guardar Diseño 3D
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </div>
-                  );
-                })()}
-              </div>
-            </div>
+                  ) : (
+                    <div className="rounded-3xl border border-slate-200 bg-slate-50/50 p-6 text-center text-xs font-bold text-slate-500">
+                      Haga clic en "Ver Render 3D" para cargar la visualización interactiva.
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* Split Grid at bottom: Left: checklists/wizard, Right: Chat */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -3270,7 +3338,7 @@ export default function App() {
                           Asistente de Conformación de Estructura
                         </h4>
                         <span className="bg-amber-100 text-amber-800 border border-amber-200 rounded-full px-2 py-0.5 text-[9px] font-black uppercase">
-                          Paso {conformanceStep} de 4
+                          Paso {conformanceStep} de 5
                         </span>
                       </div>
 
@@ -3665,14 +3733,169 @@ export default function App() {
                             </button>
                             <button
                               type="button"
-                              onClick={handleConfirmConformance}
-                              className="bg-emerald-600 hover:bg-emerald-700 text-white font-black text-[10px] uppercase tracking-widest rounded-xl px-6 py-2.5 shadow-md hover:-translate-y-0.5 transition-all-300 cursor-pointer"
+                              onClick={() => setConformanceStep(5)}
+                              className="bg-blue-900 hover:bg-blue-950 text-white font-black text-[10px] uppercase tracking-widest rounded-xl px-6 py-2.5 shadow-md transition-all-300 cursor-pointer"
                             >
-                              Confirmar Estructura y Aprobar OT
+                              Siguiente → Accesorios
                             </button>
                           </div>
                         </div>
                       )}
+
+                      {/* Step 5: Selección de Accesorios (Lonas, Pisos, Alfombras, Telas) */}
+                      {conformanceStep === 5 && (
+                        <div className="space-y-4">
+                          <div className="text-[10px] text-slate-500 font-semibold leading-relaxed bg-amber-50 border border-amber-200 rounded-xl px-3 py-2.5">
+                            📋 Seleccione los accesorios requeridos por Comercial. Los picking separados se generarán automáticamente.
+                          </div>
+
+                          {/* Requisitos del Comercial (referencia) */}
+                          {(() => {
+                            const adic = typeof selectedOT.adicionales === 'string' ? JSON.parse(selectedOT.adicionales) : selectedOT.adicionales || {};
+                            const refs = [];
+                            if (adic.lonas?.si) refs.push({ label: 'Lonas', color: adic.lonas.color, obs: adic.lonas.obs });
+                            if (adic.pisos?.si) refs.push({ label: 'Pisos', color: adic.pisos.tipo, obs: adic.pisos.obs });
+                            if (adic.alfombras?.si) refs.push({ label: 'Alfombras', color: adic.alfombras.color, obs: adic.alfombras.obs });
+                            if (adic.telas_cielorraso?.si) refs.push({ label: 'Telas Cielorraso', color: adic.telas_cielorraso.color, obs: adic.telas_cielorraso.obs });
+                            if (adic.telas_cortinas?.si) refs.push({ label: 'Telas Cortinas', color: adic.telas_cortinas.color, obs: adic.telas_cortinas.obs });
+                            if (refs.length === 0) return null;
+                            return (
+                              <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 space-y-1">
+                                <div className="text-[9px] font-black uppercase text-blue-700 tracking-widest mb-1.5">📌 Solicitud Comercial (referencia)</div>
+                                {refs.map((r, i) => (
+                                  <div key={i} className="flex items-center gap-2 text-[10px] font-semibold text-blue-900">
+                                    <span className="font-black">{r.label}:</span>
+                                    <span>{r.color || '—'}</span>
+                                    {r.obs && <span className="text-blue-500 italic">({r.obs})</span>}
+                                  </div>
+                                ))}
+                              </div>
+                            );
+                          })()}
+
+                          {/* Helper: builds an accessory row editor for a given category */}
+                          {[
+                            { label: 'Lonas', emoji: '🪟', sector: 'Lonas', items: conformanceLonas, setItems: setConformanceLonas, catalog: accessoriesCatalog.filter(a => (a.categoria || a.tipo || '').toLowerCase().includes('lona') || (a.tabla || '').toLowerCase() === 'lonas') },
+                            { label: 'Pisos', emoji: '🪵', sector: 'Pisos', items: conformancePisos, setItems: setConformancePisos, catalog: accessoriesCatalog.filter(a => (a.categoria || a.tipo || '').toLowerCase().includes('piso') || (a.tabla || '').toLowerCase() === 'pisos') },
+                            { label: 'Alfombras', emoji: '🟥', sector: 'Alfombras', items: conformanceAlfombras, setItems: setConformanceAlfombras, catalog: accessoriesCatalog.filter(a => (a.categoria || a.tipo || '').toLowerCase().includes('alfombra') || (a.tabla || '').toLowerCase() === 'alfombras') },
+                            { label: 'Telas', emoji: '🎀', sector: 'Telas', items: conformanceTelas, setItems: setConformanceTelas, catalog: accessoriesCatalog.filter(a => (a.categoria || a.tipo || '').toLowerCase().includes('tela') || (a.tabla || '').toLowerCase() === 'telas') },
+                          ].map(({ label, emoji, items, setItems, catalog }) => (
+                            <div key={label} className="border border-slate-200 rounded-2xl p-3 bg-slate-50/30 space-y-2">
+                              <div className="flex justify-between items-center">
+                                <span className="text-[10px] font-black uppercase text-slate-600 tracking-widest">{emoji} {label}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => setItems([...items, { catalogId: '', nombre: '', color: '', qty: 1, panos: '', mts: '' }])}
+                                  className="text-[9px] font-black uppercase text-blue-900 bg-blue-50 border border-blue-200 rounded-lg px-2 py-1 hover:bg-blue-100 cursor-pointer transition-all"
+                                >
+                                  + Agregar
+                                </button>
+                              </div>
+                              {items.length === 0 && (
+                                <p className="text-[10px] text-slate-400 italic text-center py-1">Sin accesorios seleccionados para {label}.</p>
+                              )}
+                              {items.map((item, idx) => (
+                                <div key={idx} className="bg-white border border-slate-200 rounded-xl p-2.5 space-y-2">
+                                  <div className="grid grid-cols-2 gap-2">
+                                    <div className="col-span-2">
+                                      <label className="text-[9px] uppercase tracking-wider font-black text-slate-400 block mb-0.5">Ítem del catálogo</label>
+                                      <select
+                                        value={item.catalogId || ''}
+                                        onChange={e => {
+                                          const selected = catalog.find(c => String(c.id) === e.target.value);
+                                          const updated = [...items];
+                                          updated[idx] = {
+                                            ...updated[idx],
+                                            catalogId: e.target.value,
+                                            nombre: selected ? (selected.nombre || selected.color || selected.estructura || `${label} #${e.target.value}`) : '',
+                                            color: selected ? (selected.color || '') : ''
+                                          };
+                                          setItems(updated);
+                                        }}
+                                        className="w-full bg-slate-50 border border-slate-200 rounded-lg p-1.5 text-[10px] font-semibold focus:outline-none focus:border-blue-500"
+                                      >
+                                        <option value="">— Seleccionar del catálogo —</option>
+                                        {catalog.map(c => (
+                                          <option key={c.id} value={c.id}>
+                                            {c.nombre || c.color || c.estructura || `ID ${c.id}`}
+                                            {c.medida ? ` (${c.medida})` : ''}
+                                            {c.stock_total != null ? ` [Stock: ${c.stock_total}]` : ''}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    </div>
+                                    <div>
+                                      <label className="text-[9px] uppercase tracking-wider font-black text-slate-400 block mb-0.5">Color</label>
+                                      <input
+                                        type="text"
+                                        placeholder="Ej: Blanco"
+                                        value={item.color}
+                                        onChange={e => { const u = [...items]; u[idx] = { ...u[idx], color: e.target.value }; setItems(u); }}
+                                        className="w-full bg-slate-50 border border-slate-200 rounded-lg p-1.5 text-[10px] font-semibold focus:outline-none focus:border-blue-500"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="text-[9px] uppercase tracking-wider font-black text-slate-400 block mb-0.5">Cantidad</label>
+                                      <input
+                                        type="number"
+                                        min="1"
+                                        value={item.qty}
+                                        onChange={e => { const u = [...items]; u[idx] = { ...u[idx], qty: e.target.value }; setItems(u); }}
+                                        className="w-full bg-slate-50 border border-slate-200 rounded-lg p-1.5 text-[10px] font-semibold focus:outline-none focus:border-blue-500"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="text-[9px] uppercase tracking-wider font-black text-slate-400 block mb-0.5">Paños</label>
+                                      <input
+                                        type="text"
+                                        placeholder="Ej: 3"
+                                        value={item.panos}
+                                        onChange={e => { const u = [...items]; u[idx] = { ...u[idx], panos: e.target.value }; setItems(u); }}
+                                        className="w-full bg-slate-50 border border-slate-200 rounded-lg p-1.5 text-[10px] font-semibold focus:outline-none focus:border-blue-500"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="text-[9px] uppercase tracking-wider font-black text-slate-400 block mb-0.5">Metros</label>
+                                      <input
+                                        type="text"
+                                        placeholder="Ej: 15.5"
+                                        value={item.mts}
+                                        onChange={e => { const u = [...items]; u[idx] = { ...u[idx], mts: e.target.value }; setItems(u); }}
+                                        className="w-full bg-slate-50 border border-slate-200 rounded-lg p-1.5 text-[10px] font-semibold focus:outline-none focus:border-blue-500"
+                                      />
+                                    </div>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => { const u = [...items]; u.splice(idx, 1); setItems(u); }}
+                                    className="text-[9px] font-black text-red-500 hover:text-red-700 uppercase tracking-wider cursor-pointer"
+                                  >
+                                    ✕ Eliminar
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          ))}
+
+                          <div className="flex justify-between items-center pt-3 border-t border-slate-100">
+                            <button
+                              type="button"
+                              onClick={() => setConformanceStep(4)}
+                              className="bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-700 font-extrabold text-[10px] uppercase tracking-wider rounded-xl px-4 py-2.5"
+                            >
+                              Volver
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handleConfirmConformance}
+                              className="bg-emerald-600 hover:bg-emerald-700 text-white font-black text-[10px] uppercase tracking-widest rounded-xl px-6 py-2.5 shadow-md hover:-translate-y-0.5 transition-all-300 cursor-pointer"
+                            >
+                              ✓ Confirmar Estructura y Aprobar OT
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
                     </div>
                   ) : (
                     <div className="bg-yellow-50 border border-yellow-250 text-yellow-800 rounded-3xl p-5 text-xs font-bold text-center leading-relaxed shadow-sm">
@@ -3720,14 +3943,19 @@ export default function App() {
                         });
                       };
 
-  const isLona = (name) => {
+                      const isLona = (name) => {
                         const n = name.toLowerCase();
                         return n.includes('lona') || n.includes('techo') || n.includes('lateral') || n.includes('triangulo') || n.includes('tapachata') || n.includes('puerta');
                       };
 
                       const isPiso = (name) => {
                         const n = name.toLowerCase();
-                        return n.includes('piso') || n.includes('placa') || n.includes('fenolico') || n.includes('caño') || n.includes('alfombra');
+                        return n.includes('piso') || n.includes('placa') || n.includes('fenolico') || n.includes('caño');
+                      };
+
+                      const isAlfombra = (name) => {
+                        const n = name.toLowerCase();
+                        return n.includes('alfombra');
                       };
 
                       const isTela = (name) => {
@@ -3740,6 +3968,7 @@ export default function App() {
                         const name = item.producto || '';
                         if (isLona(name)) return 'Lonas';
                         if (isPiso(name)) return 'Pisos';
+                        if (isAlfombra(name)) return 'Alfombras';
                         if (isTela(name)) return 'Telas';
                         return item.sourceList;
                       };
@@ -3756,88 +3985,76 @@ export default function App() {
                         });
                       }
 
+                      const allItemsWithSector = allItems.map(item => ({
+                        ...item,
+                        computedSector: getSector(item)
+                      }));
+
                       const isAdmin = userRole === 'Gerencia' || userRole === 'Operaciones' || userRole === 'SuperAdmin';
 
                       if (isAdmin) {
-                        return (
-                          <div className="border border-slate-200 rounded-3xl p-4 bg-slate-50/30 grid grid-cols-2 gap-4 max-h-[220px] overflow-y-auto">
-                            <div className="space-y-2 border-r border-slate-200/80 pr-2">
-                              <h4 className="text-[10px] font-black uppercase text-purple-700 tracking-wider font-mono">1. Checklist Pañol</h4>
-                              <div className="space-y-1">
-                                {aggregateOperarioItems(panol?.items?.map((item, idx) => ({...item, idx})) || []).map((item, aggIdx) => {
-                                  const isEditable = userRole === 'Pañol' || userRole === 'Gerencia' || userRole === 'SuperAdmin' || userRole === 'Operaciones';
-                                  return (
-                                    <div key={aggIdx} className="flex flex-col gap-1 py-1 border-b border-slate-100 last:border-0">
-                                      <div className="flex items-start gap-2">
-                                        <input
-                                          type="checkbox"
-                                          disabled={!isEditable}
-                                          checked={item.checked}
-                                          onChange={(e) => handleUpdateChecklistItem(item.indices, 'Pañol', e.target.checked)}
-                                          className="w-4 h-4 mt-0.5 rounded border-slate-300 text-purple-600 focus:ring-purple-500 cursor-pointer"
-                                        />
-                                        <div className="flex-1 flex justify-between items-center">
-                                          <div className={`text-[11px] font-bold leading-tight flex-1 ${item.checked ? 'line-through text-slate-400' : 'text-slate-700'}`}>
-                                            {item.producto}
-                                          </div>
-                                          <div className="flex items-center gap-1 bg-white border border-slate-200 rounded px-1 ml-2">
-                                            <button onClick={() => isEditable && handleUpdateChecklistQty(item.indices, 'Pañol', -1)} className="text-slate-400 hover:text-red-500 font-bold px-1.5" disabled={!isEditable || item.qty <= 0}>-</button>
-                                            <span className="text-purple-700 font-black text-[11px] min-w-[20px] text-center">x{item.qty}</span>
-                                            <button onClick={() => isEditable && handleUpdateChecklistQty(item.indices, 'Pañol', 1)} className="text-slate-400 hover:text-green-500 font-bold px-1.5" disabled={!isEditable}>+</button>
-                                          </div>
-                                        </div>
-                                      </div>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            </div>
+                        const sectorsDef = [
+                          { key: 'Pañol', title: '1. Checklist Pañol (Rígidos)', color: 'text-purple-700', checkColor: 'text-purple-600 focus:ring-purple-500 font-semibold', items: allItemsWithSector.filter(i => i.computedSector === 'Pañol') },
+                          { key: 'Planta', title: '2. Checklist Planta (Estructurales)', color: 'text-orange-700', checkColor: 'text-orange-600 focus:ring-orange-500 font-semibold', items: allItemsWithSector.filter(i => i.computedSector === 'Planta') },
+                          { key: 'Lonas', title: '3. Checklist Lonas', color: 'text-teal-700', checkColor: 'text-teal-600 focus:ring-teal-500 font-semibold', items: allItemsWithSector.filter(i => i.computedSector === 'Lonas') },
+                          { key: 'Pisos', title: '4. Checklist Pisos', color: 'text-emerald-700', checkColor: 'text-emerald-600 focus:ring-emerald-500 font-semibold', items: allItemsWithSector.filter(i => i.computedSector === 'Pisos') },
+                          { key: 'Alfombras', title: '5. Checklist Alfombras', color: 'text-lime-700', checkColor: 'text-lime-600 focus:ring-lime-500 font-semibold', items: allItemsWithSector.filter(i => i.computedSector === 'Alfombras') },
+                          { key: 'Telas', title: '6. Checklist Telas', color: 'text-indigo-700', checkColor: 'text-indigo-600 focus:ring-indigo-500 font-semibold', items: allItemsWithSector.filter(i => i.computedSector === 'Telas') }
+                        ];
 
-                            <div className="space-y-2 pl-2">
-                              <h4 className="text-[10px] font-black uppercase text-orange-700 tracking-wider font-mono">2. Checklist Planta</h4>
-                              <div className="space-y-1">
-                                {aggregateOperarioItems(planta?.items?.map((item, idx) => ({...item, idx})) || []).map((item, aggIdx) => {
-                                  const isEditable = userRole === 'Planta' || userRole === 'Gerencia' || userRole === 'SuperAdmin' || userRole === 'Operaciones';
-                                  return (
-                                    <div key={aggIdx} className="flex flex-col gap-1 py-1 border-b border-slate-100 last:border-0">
-                                      <div className="flex items-start gap-2">
-                                        <input
-                                          type="checkbox"
-                                          disabled={!isEditable}
-                                          checked={item.checked}
-                                          onChange={(e) => handleUpdateChecklistItem(item.indices, 'Planta', e.target.checked)}
-                                          className="w-4 h-4 mt-0.5 rounded border-slate-300 text-orange-600 focus:ring-orange-500 cursor-pointer"
-                                        />
-                                        <div className="flex-1 flex justify-between items-center">
-                                          <div className={`text-[11px] font-bold leading-tight flex-1 ${item.checked ? 'line-through text-slate-400' : 'text-slate-700'}`}>
-                                            {item.producto}
+                        return (
+                          <div className="space-y-4">
+                            <div className="border border-slate-200 rounded-3xl p-4 bg-slate-50/30 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 max-h-[400px] overflow-y-auto">
+                              {sectorsDef.map((sector) => {
+                                const aggregated = aggregateOperarioItems(sector.items);
+                                return (
+                                  <div key={sector.key} className="space-y-2 border-slate-200/80 pr-2">
+                                    <h4 className={`text-[10px] font-black uppercase ${sector.color} tracking-wider font-mono`}>{sector.title}</h4>
+                                    <div className="space-y-1">
+                                      {aggregated.map((item, aggIdx) => {
+                                        return (
+                                          <div key={aggIdx} className="flex flex-col gap-1 py-1 border-b border-slate-100 last:border-0">
+                                            <div className="flex items-start gap-2">
+                                              <input
+                                                type="checkbox"
+                                                checked={item.checked}
+                                                onChange={(e) => handleUpdateChecklistItem(item.indices, item.sourceList, e.target.checked)}
+                                                className={`w-4 h-4 mt-0.5 rounded border-slate-300 ${sector.checkColor} cursor-pointer`}
+                                              />
+                                              <div className="flex-1 flex justify-between items-center">
+                                                <div className={`text-[11px] font-bold leading-tight flex-1 ${item.checked ? 'line-through text-slate-400' : 'text-slate-700'}`}>
+                                                  {item.producto}
+                                                </div>
+                                                <div className="flex items-center gap-1 bg-white border border-slate-200 rounded px-1 ml-2">
+                                                  <button onClick={() => handleUpdateChecklistQty(item.indices, item.sourceList, -1)} className="text-slate-400 hover:text-red-500 font-bold px-1.5" disabled={item.qty <= 0}>-</button>
+                                                  <span className={`${sector.color} font-black text-[11px] min-w-[20px] text-center`}>x{item.qty}</span>
+                                                  <button onClick={() => handleUpdateChecklistQty(item.indices, item.sourceList, 1)} className="text-slate-400 hover:text-green-500 font-bold px-1.5">+</button>
+                                                </div>
+                                              </div>
+                                            </div>
                                           </div>
-                                          <div className="flex items-center gap-1 bg-white border border-slate-200 rounded px-1 ml-2">
-                                            <button onClick={() => isEditable && handleUpdateChecklistQty(item.indices, 'Planta', -1)} className="text-slate-400 hover:text-red-500 font-bold px-1.5" disabled={!isEditable || item.qty <= 0}>-</button>
-                                            <span className="text-orange-700 font-black text-[11px] min-w-[20px] text-center">x{item.qty}</span>
-                                            <button onClick={() => isEditable && handleUpdateChecklistQty(item.indices, 'Planta', 1)} className="text-slate-400 hover:text-green-500 font-bold px-1.5" disabled={!isEditable}>+</button>
-                                          </div>
-                                        </div>
-                                      </div>
+                                        );
+                                      })}
+                                      {aggregated.length === 0 && (
+                                        <p className="text-[10px] text-slate-400 italic text-center py-1">Sin productos</p>
+                                      )}
                                     </div>
-                                  );
-                                })}
-                              </div>
-                              {selectedOT.estado === 'Bulto Completo' && (
-                                <button
-                                  onClick={() => handleUpdateOTStatus(selectedOT.id, 'Completada')}
-                                  className="w-full bg-orange-600 hover:bg-orange-700 text-white rounded-lg py-2 mt-2 text-[10px] font-black uppercase tracking-wider shadow-sm transition-all-300 cursor-pointer"
-                                >
-                                  Confirmar Carga / Despachar
-                                </button>
-                              )}
+                                  </div>
+                                );
+                              })}
                             </div>
+                            {selectedOT.estado === 'Bulto Completo' && (
+                              <button
+                                onClick={() => handleUpdateOTStatus(selectedOT.id, 'Completada')}
+                                className="w-full bg-orange-600 hover:bg-orange-700 text-white rounded-lg py-2 text-[10px] font-black uppercase tracking-wider shadow-sm transition-all-300 cursor-pointer"
+                              >
+                                Confirmar Carga / Despachar (Planta)
+                              </button>
+                            )}
                           </div>
                         );
                       }
 
-                      
-                      
                       const actualRole = currentUser?.rol || userRole;
                       const isOperario = actualRole === 'Operario';
 
@@ -3879,7 +4096,8 @@ export default function App() {
                           if (sec === 'Planta') return { title: "Checklist Planta (Estructurales)", colColor: "text-orange-700", checkColor: "text-orange-600 focus:ring-orange-500" };
                           if (sec === 'Pañol') return { title: "Checklist Pañol (Estructurales)", colColor: "text-purple-700", checkColor: "text-purple-600 focus:ring-purple-500" };
                           if (sec === 'Lonas') return { title: "Checklist Lonas", colColor: "text-teal-700", checkColor: "text-teal-600 focus:ring-teal-500" };
-                          if (sec === 'Pisos') return { title: "Checklist Pisos y Alfombras", colColor: "text-emerald-700", checkColor: "text-emerald-600 focus:ring-emerald-500" };
+                          if (sec === 'Pisos') return { title: "Checklist Pisos", colColor: "text-emerald-700", checkColor: "text-emerald-600 focus:ring-emerald-500" };
+                          if (sec === 'Alfombras') return { title: "Checklist Alfombras", colColor: "text-lime-700", checkColor: "text-lime-600 focus:ring-lime-500" };
                           if (sec === 'Telas') return { title: "Checklist Telas (Cortinas/Cielor.)", colColor: "text-indigo-700", checkColor: "text-indigo-600 focus:ring-indigo-500" };
                           return { title: `Checklist ${sec}`, colColor: "text-slate-700", checkColor: "text-slate-650 focus:ring-slate-500" };
                         };
@@ -3887,16 +4105,14 @@ export default function App() {
                         return (
                           <div className="space-y-4 max-h-[350px] overflow-y-auto pr-1">
                             {assignedSectors.map((sector) => {
-                              const sectorItems = allItems.map(item => {
-                                return { ...item, computedSector: getSector(item) };
-                              }).filter(item => item.computedSector === sector);
+                              const sectorItems = allItemsWithSector.filter(item => item.computedSector === sector);
 
                               const style = getSectorStyle(sector);
                               const isAllowedState = ['Aprobada', 'Bulto Completo', 'En Planta'].includes(selectedOT.estado);
                               const isEditable = (
                                 (sector === 'Pañol' && selectedOT.estado === 'Aprobada') ||
                                 (sector === 'Planta' && (selectedOT.estado === 'Aprobada' || selectedOT.estado === 'Bulto Completo')) ||
-                                ((sector === 'Lonas' || sector === 'Pisos' || sector === 'Telas') && isAllowedState)
+                                ((sector === 'Lonas' || sector === 'Pisos' || sector === 'Alfombras' || sector === 'Telas') && isAllowedState)
                               );
 
                               return (
@@ -3938,13 +4154,12 @@ export default function App() {
                         );
                       }
 
-                      const filteredItems = allItems.map(item => {
-                        return { ...item, computedSector: getSector(item) };
-                      }).filter(item => {
+                      const filteredItems = allItemsWithSector.filter(item => {
                         if (actualRole === 'Planta') return item.computedSector === 'Planta';
                         if (actualRole === 'Pañol') return item.computedSector === 'Pañol';
                         if (actualRole === 'Lonas') return item.computedSector === 'Lonas';
                         if (actualRole === 'Pisos') return item.computedSector === 'Pisos';
+                        if (actualRole === 'Alfombras') return item.computedSector === 'Alfombras';
                         if (actualRole === 'Telas') return item.computedSector === 'Telas';
                         return false;
                       });
@@ -3965,9 +4180,13 @@ export default function App() {
                         colColor = "text-teal-700";
                         checkColor = "text-teal-600 focus:ring-teal-500";
                       } else if (actualRole === 'Pisos') {
-                        colTitle = "1. Checklist Pisos y Alfombras";
+                        colTitle = "1. Checklist Pisos";
                         colColor = "text-emerald-700";
                         checkColor = "text-emerald-600 focus:ring-emerald-500";
+                      } else if (actualRole === 'Alfombras') {
+                        colTitle = "1. Checklist Alfombras";
+                        colColor = "text-lime-700";
+                        checkColor = "text-lime-600 focus:ring-lime-500";
                       } else if (actualRole === 'Telas') {
                         colTitle = "1. Checklist Telas (Cortinas y Cielorrasos)";
                         colColor = "text-indigo-700";
@@ -3978,7 +4197,7 @@ export default function App() {
                       const isEditable = (
                         (actualRole === 'Pañol' && selectedOT.estado === 'Aprobada') ||
                         (actualRole === 'Planta' && (selectedOT.estado === 'Aprobada' || selectedOT.estado === 'Bulto Completo')) ||
-                        ((actualRole === 'Lonas' || actualRole === 'Pisos' || actualRole === 'Telas') && isAllowedState)
+                        ((actualRole === 'Lonas' || actualRole === 'Pisos' || actualRole === 'Alfombras' || actualRole === 'Telas') && isAllowedState)
                       );
 
                       return (
