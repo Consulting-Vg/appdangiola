@@ -132,6 +132,12 @@ export default function App() {
   const [stockCheckStatus, setStockCheckStatus] = useState('unchecked'); // 'unchecked', 'ok', 'error'
   const [suggestedModulation, setSuggestedModulation] = useState([]);
 
+  // Verificar temporal de arcos for existing OTs (approval & modulation wizard)
+  const [showOTAvailabilityCheck, setShowOTAvailabilityCheck] = useState(false);
+  const [otAvailabilityResults, setOtAvailabilityResults] = useState([]);
+  const [otStockCheckStatus, setOtStockCheckStatus] = useState('unchecked');
+  const [otStockCheckMsg, setOtStockCheckMsg] = useState('');
+
   // 3D Render visibility toggle (role-gated: Gerencia, Comercial, Operaciones, SuperAdmin)
   const [show3DRender, setShow3DRender] = useState(false);
 
@@ -455,6 +461,57 @@ export default function App() {
       console.error(err);
       setStockCheckStatus('error');
       setStockCheckMsg('Error al consultar stock en el servidor.');
+    }
+  };
+
+  const checkOTStockAvailability = async (ot) => {
+    if (!ot) return;
+    setShowOTAvailabilityCheck(true);
+    setOtStockCheckStatus('unchecked');
+    setOtStockCheckMsg('Consultando disponibilidad temporal de arcos...');
+    setOtAvailabilityResults([]);
+
+    const matchingStruct = structuresStock?.find(s => s.modelo_estructura === ot.modelo_estructura);
+    const resolvedType = matchingStruct ? matchingStruct.estructura_tipo : 'Aluminio';
+
+    const modConfig = typeof ot.modulacion_config === 'string' ? JSON.parse(ot.modulacion_config) : ot.modulacion_config;
+    let archesNeeded = 0;
+    if (modConfig && modConfig.modulos) {
+      let totalModules = 0;
+      modConfig.modulos.forEach(m => totalModules += m.qty);
+      archesNeeded = totalModules + 1;
+    } else {
+      archesNeeded = Math.ceil(Number(ot.largo) / 5) + 1;
+    }
+
+    try {
+      const res = await fetch('/api/estructuras/check-availability', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          frente: parseFloat(ot.frente),
+          estructura_tipo: resolvedType,
+          fecha_inicio: ot.fecha_inicio,
+          fecha_fin: ot.fecha_comienzo_desarmado || ot.fecha_fin,
+          arcos_necesarios: archesNeeded,
+          exclude_ot_id: ot.id
+        })
+      });
+      const data = await res.json();
+
+      if (data.available) {
+        setOtAvailabilityResults(data.results || []);
+        setOtStockCheckStatus('ok');
+        setOtStockCheckMsg(`✓ ¡Disponibilidad confirmada! Hay suficientes arcos libres de ${resolvedType} (${ot.frente}m) en estas fechas.`);
+      } else {
+        setOtAvailabilityResults(data.results || []);
+        setOtStockCheckStatus('error');
+        setOtStockCheckMsg(`✗ Conflicto de Stock: No hay arcos suficientes de ${resolvedType} (${ot.frente}m) en las fechas indicadas.`);
+      }
+    } catch (err) {
+      console.error(err);
+      setOtStockCheckStatus('error');
+      setOtStockCheckMsg('Error al consultar disponibilidad en el servidor.');
     }
   };
 
@@ -3288,9 +3345,9 @@ export default function App() {
               {/* Left Column: Conformation Wizard OR Checklists */}
               <div className="space-y-4">
 
-                {/* 1. OT is Pending -> Render Validation buttons (for Gerencia/SuperAdmin) or warning */}
+                {/* 1. OT is Pending -> Render Validation buttons (for Gerencia/SuperAdmin/Operaciones) or warning */}
                 {selectedOT.estado === 'Pendiente' ? (
-                  (userRole === 'Gerencia' || userRole === 'SuperAdmin') ? (
+                  (userRole === 'Gerencia' || userRole === 'SuperAdmin' || userRole === 'Operaciones') ? (
                     <div className="border border-slate-200 rounded-3xl p-5 bg-white shadow-xs space-y-4">
                       <div className="pb-3 border-b border-slate-100">
                         <h4 className="text-xs font-black uppercase text-blue-900 tracking-wider Poppins">
@@ -3300,26 +3357,103 @@ export default function App() {
                       <p className="text-xs font-semibold text-slate-600 leading-relaxed">
                         Este contrato comercial está pendiente de aprobación de Gerencia para poder pasar al sector de Operaciones para su modulación y carga física.
                       </p>
-                      <div className="flex gap-2">
-                        <button
-                          onClick={async () => {
-                            await handleUpdateOTStatus(selectedOT.id, 'Aprobada por Gerencia');
-                          }}
-                          className="flex-1 bg-blue-900 hover:bg-blue-955 text-white rounded-xl py-3 text-xs font-black uppercase tracking-widest shadow-md transition-all-300 cursor-pointer"
-                        >
-                          Aprobar Contrato
-                        </button>
-                        <button
-                          onClick={async () => {
-                            if (window.confirm("¿Estás seguro de desaprobar/rechazar este contrato?")) {
-                              await handleUpdateOTStatus(selectedOT.id, 'Rechazada');
-                            }
-                          }}
-                          className="flex-1 bg-rose-600 hover:bg-rose-700 text-white rounded-xl py-3 text-xs font-black uppercase tracking-widest shadow-md transition-all-300 cursor-pointer"
-                        >
-                          Desaprobar
-                        </button>
-                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => checkOTStockAvailability(selectedOT)}
+                        className="w-full bg-slate-800 text-white rounded-xl py-3 text-xs font-black uppercase tracking-widest hover:bg-slate-900 transition-all-300 shadow-md cursor-pointer"
+                      >
+                        Verificar Disponibilidad Temporal de Arcos
+                      </button>
+
+                      {showOTAvailabilityCheck && (
+                        <div className="border border-slate-200 rounded-2xl bg-slate-50/50 p-4 space-y-3">
+                          <div className="flex justify-between items-center pb-2 border-b border-slate-100">
+                            <h5 className="text-[10px] font-black uppercase text-blue-900 tracking-wider font-mono">
+                              Verificación Temporal de Arcos
+                            </h5>
+                            <button
+                              type="button"
+                              onClick={() => setShowOTAvailabilityCheck(false)}
+                              className="text-[10px] font-bold text-slate-400 hover:text-slate-650"
+                            >
+                              Ocultar
+                            </button>
+                          </div>
+                          {otStockCheckStatus === 'unchecked' ? (
+                            <p className="text-[10px] text-slate-400 italic text-center py-2">Consultando disponibilidad...</p>
+                          ) : (
+                            <div className="space-y-3">
+                              <div className={`p-3 rounded-xl border text-[10px] font-semibold leading-relaxed ${
+                                otStockCheckStatus === 'ok' ? 'bg-emerald-50 border-emerald-250 text-emerald-805' : 'bg-red-50 border-red-250 text-red-805'
+                              }`}>
+                                {otStockCheckMsg}
+                              </div>
+                              {otAvailabilityResults.length > 0 && (
+                                <div className="divide-y divide-slate-150 max-h-[180px] overflow-y-auto pr-1 bg-white border border-slate-200 rounded-xl p-2.5 space-y-0 shadow-inner">
+                                  {otAvailabilityResults.map(res => {
+                                    const isAvailable = res.arcos_disponibles > 0;
+                                    const hasConflicts = (res.reserved_arches_detail || []).length > 0;
+                                    return (
+                                      <div key={res.modelo_estructura} className="py-2 first:pt-0 last:pb-0">
+                                        <div className="flex justify-between items-center">
+                                          <div className="flex items-center gap-1.5">
+                                            <span className="bg-slate-100 text-slate-800 text-[9px] font-mono font-bold px-1.5 py-0.5 rounded border border-slate-200">{res.modelo_estructura}</span>
+                                            <span className="text-[9px] text-slate-500 font-bold">
+                                              {res.arcos_disponibles}/{res.arcos_totales} libres
+                                            </span>
+                                          </div>
+                                          <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider ${
+                                            res.status === 'Incompleta'
+                                              ? 'bg-orange-50 text-orange-700 border border-orange-200'
+                                              : isAvailable
+                                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                                : 'bg-red-50 text-red-700 border border-red-200'
+                                          }`}>
+                                            {res.status === 'Incompleta' ? 'Incompleta' : isAvailable ? 'Disponible' : 'Sin Stock'}
+                                          </span>
+                                        </div>
+                                        {hasConflicts && (
+                                          <div className="mt-1 pl-2 border-l border-red-200 space-y-0.5">
+                                            {res.reserved_arches_detail.map((c, cIdx) => (
+                                              <p key={cIdx} className="text-[8.5px] text-red-500 font-semibold">
+                                                ⚠ Arco {c.arco} reservado por {c.ot_numero} ({c.cliente})
+                                              </p>
+                                            ))}
+                                          </div>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {(userRole === 'Gerencia' || userRole === 'SuperAdmin') && (
+                        <div className="flex gap-2 pt-2 border-t border-slate-100">
+                          <button
+                            onClick={async () => {
+                              await handleUpdateOTStatus(selectedOT.id, 'Aprobada por Gerencia');
+                            }}
+                            className="flex-1 bg-blue-900 hover:bg-blue-955 text-white rounded-xl py-3 text-xs font-black uppercase tracking-widest shadow-md transition-all-300 cursor-pointer"
+                          >
+                            Aprobar Contrato
+                          </button>
+                          <button
+                            onClick={async () => {
+                              if (window.confirm("¿Estás seguro de desaprobar/rechazar este contrato?")) {
+                                await handleUpdateOTStatus(selectedOT.id, 'Rechazada');
+                              }
+                            }}
+                            className="flex-1 bg-rose-600 hover:bg-rose-700 text-white rounded-xl py-3 text-xs font-black uppercase tracking-widest shadow-md transition-all-300 cursor-pointer"
+                          >
+                            Desaprobar
+                          </button>
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <div className="bg-yellow-50 border border-yellow-250 text-yellow-800 rounded-3xl p-5 text-xs font-bold text-center leading-relaxed shadow-sm">
@@ -3476,6 +3610,83 @@ export default function App() {
                               })()}
                             </div>
                           )}
+
+                          {/* VERIFICAR TEMPORAL DE ARCOS BUTTON AND RESULTS PANEL FOR WIZARD STEP 1 */}
+                          <div className="pt-2 border-t border-slate-100 space-y-3">
+                            <button
+                              type="button"
+                              onClick={() => checkOTStockAvailability(selectedOT)}
+                              className="w-full bg-slate-800 hover:bg-slate-900 text-white rounded-xl py-2.5 text-[10px] font-black uppercase tracking-widest transition-all-300 shadow-sm cursor-pointer"
+                            >
+                              Verificar Disponibilidad Temporal de Arcos
+                            </button>
+
+                            {showOTAvailabilityCheck && (
+                              <div className="border border-slate-200 rounded-xl bg-slate-50/50 p-3 space-y-2">
+                                <div className="flex justify-between items-center pb-1 border-b border-slate-150">
+                                  <span className="text-[9px] font-black uppercase text-blue-900 tracking-wider font-mono">
+                                    Resultado de Disponibilidad
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => setShowOTAvailabilityCheck(false)}
+                                    className="text-[9px] font-bold text-slate-400 hover:text-slate-650"
+                                  >
+                                    Ocultar
+                                  </button>
+                                </div>
+                                {otStockCheckStatus === 'unchecked' ? (
+                                  <p className="text-[9px] text-slate-400 italic text-center py-1">Consultando stock...</p>
+                                ) : (
+                                  <div className="space-y-2">
+                                    <div className={`p-2 rounded-lg border text-[9px] font-semibold leading-relaxed ${
+                                      otStockCheckStatus === 'ok' ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-red-50 border-red-200 text-red-800'
+                                    }`}>
+                                      {otStockCheckMsg}
+                                    </div>
+                                    {otAvailabilityResults.length > 0 && (
+                                      <div className="divide-y divide-slate-150 max-h-[150px] overflow-y-auto pr-1 bg-white border border-slate-200 rounded-lg p-2 space-y-0 shadow-inner">
+                                        {otAvailabilityResults.map(res => {
+                                          const isAvailable = res.arcos_disponibles > 0;
+                                          const hasConflicts = (res.reserved_arches_detail || []).length > 0;
+                                          return (
+                                            <div key={res.modelo_estructura} className="py-1.5 first:pt-0 last:pb-0">
+                                              <div className="flex justify-between items-center">
+                                                <div className="flex items-center gap-1.5">
+                                                  <span className="bg-slate-100 text-slate-800 text-[8.5px] font-mono font-bold px-1.5 py-0.5 rounded border border-slate-200">{res.modelo_estructura}</span>
+                                                  <span className="text-[8.5px] text-slate-500 font-semibold">
+                                                    {res.arcos_disponibles}/{res.arcos_totales} libres
+                                                  </span>
+                                                </div>
+                                                <span className={`px-1.5 py-0.5 rounded text-[8.5px] font-black uppercase tracking-wider ${
+                                                  res.status === 'Incompleta'
+                                                    ? 'bg-orange-50 text-orange-700 border border-orange-200'
+                                                    : isAvailable
+                                                      ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                                      : 'bg-red-50 text-red-700 border border-red-200'
+                                                }`}>
+                                                  {res.status === 'Incompleta' ? 'Incompleta' : isAvailable ? 'Disponible' : 'Sin Stock'}
+                                                </span>
+                                              </div>
+                                              {hasConflicts && (
+                                                <div className="mt-1 pl-2 border-l border-red-200 space-y-0.5">
+                                                  {res.reserved_arches_detail.map((c, cIdx) => (
+                                                    <p key={cIdx} className="text-[8px] text-red-500 font-semibold">
+                                                      ⚠ Arco {c.arco} reservado por {c.ot_numero} ({c.cliente})
+                                                    </p>
+                                                  ))}
+                                                </div>
+                                              )}
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
 
                           <div className="flex justify-end pt-2 border-t border-slate-100">
                             {conformanceModType === 'simple' ? (
