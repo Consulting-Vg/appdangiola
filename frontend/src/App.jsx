@@ -3,7 +3,8 @@ import {
   Shield, User, Calendar, Plus, RefreshCw, Layers,
   MapPin, MessageSquare, ListTodo, FileText, CheckCircle2,
   Trash2, X, Download, AlertTriangle, Play, HelpCircle, LogOut,
-  Printer, ArrowRight, Warehouse, Shuffle, Truck
+  Printer, ArrowRight, Warehouse, Shuffle, Truck,
+  Sun, Cloud, CloudRain, CloudSnow, CloudLightning, Wind, Thermometer
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import confetti from 'canvas-confetti';
@@ -140,6 +141,13 @@ export default function App() {
 
   // 3D Render visibility toggle (role-gated: Gerencia, Comercial, Operaciones, SuperAdmin)
   const [show3DRender, setShow3DRender] = useState(false);
+
+  // Weather analysis states
+  const [showWeatherModal, setShowWeatherModal] = useState(false);
+  const [weatherData, setWeatherData] = useState(null);
+  const [weatherLoading, setWeatherLoading] = useState(false);
+  const [weatherError, setWeatherError] = useState(null);
+  const [weatherOTName, setWeatherOTName] = useState('');
 
   // Step 5: Accessory selection state for conformance wizard
   // Each array holds items: { catalogId, nombre, color, qty, panos, mts }
@@ -513,6 +521,115 @@ export default function App() {
       setOtStockCheckStatus('error');
       setOtStockCheckMsg('Error al consultar disponibilidad en el servidor.');
     }
+  };
+
+  const handleWeatherAnalysis = async (ot) => {
+    if (!ot) return;
+    const geo = typeof ot.georef === 'string' ? JSON.parse(ot.georef) : ot.georef;
+    const lat = geo?.lat;
+    const lng = geo?.lng;
+
+    if (!lat || !lng) {
+      alert("⚠️ Esta OT no tiene coordenadas asignadas para el análisis climático.");
+      return;
+    }
+
+    setWeatherOTName(`${ot.ot_numero} - ${ot.cliente_nombre}`);
+    setWeatherLoading(true);
+    setWeatherError(null);
+    setWeatherData(null);
+    setShowWeatherModal(true);
+
+    try {
+      const response = await fetch('/api/clima', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          lat,
+          lng,
+          ot_numero: ot.ot_numero,
+          cliente_nombre: ot.cliente_nombre
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Error en el servidor climático (status ${response.status})`);
+      }
+
+      const data = await response.json();
+      setWeatherData(data);
+    } catch (err) {
+      console.error(err);
+      setWeatherError(err.message || "No se pudo obtener el pronóstico del clima.");
+    } finally {
+      setWeatherLoading(false);
+    }
+  };
+
+  const getWeatherDetails = (code) => {
+    switch (code) {
+      case 0:
+        return { label: 'Despejado', icon: 'sun', color: 'text-amber-600 bg-amber-50 border border-amber-200' };
+      case 1:
+      case 2:
+      case 3:
+        return { label: 'Parcialmente Nublado', icon: 'cloud', color: 'text-slate-600 bg-slate-50 border border-slate-200' };
+      case 45:
+      case 48:
+        return { label: 'Neblina', icon: 'cloud', color: 'text-slate-500 bg-slate-50 border border-slate-200' };
+      case 51:
+      case 53:
+      case 55:
+      case 56:
+      case 57:
+        return { label: 'Llovizna', icon: 'rain', color: 'text-blue-500 bg-blue-50/50 border border-blue-150' };
+      case 61:
+      case 63:
+      case 65:
+      case 66:
+      case 67:
+        return { label: 'Lluvia', icon: 'rain', color: 'text-blue-700 bg-blue-50 border border-blue-200' };
+      case 71:
+      case 73:
+      case 75:
+      case 77:
+        return { label: 'Nieve', icon: 'snow', color: 'text-sky-500 bg-sky-50 border border-sky-200' };
+      case 80:
+      case 81:
+      case 82:
+        return { label: 'Chubascos de Lluvia', icon: 'rain', color: 'text-blue-600 bg-blue-50/50 border border-blue-200' };
+      case 85:
+      case 86:
+        return { label: 'Chubascos de Nieve', icon: 'snow', color: 'text-sky-600 bg-sky-50 border border-sky-200' };
+      case 95:
+      case 96:
+      case 99:
+        return { label: 'Tormenta Eléctrica', icon: 'lightning', color: 'text-yellow-800 bg-yellow-50 border border-yellow-250 animate-pulse' };
+      default:
+        return { label: 'Clima Variable', icon: 'cloud', color: 'text-slate-600 bg-slate-50 border border-slate-200' };
+    }
+  };
+
+  const renderWeatherIcon = (iconName, className = "w-6 h-6") => {
+    switch (iconName) {
+      case 'sun':
+        return <Sun className={className} />;
+      case 'cloud':
+        return <Cloud className={className} />;
+      case 'rain':
+        return <CloudRain className={className} />;
+      case 'snow':
+        return <CloudSnow className={className} />;
+      case 'lightning':
+        return <CloudLightning className={className} />;
+      default:
+        return <Cloud className={className} />;
+    }
+  };
+
+  const getDayName = (dateStr) => {
+    const date = new Date(dateStr + 'T00:00:00');
+    return date.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'short' });
   };
 
   const handleLogin = async (username, password) => {
@@ -2464,6 +2581,7 @@ export default function App() {
             clients={clients}
             onUpdateAdicionales={handleUpdateOTAdicionales}
             onOpenGerenciaDashboard={() => setCurrentTab('gerencia')}
+            onWeatherAnalysis={handleWeatherAnalysis}
           />
         )}
 
@@ -3196,6 +3314,16 @@ export default function App() {
                 <h2 className="text-xl font-black uppercase text-blue-900 tracking-wider Poppins">{selectedOT.cliente_nombre}</h2>
               </div>
               <div className="flex items-center gap-2">
+                {['Gerencia', 'Operaciones', 'SuperAdmin'].includes(currentUser?.rol || userRole) && (
+                  <button
+                    type="button"
+                    onClick={() => handleWeatherAnalysis(selectedOT)}
+                    className="bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 rounded-xl px-4 py-2.5 text-xs font-black uppercase tracking-wider shadow-xs transition-all-300 flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Sun className="w-4 h-4 text-amber-500" />
+                    <span>Análisis Climático</span>
+                  </button>
+                )}
                 <PDFReplicator ot={selectedOT} explosion={otDetailsExplosion} />
                 {selectedOT.estado === 'Desarmada' && (
                   <button
@@ -5726,6 +5854,140 @@ export default function App() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* -------------------- WEATHER ANALYSIS MODAL -------------------- */}
+      {showWeatherModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
+          <div className="bg-white border border-slate-200 rounded-[2rem] w-full max-w-2xl p-6 md:p-8 max-h-[90vh] overflow-y-auto shadow-2xl relative space-y-6">
+            <button onClick={() => setShowWeatherModal(false)} className="absolute right-6 top-6 p-1 rounded-full hover:bg-slate-100 transition-all-300">
+              <X className="w-5 h-5 text-slate-500" />
+            </button>
+
+            <div className="border-b border-slate-150 pb-3">
+              <span className="bg-blue-100 text-blue-800 text-[10px] font-black px-2.5 py-1 rounded-full uppercase border border-blue-250 tracking-wider">
+                Servicio Meteorológico Google Maps & Gemini AI
+              </span>
+              <h2 className="text-xl font-black uppercase text-slate-800 tracking-wider Poppins mt-2">
+                Análisis Climático
+              </h2>
+              <p className="text-xs font-semibold text-slate-500 mt-1">
+                Pronóstico para: <span className="font-extrabold text-blue-900">{weatherOTName}</span>
+              </p>
+            </div>
+
+            {weatherLoading ? (
+              <div className="flex flex-col items-center justify-center py-12 space-y-3">
+                <RefreshCw className="w-8 h-8 text-blue-900 animate-spin" />
+                <p className="text-xs font-bold text-slate-500 italic">Consultando condiciones en tiempo real...</p>
+              </div>
+            ) : weatherError ? (
+              <div className="bg-red-50 border border-red-200 text-red-800 p-4 rounded-2xl text-xs font-semibold leading-relaxed flex items-start gap-2">
+                <AlertTriangle className="w-5 h-5 text-red-500 shrink-0" />
+                <span>{weatherError}</span>
+              </div>
+            ) : weatherData ? (() => {
+              const current = weatherData.weather.current_weather;
+              const daily = weatherData.weather.daily;
+              const currentDetails = getWeatherDetails(current.weathercode);
+              
+              return (
+                <div className="space-y-6">
+                  {/* Current Weather Card */}
+                  <div className={`p-5 rounded-3xl border flex flex-col md:flex-row justify-between items-center gap-4 ${currentDetails.color}`}>
+                    <div className="space-y-1 text-center md:text-left">
+                      <span className="text-[10px] uppercase font-black tracking-widest text-slate-400 block">Condición Actual</span>
+                      <span className="text-lg font-black block uppercase tracking-wide">{currentDetails.label}</span>
+                      <div className="flex items-center gap-2 justify-center md:justify-start mt-1">
+                        <Thermometer className="w-4 h-4 text-slate-500" />
+                        <span className="text-2xl font-black text-slate-800">{current.temperature}°C</span>
+                      </div>
+                    </div>
+                    
+                    <div className="flex items-center gap-4">
+                      <div className="p-4 bg-white/60 backdrop-blur rounded-2xl shadow-xs flex items-center justify-center">
+                        {renderWeatherIcon(currentDetails.icon, "w-12 h-12 text-slate-700")}
+                      </div>
+                      <div className="text-xs font-bold space-y-0.5">
+                        <p className="text-slate-500">Viento: <span className="text-slate-850 font-extrabold">{current.windspeed} km/h</span></p>
+                        <p className="text-slate-500">Zona: <span className="text-slate-850 font-extrabold">{weatherData.weather.timezone}</span></p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Gemini Safety Assessment Report */}
+                  {weatherData.aiRecommendation && (
+                    <div className="bg-slate-50 border border-slate-200 rounded-3xl p-5 space-y-3 shadow-xs">
+                      <h4 className="text-[10px] font-black uppercase text-blue-900 tracking-wider Poppins flex items-center gap-1.5">
+                        <Shield className="w-4 h-4 text-blue-700" />
+                        Recomendación IA de Seguridad Operativa
+                      </h4>
+                      <div className="text-xs font-semibold text-slate-650 leading-relaxed whitespace-pre-line">
+                        {weatherData.aiRecommendation}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 7-Day Forecast */}
+                  <div className="space-y-3">
+                    <h3 className="text-xs uppercase tracking-widest font-black text-slate-450 Poppins">Pronóstico para los Próximos 7 Días</h3>
+                    <div className="divide-y divide-slate-150 max-h-[260px] overflow-y-auto pr-1 border border-slate-200 rounded-2xl p-2.5 bg-slate-50/50 shadow-inner">
+                      {daily.time.map((day, idx) => {
+                        const dayCode = daily.weathercode[idx];
+                        const dayDetails = getWeatherDetails(dayCode);
+                        const tempMax = daily.temperature_2m_max[idx];
+                        const tempMin = daily.temperature_2m_min[idx];
+                        const rainProb = daily.precipitation_probability_max[idx];
+                        const windMax = daily.windspeed_10m_max[idx];
+                        
+                        return (
+                          <div key={day} className="flex flex-col sm:flex-row justify-between items-start sm:items-center py-2.5 px-2 hover:bg-white rounded-xl transition-all-200 first:pt-1 last:pb-1">
+                            <div className="flex items-center gap-3">
+                              <div className="p-2 rounded-lg bg-slate-100 flex items-center justify-center border border-slate-200">
+                                {renderWeatherIcon(dayDetails.icon, "w-5 h-5 text-slate-600")}
+                              </div>
+                              <div>
+                                <span className="text-xs font-black capitalize text-slate-700 block">{getDayName(day)}</span>
+                                <span className="text-[9px] font-extrabold text-slate-400 uppercase tracking-wide">{dayDetails.label}</span>
+                              </div>
+                            </div>
+                            
+                            <div className="flex items-center gap-4 mt-2 sm:mt-0 text-[10px] font-bold">
+                              <div className="text-right">
+                                <span className="text-slate-400">Temp: </span>
+                                <span className="text-rose-600 font-black">{tempMax}°C</span>
+                                <span className="text-slate-300"> / </span>
+                                <span className="text-blue-600 font-black">{tempMin}°C</span>
+                              </div>
+                              <div className="min-w-[60px]">
+                                <span className="text-slate-400">Lluvia: </span>
+                                <span className={`${rainProb > 40 ? 'text-blue-600 font-black' : 'text-slate-700'}`}>{rainProb}%</span>
+                              </div>
+                              <div className="min-w-[75px] text-right">
+                                <span className="text-slate-400">Viento: </span>
+                                <span className="text-slate-700">{windMax} km/h</span>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              );
+            })() : null}
+            
+            <div className="flex justify-end pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setShowWeatherModal(false)}
+                className="bg-slate-800 hover:bg-slate-900 text-white rounded-xl px-5 py-2.5 text-xs font-black uppercase tracking-wider shadow-sm transition-all cursor-pointer"
+              >
+                Cerrar
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -26,6 +26,19 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 // Serve temporary AR files statically
 app.use('/api/temp-ar', express.static(tempArDir));
 
+// Database in-memory cache variable for AI chat assistant
+let dbMemoryCache = null;
+
+// Middleware to clear database memory cache on mutations (non-GET requests)
+app.use((req, res, next) => {
+  if (req.method !== 'GET' && !req.path.startsWith('/api/chat-ia') && !req.path.startsWith('/api/clima')) {
+    console.log(`[Cache Invalidation] Mutation detected: ${req.method} ${req.path}. In-memory DB cache cleared.`);
+    dbMemoryCache = null;
+  }
+  next();
+});
+
+
 
 // ----------------------------------------------------
 // 1. CLIENTS ENDPOINTS
@@ -259,6 +272,270 @@ app.post('/api/estructuras/check-availability', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// ── NEW: Weather analysis + Gemini safety assessment API
+app.post('/api/clima', async (req, res) => {
+  const { lat, lng, ot_numero, cliente_nombre } = req.body;
+  if (!lat || !lng) {
+    return res.status(400).json({ error: 'Faltan coordenadas de latitud y longitud.' });
+  }
+
+  try {
+    // 1. Fetch weather forecast from Open-Meteo
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current_weather=true&daily=weathercode,temperature_2m_max,temperature_2m_min,precipitation_probability_max,windspeed_10m_max&timezone=auto`;
+    const weatherRes = await fetch(url);
+    if (!weatherRes.ok) {
+      throw new Error(`Open-Meteo returned status ${weatherRes.status}`);
+    }
+    const weatherData = await weatherRes.json();
+
+    // 2. Query Gemini API for Safety analysis
+    const apiKey = process.env.GEMINI_API_KEY;
+    let aiRecommendation = null;
+
+    if (apiKey) {
+      try {
+        const current = weatherData.current_weather || {};
+        const daily = weatherData.daily || { time: [] };
+        
+        const forecastText = daily.time.map((date, idx) => {
+          return `${date}: Temp Máx ${daily.temperature_2m_max?.[idx]}°C, Temp Mín ${daily.temperature_2m_min?.[idx]}°C, Prob. Precipitaciones ${daily.precipitation_probability_max?.[idx]}%, Viento Máx ${daily.windspeed_10m_max?.[idx]} km/h`;
+        }).join('\n');
+
+        const prompt = `Actúa como un experto en prevención de riesgos laborales e ingenieria de estructuras temporales (carpas y tinglados). Analiza el pronóstico meteorológico para realizar tareas de montaje, desmontaje y logística de carpas en la ubicación especificada.
+OT: ${ot_numero || 'No especificada'}
+Cliente: ${cliente_nombre || 'No especificado'}
+
+Datos del clima actual:
+- Temperatura: ${current.temperature}°C
+- Velocidad del viento: ${current.windspeed} km/h
+
+Pronóstico de los próximos 7 días:
+${forecastText}
+
+Redacta un informe de recomendación de seguridad operativa breve, profesional y conciso en español (máximo 4 párrafos cortos o viñetas), indicando:
+1. Nivel de riesgo operativo (Bajo, Medio, Alto) y por qué.
+2. Recomendaciones de seguridad cruciales. Advierte sobre vientos mayores a 35 km/h (peligro al subir lonas o levantar pórticos), lluvias intensas o frío/calor extremos.
+3. Indicación de días óptimos para montaje/desarme vs. días de alerta o suspensión.
+Sé práctico, técnico y directo.`;
+
+        const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }]
+          })
+        });
+
+        if (geminiRes.ok) {
+          const geminiJson = await geminiRes.json();
+          aiRecommendation = geminiJson.candidates?.[0]?.content?.parts?.[0]?.text || null;
+        } else {
+          const errText = await geminiRes.text();
+          console.error("Gemini API error:", geminiRes.status, errText);
+        }
+      } catch (geminiErr) {
+        console.error("Error communicating with Gemini:", geminiErr);
+      }
+    } else {
+      console.log("No GEMINI_API_KEY found in process.env, skipping AI recommendations");
+    }
+
+    res.json({
+      weather: weatherData,
+      aiRecommendation
+    });
+  } catch (err) {
+    console.error("Error in /api/clima:", err);
+    res.status(500).json({ error: err.message || 'Error al obtener análisis climático' });
+  }
+});
+
+// ── NEW: getDBCacheSummary helper function
+async function getDBCacheSummary() {
+  if (dbMemoryCache) {
+    console.log("[Cache Hit] Serving pre-processed database summary from memory.");
+    return dbMemoryCache;
+  }
+
+  console.log("[Cache Miss] Pre-processing database and loading into memory...");
+  try {
+    const [clients, ots, structures, sales, accessories] = await Promise.all([
+      db.getClients().catch(() => []),
+      db.getOTs().catch(() => []),
+      db.getStructures().catch(() => []),
+      db.getVentasHistoricas().catch(() => []),
+      db.getAccessories().catch(() => [])
+    ]);
+
+    // Condense the databases into a simplified format to avoid bloating prompt context
+    const condensedClients = (clients || []).map(c => ({
+      id: c.id,
+      nombre: c.nombre,
+      localidad: c.localidad,
+      provincia: c.provincia,
+      vendedores: c.vendedores
+    }));
+
+    const condensedOTs = (ots || []).map(o => {
+      let adicionales = {};
+      try {
+        adicionales = typeof o.adicionales === 'string' ? JSON.parse(o.adicionales) : o.adicionales || {};
+      } catch (e) {}
+
+      return {
+        ot_numero: o.ot_numero,
+        cliente_nombre: o.cliente_nombre,
+        modelo_estructura: o.modelo_estructura,
+        fecha_inicio: o.fecha_inicio,
+        fecha_fin: o.fecha_fin,
+        estado: o.estado,
+        superficie: o.superficie,
+        arcos_necesarios: o.arcos_necesarios,
+        adicionales: adicionales ? {
+          lonas: adicionales.lonas?.si ? `Lonas (${adicionales.lonas.color || 'sin color'}, ${adicionales.lonas.cantidad_panos || 0} paños / ${adicionales.lonas.metros || 0}m)` : null,
+          pisos: adicionales.pisos?.si ? `Pisos (${adicionales.pisos.color || 'sin color'}, ${adicionales.pisos.cantidad_panos || 0} paños / ${adicionales.pisos.metros || 0}m)` : null,
+          alfombras: adicionales.alfombras?.si ? `Alfombras (${adicionales.alfombras.color || 'sin color'}, ${adicionales.alfombras.cantidad_panos || 0} paños / ${adicionales.alfombras.metros || 0}m)` : null,
+          telas: adicionales.telas?.si ? `Telas (${adicionales.telas.color || 'sin color'}, ${adicionales.telas.cantidad_panos || 0} paños / ${adicionales.telas.metros || 0}m)` : null
+        } : null
+      };
+    });
+
+    const condensedStructures = (structures || []).map(s => ({
+      modelo_estructura: s.modelo_estructura,
+      arcos_totales: s.arcos_totales,
+      arcos_disponibles: s.arcos_disponibles,
+      estructura_tipo: s.estructura_tipo
+    }));
+
+    // Summary statistics of historical sales
+    const salesSummary = {
+      total_records: (sales || []).length,
+      total_m2: (sales || []).reduce((sum, v) => sum + (parseFloat(v.superficie_m2) || 0), 0),
+      top_clients: {},
+      top_vendedores: {},
+      top_carpas: {},
+      ventas_por_ano_mes: {}
+    };
+
+    (sales || []).forEach(v => {
+      if (v.cliente_nombre) {
+        salesSummary.top_clients[v.cliente_nombre] = (salesSummary.top_clients[v.cliente_nombre] || 0) + 1;
+      }
+      if (v.vendedor) {
+        salesSummary.top_vendedores[v.vendedor] = (salesSummary.top_vendedores[v.vendedor] || 0) + 1;
+      }
+      if (v.carpa_raw) {
+        salesSummary.top_carpas[v.carpa_raw] = (salesSummary.top_carpas[v.carpa_raw] || 0) + 1;
+      }
+      if (v.fecha_alta) {
+        const month = v.fecha_alta.substring(0, 7); // YYYY-MM
+        salesSummary.ventas_por_ano_mes[month] = (salesSummary.ventas_por_ano_mes[month] || 0) + 1;
+      }
+    });
+
+    const getTopN = (obj, n = 5) => {
+      return Object.entries(obj)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, n)
+        .map(([key, count]) => ({ key, count }));
+    };
+
+    salesSummary.top_clients = getTopN(salesSummary.top_clients, 10);
+    salesSummary.top_vendedores = getTopN(salesSummary.top_vendedores, 10);
+    salesSummary.top_carpas = getTopN(salesSummary.top_carpas, 10);
+    salesSummary.ventas_por_ano_mes = getTopN(salesSummary.ventas_por_ano_mes, 12);
+
+    const condensedAccessories = (accessories || []).map(a => ({
+      categoria: a.categoria,
+      nombre: a.nombre,
+      color: a.color,
+      medida: a.medida,
+      stock_total: a.stock_total
+    }));
+
+    dbMemoryCache = {
+      timestamp: new Date().toISOString(),
+      clientes: condensedClients,
+      ordenes_trabajo: condensedOTs,
+      estructuras: condensedStructures,
+      ventas_historicas_resumen: salesSummary,
+      inventario_accesorios: condensedAccessories
+    };
+
+    return dbMemoryCache;
+  } catch (err) {
+    console.error("Error pre-processing databases to memory:", err);
+    throw err;
+  }
+}
+
+// ── NEW: AI Chat Agent endpoint for VigIA console
+app.post('/api/chat-ia', async (req, res) => {
+  const { messages, userRole, userName } = req.body;
+  if (!messages || !Array.isArray(messages)) {
+    return res.status(400).json({ error: 'Falta historial de mensajes válido.' });
+  }
+
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    return res.status(500).json({ error: 'GEMINI_API_KEY no está configurada en el backend.' });
+  }
+
+  try {
+    const dbSummary = await getDBCacheSummary();
+
+    const systemInstruction = `Actúas como un agente experto COMERCIAL y de GERENCIA de IA para Carpas D'Angiola, una empresa líder en alquiler y montaje de estructuras temporales (carpas y tinglados).
+Tienes acceso en tiempo real a las bases de datos de la empresa, las cuales han sido procesadas previamente y cargadas en memoria.
+
+Datos de Memoria (Timestamp de carga: ${dbSummary.timestamp}):
+- Clientes de la empresa: ${JSON.stringify(dbSummary.clientes)}
+- Órdenes de Trabajo (OTs) activas: ${JSON.stringify(dbSummary.ordenes_trabajo)}
+- Estructuras Maestras (Modelos de carpas disponibles y stock de arcos): ${JSON.stringify(dbSummary.estructuras)}
+- Inventario de Accesorios (Lonas, pisos, alfombras, etc.): ${JSON.stringify(dbSummary.inventario_accesorios)}
+- Resumen de Ventas Históricas (KPIs y agregaciones comerciales): ${JSON.stringify(dbSummary.ventas_historicas_resumen)}
+
+Instrucciones de Respuesta:
+1. Responde a preguntas comerciales y de gerencia de forma profesional, clara, directa y en español.
+2. Utiliza los datos provistos en memoria para dar estadísticas, tendencias, comparativas, o responder detalles específicos de clientes u OTs.
+3. Si el usuario te pregunta por totales, haz los cálculos basándote en la información estructurada que tienes.
+4. Mantén tus respuestas concisas pero completas. No inventes datos que no existan en la base de datos de memoria. Si no encuentras algo, indícalo cortésmente.
+5. Tu nombre es "VigIA Asistente Comercial". Eres el copiloto de la gerencia.`;
+
+    const formattedContents = messages.map(msg => ({
+      role: msg.role === 'user' ? 'user' : 'model',
+      parts: [{ text: msg.content }]
+    }));
+
+    const geminiPayload = {
+      system_instruction: {
+        parts: [{ text: systemInstruction }]
+      },
+      contents: formattedContents
+    };
+
+    const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(geminiPayload)
+    });
+
+    if (!geminiRes.ok) {
+      const errText = await geminiRes.text();
+      console.error("Gemini API error in /api/chat-ia:", geminiRes.status, errText);
+      return res.status(500).json({ error: `Gemini API error: ${geminiRes.status}` });
+    }
+
+    const geminiJson = await geminiRes.json();
+    const assistantText = geminiJson.candidates?.[0]?.content?.parts?.[0]?.text || 'No se recibió respuesta del asistente de IA.';
+
+    res.json({ response: assistantText });
+  } catch (err) {
+    console.error("Error in /api/chat-ia:", err);
+    res.status(500).json({ error: err.message || 'Error interno en el asistente de IA' });
+  }
+});
+
 
 // ── NEW: Detailed arch status for a given model + date range (used by Operaciones panel)
 app.post('/api/estructuras/arcos-status', async (req, res) => {

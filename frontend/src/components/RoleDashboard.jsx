@@ -5,7 +5,7 @@ import {
   Layers, CheckCircle2, ChevronRight, User, Calendar, Trash2,
   HelpCircle, AlertOctagon, AlertTriangle, RefreshCw,
   BarChart3, ShieldCheck, TrendingUp, Package, Eye, Truck,
-  Shuffle, Warehouse, Printer, ArrowRight
+  Shuffle, Warehouse, Printer, ArrowRight, Sun
 } from 'lucide-react';
 import PDFReplicator from './PDFReplicator';
 
@@ -27,7 +27,8 @@ export default function RoleDashboard({
   structuresStock = [],
   clients = [],
   onUpdateAdicionales,
-  onOpenGerenciaDashboard
+  onOpenGerenciaDashboard,
+  onWeatherAnalysis
 }) {
   const getModulesForUser = () => {
     // 1. Determine default modules by role
@@ -2401,6 +2402,15 @@ export default function RoleDashboard({
                             </button>
                           )}
 
+                           <button
+                            type="button"
+                            onClick={() => onWeatherAnalysis && onWeatherAnalysis(ot)}
+                            className="flex-1 min-w-[120px] bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-250 rounded-xl py-2 px-3 text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-sm transition-all-300 cursor-pointer"
+                          >
+                            <Sun className="w-3.5 h-3.5 text-amber-600" />
+                            Análisis Climático
+                          </button>
+
                           <button
                             onClick={() => generateRemitoPDF(ot)}
                             className="flex-1 min-w-[120px] bg-blue-900 hover:bg-blue-955 text-white rounded-xl py-2 px-3 text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-sm transition-all-300 cursor-pointer"
@@ -2574,6 +2584,15 @@ export default function RoleDashboard({
                               Ver Ruta
                             </a>
                           )}
+
+                          <button
+                            type="button"
+                            onClick={() => onWeatherAnalysis && onWeatherAnalysis(ot)}
+                            className="flex-1 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-250 rounded-xl py-2 px-3 text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all-300 cursor-pointer"
+                          >
+                            <Sun className="w-3.5 h-3.5 text-amber-600" />
+                            Análisis Climático
+                          </button>
 
                           <button
                             onClick={() => generateRemitoPDF(ot)}
@@ -2861,6 +2880,15 @@ export default function RoleDashboard({
 
                         {/* Actions block */}
                         <div className="flex gap-2 flex-wrap pt-1">
+                          <button
+                            type="button"
+                            onClick={() => onWeatherAnalysis && onWeatherAnalysis(ot)}
+                            className="flex-1 min-w-[120px] bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-255 rounded-xl py-2 px-3 text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all-300 cursor-pointer"
+                          >
+                            <Sun className="w-3.5 h-3.5 text-amber-600" />
+                            Análisis Climático
+                          </button>
+
                           {/* GPS link for return to Depot (if not disassembled yet) */}
                           {ot.estado === 'Completada' && latOrigin && lngOrigin && (
                             <a

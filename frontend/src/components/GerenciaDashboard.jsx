@@ -4,7 +4,7 @@ import L from 'leaflet';
 import {
   BarChart3, TrendingUp, Users, MapPin, Upload,
   ChevronLeft, RefreshCw, Download, Search, X, ChevronDown, ChevronUp,
-  Info, User, Trash2, Globe
+  Info, User, Trash2, Globe, MessageSquare, Bot, Send, Sparkles
 } from 'lucide-react';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -1202,6 +1202,230 @@ function UploadHistoricoInline({ currentUser }) {
   );
 }
 
+// ─── Renderizado de Markdown personalizado ───────────────────────────────────
+const renderMarkdown = (text) => {
+  if (!text) return '';
+  let html = text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+    
+  // Bold **text**
+  html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+  
+  // Lists starting with * or -
+  const lines = html.split('\n');
+  let inList = false;
+  const processedLines = [];
+  
+  for (let line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('* ') || trimmed.startsWith('- ')) {
+      if (!inList) {
+        processedLines.push('<ul class="list-disc pl-5 my-2 space-y-1">');
+        inList = true;
+      }
+      processedLines.push(`<li>${trimmed.substring(2)}</li>`);
+    } else {
+      if (inList) {
+        processedLines.push('</ul>');
+        inList = false;
+      }
+      processedLines.push(line);
+    }
+  }
+  if (inList) {
+    processedLines.push('</ul>');
+  }
+  
+  return processedLines.join('<br />');
+};
+
+// ─── Componente del Asistente VigIA de IA ────────────────────────────────────
+function TabAsistenteVigIA({ currentUser }) {
+  const [messages, setMessages] = useState([
+    {
+      role: 'assistant',
+      content: `¡Hola ${currentUser?.nombre || 'Colega'}! Soy **VigIA**, tu copiloto de inteligencia comercial y gerencial.
+      Tengo acceso completo a las bases de datos de Carpas D'Angiola pre-procesadas en memoria (Clientes, OTs activas, Estructuras y stock de arcos, Accesorios e Historial de ventas).
+      
+      ¿En qué te puedo ayudar hoy? Podés hacerme preguntas como:
+      * ¿Cuáles son nuestros 3 clientes principales por volumen o cantidad de eventos?
+      * Hacé un balance de las estructuras disponibles vs. reservadas.
+      * ¿Qué vendedor tiene el mejor promedio de m2 cerrados históricamente?
+      * ¿Cómo viene el nivel de actividad de OTs para los próximos meses?`
+    }
+  ]);
+  const [inputValue, setInputValue] = useState('');
+  const [loading, setLoading] = useState(false);
+  const chatEndRef = useRef(null);
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, loading]);
+
+  const handleSend = async (textToSend) => {
+    const query = textToSend || inputValue.trim();
+    if (!query || loading) return;
+
+    if (!textToSend) setInputValue('');
+
+    const newMessages = [...messages, { role: 'user', content: query }];
+    setMessages(newMessages);
+    setLoading(true);
+
+    try {
+      const response = await fetch('/api/chat-ia', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: newMessages,
+          userRole: currentUser?.rol,
+          userName: currentUser?.nombre
+        })
+      });
+      
+      if (!response.ok) throw new Error('Error en el servidor de IA');
+      
+      const data = await response.json();
+      setMessages(prev => [...prev, { role: 'assistant', content: data.response }]);
+    } catch (error) {
+      console.error(error);
+      setMessages(prev => [...prev, { role: 'assistant', content: '⚠️ **Error:** No se pudo conectar con el asistente de IA. Por favor, verificá la clave API en el archivo `.env` o reintentá en unos momentos.' }]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleClear = () => {
+    if (confirm('¿Deseas reiniciar la conversación con VigIA?')) {
+      setMessages([
+        {
+          role: 'assistant',
+          content: `Conversación reiniciada. ¿En qué puedo colaborar con tu análisis de datos hoy?`
+        }
+      ]);
+    }
+  };
+
+  const suggestions = [
+    "Clientes principales por volumen",
+    "Balance de carpas y arcos",
+    "Mejores vendedores en ventas históricas",
+    "Resumen de OTs activas este mes"
+  ];
+
+  return (
+    <div className="glass-panel rounded-3xl p-6 flex flex-col h-[650px] shadow-lg border border-indigo-100 bg-white/50 backdrop-blur-md">
+      {/* Tab Header */}
+      <div className="flex justify-between items-center pb-4 border-b border-indigo-50">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white">
+            <Bot className="w-4 h-4" />
+          </div>
+          <div>
+            <h3 className="text-sm font-black uppercase text-indigo-900 tracking-wider Poppins">Agente de IA Comercial & Gerencial</h3>
+            <p className="text-[10px] text-slate-400 font-semibold">Bases de datos optimizadas en memoria</p>
+          </div>
+        </div>
+        <button 
+          onClick={handleClear}
+          className="text-xs text-slate-400 hover:text-red-500 transition-all font-bold uppercase tracking-wider flex items-center gap-1 cursor-pointer bg-transparent border-0"
+        >
+          Limpiar Chat
+        </button>
+      </div>
+
+      {/* Messages Logs */}
+      <div className="flex-1 overflow-y-auto py-4 space-y-4 pr-2">
+        {messages.map((msg, idx) => {
+          const isUser = msg.role === 'user';
+          return (
+            <div key={idx} className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
+              <div className={`flex items-start gap-2 max-w-[85%] ${isUser ? 'flex-row-reverse' : ''}`}>
+                <div className={`w-7 h-7 rounded-full shrink-0 flex items-center justify-center text-white text-xs font-bold ${
+                  isUser 
+                    ? 'bg-indigo-900' 
+                    : 'bg-gradient-to-br from-indigo-500 to-purple-600'
+                }`}>
+                  {isUser ? <User className="w-3.5 h-3.5" /> : <Bot className="w-3.5 h-3.5" />}
+                </div>
+                <div className={`rounded-2xl px-4 py-2.5 text-xs shadow-xs border leading-relaxed ${
+                  isUser 
+                    ? 'bg-indigo-900 text-white border-indigo-950 rounded-tr-none' 
+                    : 'bg-white text-slate-800 border-indigo-50 rounded-tl-none'
+                }`}>
+                  <div 
+                    className="prose prose-sm max-w-none text-left"
+                    dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }} 
+                  />
+                </div>
+              </div>
+            </div>
+          );
+        })}
+        {loading && (
+          <div className="flex justify-start">
+            <div className="flex items-start gap-2 max-w-[85%]">
+              <div className="w-7 h-7 rounded-full shrink-0 flex items-center justify-center text-white bg-gradient-to-br from-indigo-500 to-purple-600">
+                <Bot className="w-3.5 h-3.5" />
+              </div>
+              <div className="bg-white border border-indigo-50 rounded-2xl rounded-tl-none px-4 py-3 text-xs text-slate-500 shadow-xs flex items-center gap-2">
+                <div className="flex gap-1">
+                  <div className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+                  <div className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+                  <div className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+                </div>
+                <span className="font-semibold text-[10px] text-indigo-400 uppercase tracking-widest">VigIA analizando memoria...</span>
+              </div>
+            </div>
+          </div>
+        )}
+        <div ref={chatEndRef} />
+      </div>
+
+      {/* Suggestion Chips */}
+      {messages.length === 1 && (
+        <div className="flex gap-2 flex-wrap pb-3">
+          {suggestions.map((s, idx) => (
+            <button
+              key={idx}
+              onClick={() => handleSend(s)}
+              disabled={loading}
+              className="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-[10px] font-bold py-1.5 px-3 rounded-full border border-indigo-100 transition-all cursor-pointer"
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Message Input Form */}
+      <form 
+        onSubmit={(e) => { e.preventDefault(); handleSend(); }}
+        className="flex gap-2 pt-3 border-t border-indigo-50 bg-white"
+      >
+        <input
+          type="text"
+          value={inputValue}
+          onChange={(e) => setInputValue(e.target.value)}
+          placeholder="Preguntale a VigIA sobre tus bases de datos (ej: Clientes, OTs, Stock, Ventas)..."
+          disabled={loading}
+          className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-650 transition-all font-semibold"
+        />
+        <button
+          type="submit"
+          disabled={loading || !inputValue.trim()}
+          className="bg-gradient-to-r from-indigo-600 to-purple-600 hover:opacity-90 disabled:opacity-50 text-white rounded-xl px-4 py-2 text-xs font-black uppercase tracking-wider flex items-center gap-1.5 shadow-md transition-all cursor-pointer"
+        >
+          <Send className="w-3.5 h-3.5" />
+          <span>Preguntar</span>
+        </button>
+      </form>
+    </div>
+  );
+}
+
 // ─── Componente Principal: VigIA Dashboard ────────────────--------------------
 export default function GerenciaDashboard({ currentUser, onClose }) {
   const [activeTab, setActiveTab] = useState('performance');
@@ -1242,6 +1466,7 @@ export default function GerenciaDashboard({ currentUser, onClose }) {
     { id: 'desglose',   icon: TrendingUp,  label: 'Desglose Operativo' },
     { id: 'demanda',    icon: MapPin,      label: 'Demanda Predictiva IA' },
     { id: 'mapa',       icon: Globe,       label: 'Mapa de Clientes' },
+    { id: 'chat_ia',    icon: MessageSquare, label: 'Asistente VigIA' },
     ...(currentUser?.rol === 'SuperAdmin' ? [{ id: 'upload', icon: Upload, label: 'Cargar Histórico' }] : []),
   ];
 
@@ -1304,8 +1529,10 @@ export default function GerenciaDashboard({ currentUser, onClose }) {
         {activeTab === 'desglose' && <TabDesglosOperativo />}
         {activeTab === 'demanda' && <TabDemandaPredictiva />}
         {activeTab === 'mapa' && <TabMapaClientes />}
+        {activeTab === 'chat_ia' && <TabAsistenteVigIA currentUser={currentUser} />}
         {activeTab === 'upload' && <UploadHistoricoInline currentUser={currentUser} />}
       </div>
     </div>
   );
 }
+
