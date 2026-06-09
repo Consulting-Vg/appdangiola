@@ -95,3 +95,10 @@ Para garantizar la integridad operativa, el sistema cuenta con un panel para adm
     *   **Índice de Satisfacción (Sentiment Score)**: Evolución del clima de opinión de la marca.
     *   **Monitoreo de Quejas/Incidentes**: Alertas automáticas enviadas al panel de Operaciones si se detecta un comentario crítico o reclamo de rotura o retraso en redes sociales.
     *   **Tasa de Interacción (Engagement Rate)**: Correlación entre posteos y volumen de consultas comerciales entrantes.
+
+### C. Módulo de Control de GPS de Vehículos (GPS Tracking & Logistics)
+*   **Integración con API de Servicio GPS**: Conexión con los dispositivos GPS integrados en los camiones para obtener coordenadas de geolocalización en tiempo real.
+*   **Tiempo Estimado de Llegada (ETA)**: Visualización y cálculo dinámico del tiempo estimado de arribo a la obra de entrega o desarme.
+*   **Detección de Desviaciones y Paradas**: Monitoreo de desvíos en la ruta establecida y alertas por paradas extendidas o no autorizadas del transporte.
+*   **Corroboración de Llegada (Ubicación Propuesta vs. Real)**: Validación automatizada del arribo comparando las coordenadas GPS reales del camión contra la ubicación geográfica cargada en la Orden de Trabajo.
+
