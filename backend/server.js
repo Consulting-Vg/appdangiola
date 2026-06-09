@@ -360,12 +360,13 @@ async function getDBCacheSummary() {
 
   console.log("[Cache Miss] Pre-processing database and loading into memory...");
   try {
-    const [clients, ots, structures, sales, accessories] = await Promise.all([
+    const [clients, ots, structures, sales, accessories, arches] = await Promise.all([
       db.getClients().catch(() => []),
       db.getOTs().catch(() => []),
       db.getStructures().catch(() => []),
       db.getVentasHistoricas().catch(() => []),
-      db.getAccessories().catch(() => [])
+      db.getAccessories().catch(() => []),
+      db.getArches().catch(() => [])
     ]);
 
     // Condense the databases into a simplified format to avoid bloating prompt context
@@ -401,12 +402,48 @@ async function getDBCacheSummary() {
       };
     });
 
-    const condensedStructures = (structures || []).map(s => ({
-      modelo_estructura: s.modelo_estructura,
-      arcos_totales: s.arcos_totales,
-      arcos_disponibles: s.arcos_disponibles,
-      estructura_tipo: s.estructura_tipo
-    }));
+    // Calculate real stock of arches per structure model from base_arco and active OTs
+    const archesCountByModel = {}; // model => Set of arch names
+    (arches || []).forEach(a => {
+      if (!archesCountByModel[a.modelo_estructura]) {
+        archesCountByModel[a.modelo_estructura] = new Set();
+      }
+      archesCountByModel[a.modelo_estructura].add(a.arco);
+    });
+
+    // Count reserved arches by active OTs
+    const reservedArchesByModel = {}; // model => Set of arch names
+    (ots || []).forEach(o => {
+      if (['Cancelada', 'Rechazada', 'Completada', 'Desarmada'].includes(o.estado)) return;
+      let adicionales = {};
+      try {
+        adicionales = typeof o.adicionales === 'string' ? JSON.parse(o.adicionales) : o.adicionales || {};
+      } catch (e) {}
+
+      const reserved = adicionales.arcos_reservados || [];
+      reserved.forEach(arch => {
+        const modelName = o.modelo_estructura;
+        if (!reservedArchesByModel[modelName]) {
+          reservedArchesByModel[modelName] = new Set();
+        }
+        reservedArchesByModel[modelName].add(arch);
+      });
+    });
+
+    const condensedStructures = (structures || []).map(s => {
+      const modelName = s.modelo_estructura;
+      const totalArchesReal = archesCountByModel[modelName] ? archesCountByModel[modelName].size : 0;
+      const reservedArchesReal = reservedArchesByModel[modelName] ? reservedArchesByModel[modelName].size : 0;
+      const availableArchesReal = Math.max(0, totalArchesReal - reservedArchesReal);
+
+      return {
+        modelo_estructura: modelName,
+        arcos_totales_stock: totalArchesReal, // real arch stock from base_arco (arcos.xlsx)
+        arcos_reservados_stock: reservedArchesReal, // currently reserved arches in active OTs
+        arcos_disponibles_stock: availableArchesReal, // currently available arches in stock
+        estructura_tipo: s.estructura_tipo
+      };
+    });
 
     // Summary statistics of historical sales
     const salesSummary = {
@@ -545,7 +582,7 @@ Tienes acceso en tiempo real a las bases de datos de la empresa, las cuales han 
 Datos de Memoria (Timestamp de carga: ${dbSummary.timestamp}):
 - Clientes de la empresa: ${JSON.stringify(dbSummary.clientes)}
 - Órdenes de Trabajo (OTs) activas: ${JSON.stringify(dbSummary.ordenes_trabajo)}
-- Estructuras Maestras (Modelos de carpas disponibles y stock de arcos): ${JSON.stringify(dbSummary.estructuras)}
+- Estructuras Maestras (Modelos de carpas, stock físico de arcos totales en base_arco 'arcos_totales_stock', arcos reservados en OTs activas 'arcos_reservados_stock', y arcos libres disponibles 'arcos_disponibles_stock'): ${JSON.stringify(dbSummary.estructuras)}
 - Inventario de Accesorios (Lonas, pisos, alfombras, etc.): ${JSON.stringify(dbSummary.inventario_accesorios)}
 - Resumen de Ventas Históricas (KPIs y agregaciones comerciales): ${JSON.stringify(dbSummary.ventas_historicas_resumen)}
 
