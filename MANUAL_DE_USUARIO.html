@@ -1,0 +1,1578 @@
+<!DOCTYPE html>
+<html lang="es" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Manual de Usuario - ERP Carpas D'Angiola S.A.</title>
+  
+  <!-- Modern Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  
+  <!-- Styles -->
+  <style>
+    :root {
+      --bg-primary: #0b0f19;
+      --bg-secondary: #161c2a;
+      --bg-tertiary: #1e293b;
+      --text-primary: #f8fafc;
+      --text-secondary: #94a3b8;
+      --text-muted: #64748b;
+      --accent-blue: #3b82f6;
+      --accent-blue-hover: #2563eb;
+      --accent-cyan: #06b6d4;
+      --accent-orange: #f97316;
+      --accent-purple: #8b5cf6;
+      --accent-emerald: #10b981;
+      --accent-lime: #84cc16;
+      --accent-indigo: #6366f1;
+      --border-color: #334155;
+      --card-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.5);
+      --glass-bg: rgba(22, 28, 42, 0.8);
+      --glass-border: rgba(255, 255, 255, 0.05);
+      --font-family-headings: 'Plus Jakarta Sans', sans-serif;
+      --font-family-body: 'Inter', sans-serif;
+      --transition-speed: 0.3s;
+    }
+
+    [data-theme="light"] {
+      --bg-primary: #f8fafc;
+      --bg-secondary: #ffffff;
+      --bg-tertiary: #f1f5f9;
+      --text-primary: #0f172a;
+      --text-secondary: #475569;
+      --text-muted: #94a3b8;
+      --accent-blue: #2563eb;
+      --accent-blue-hover: #1d4ed8;
+      --accent-cyan: #0891b2;
+      --border-color: #e2e8f0;
+      --card-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.05);
+      --glass-bg: rgba(255, 255, 255, 0.8);
+      --glass-border: rgba(0, 0, 0, 0.05);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      scroll-behavior: smooth;
+    }
+
+    body {
+      background-color: var(--bg-primary);
+      color: var(--text-primary);
+      font-family: var(--font-family-body);
+      line-height: 1.6;
+      overflow-x: hidden;
+      transition: background-color var(--transition-speed), color var(--transition-speed);
+    }
+
+    /* Scrollbars */
+    ::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+    ::-webkit-scrollbar-track {
+      background: var(--bg-primary);
+    }
+    ::-webkit-scrollbar-thumb {
+      background: var(--border-color);
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: var(--text-muted);
+    }
+
+    /* Document Layout */
+    .container {
+      display: flex;
+      min-height: 100vh;
+      position: relative;
+    }
+
+    /* Sidebar */
+    .sidebar {
+      width: 320px;
+      background-color: var(--bg-secondary);
+      border-right: 1px solid var(--border-color);
+      padding: 2rem 1.5rem;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      transition: width var(--transition-speed), background-color var(--transition-speed), border-color var(--transition-speed);
+    }
+
+    .sidebar-header {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 2rem;
+    }
+
+    .sidebar-logo {
+      height: 48px;
+      width: auto;
+      object-contain: fit;
+      filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.2));
+    }
+
+    .sidebar-title {
+      font-family: var(--font-family-headings);
+      font-size: 1.25rem;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      background: linear-gradient(135deg, var(--text-primary), var(--text-secondary));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .search-container {
+      margin-bottom: 1.5rem;
+      position: relative;
+    }
+
+    .search-input {
+      width: 100%;
+      padding: 0.75rem 1rem 0.75rem 2.5rem;
+      background-color: var(--bg-primary);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      color: var(--text-primary);
+      font-size: 0.9rem;
+      transition: border-color var(--transition-speed), box-shadow var(--transition-speed);
+    }
+
+    .search-input:focus {
+      outline: none;
+      border-color: var(--accent-blue);
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+    }
+
+    .search-icon {
+      position: absolute;
+      left: 0.85rem;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--text-muted);
+      width: 16px;
+      height: 16px;
+      pointer-events: none;
+    }
+
+    .nav-menu {
+      list-style: none;
+      overflow-y: auto;
+      flex-grow: 1;
+      padding-right: 0.25rem;
+    }
+
+    .nav-item {
+      margin-bottom: 0.25rem;
+    }
+
+    .nav-link {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.75rem 1rem;
+      color: var(--text-secondary);
+      text-decoration: none;
+      border-radius: 8px;
+      font-weight: 500;
+      font-size: 0.95rem;
+      transition: background-color var(--transition-speed), color var(--transition-speed);
+    }
+
+    .nav-link:hover, .nav-link.active {
+      background-color: var(--bg-tertiary);
+      color: var(--text-primary);
+    }
+
+    .nav-link.active {
+      border-left: 3px solid var(--accent-blue);
+      border-radius: 0 8px 8px 0;
+      padding-left: calc(1rem - 3px);
+    }
+
+    /* Main Content Area */
+    .main-content {
+      flex-grow: 1;
+      padding: 3rem;
+      max-width: 1000px;
+      margin: 0 auto;
+      width: calc(100% - 320px);
+    }
+
+    /* Quick settings (theme toggle) */
+    .top-controls {
+      display: flex;
+      justify-content: flex-end;
+      align-items: center;
+      gap: 1rem;
+      margin-bottom: 3rem;
+    }
+
+    .theme-toggle-btn {
+      background-color: var(--bg-secondary);
+      border: 1px solid var(--border-color);
+      color: var(--text-primary);
+      width: 42px;
+      height: 42px;
+      border-radius: 10px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: transform 0.2s, background-color var(--transition-speed);
+    }
+
+    .theme-toggle-btn:hover {
+      transform: scale(1.05);
+      background-color: var(--bg-tertiary);
+    }
+
+    .system-status {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.85rem;
+      color: var(--text-secondary);
+      background: var(--bg-secondary);
+      padding: 0.5rem 1rem;
+      border-radius: 20px;
+      border: 1px solid var(--border-color);
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      background-color: var(--accent-emerald);
+      border-radius: 50%;
+      box-shadow: 0 0 8px var(--accent-emerald);
+    }
+
+    /* Typographical styles */
+    h1, h2, h3, h4 {
+      font-family: var(--font-family-headings);
+      font-weight: 700;
+      color: var(--text-primary);
+      margin-top: 2.5rem;
+      margin-bottom: 1rem;
+      letter-spacing: -0.5px;
+    }
+
+    h1 {
+      font-size: 2.75rem;
+      margin-top: 0;
+      line-height: 1.2;
+      background: linear-gradient(135deg, #ffffff 30%, var(--accent-blue) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 0.5rem;
+    }
+    
+    [data-theme="light"] h1 {
+      background: linear-gradient(135deg, #0f172a 30%, var(--accent-blue) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .manual-subtitle {
+      font-size: 1.15rem;
+      color: var(--text-secondary);
+      margin-bottom: 2rem;
+      font-weight: 400;
+    }
+
+    h2 {
+      font-size: 1.75rem;
+      border-bottom: 1px solid var(--border-color);
+      padding-bottom: 0.5rem;
+      margin-top: 3.5rem;
+      position: relative;
+    }
+
+    h2::after {
+      content: '';
+      position: absolute;
+      left: 0;
+      bottom: -1px;
+      width: 60px;
+      height: 2px;
+      background-color: var(--accent-blue);
+    }
+
+    h3 {
+      font-size: 1.35rem;
+      margin-top: 2rem;
+    }
+
+    p {
+      color: var(--text-secondary);
+      margin-bottom: 1.5rem;
+      font-size: 1.05rem;
+      line-height: 1.7;
+    }
+
+    strong {
+      color: var(--text-primary);
+      font-weight: 600;
+    }
+
+    /* Card styling */
+    .card {
+      background-color: var(--bg-secondary);
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+      box-shadow: var(--card-shadow);
+      transition: transform 0.2s, border-color var(--transition-speed), box-shadow var(--transition-speed);
+    }
+
+    .card:hover {
+      transform: translateY(-2px);
+      border-color: var(--text-muted);
+    }
+
+    /* Lists */
+    ul, ol {
+      margin-bottom: 1.5rem;
+      padding-left: 1.5rem;
+      color: var(--text-secondary);
+    }
+
+    li {
+      margin-bottom: 0.5rem;
+      font-size: 1rem;
+    }
+
+    /* Divider */
+    hr {
+      border: 0;
+      height: 1px;
+      background-color: var(--border-color);
+      margin: 3rem 0;
+    }
+
+    /* Table styles */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 1.5rem;
+      box-shadow: var(--card-shadow);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+
+    th, td {
+      padding: 1rem 1.25rem;
+      text-align: left;
+    }
+
+    th {
+      background-color: var(--bg-tertiary);
+      color: var(--text-primary);
+      font-weight: 600;
+      border-bottom: 2px solid var(--border-color);
+    }
+
+    td {
+      background-color: var(--bg-secondary);
+      color: var(--text-secondary);
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    tr:last-child td {
+      border-bottom: none;
+    }
+
+    /* Alerts and Callouts */
+    .alert {
+      padding: 1.25rem;
+      border-radius: 12px;
+      margin-bottom: 1.5rem;
+      display: flex;
+      gap: 1rem;
+      border: 1px solid transparent;
+    }
+
+    .alert-icon {
+      font-size: 1.25rem;
+      flex-shrink: 0;
+      line-height: 1;
+    }
+
+    .alert-content {
+      font-size: 0.95rem;
+    }
+
+    .alert-content strong {
+      display: block;
+      margin-bottom: 0.25rem;
+    }
+
+    .alert-note {
+      background-color: rgba(59, 130, 246, 0.1);
+      border-color: rgba(59, 130, 246, 0.2);
+      color: var(--text-secondary);
+    }
+
+    .alert-warning {
+      background-color: rgba(249, 115, 22, 0.1);
+      border-color: rgba(249, 115, 22, 0.2);
+      color: var(--text-secondary);
+    }
+
+    /* Badge */
+    .badge {
+      display: inline-block;
+      padding: 0.25rem 0.5rem;
+      border-radius: 6px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .badge-primary { background-color: rgba(59, 130, 246, 0.2); color: #60a5fa; }
+    .badge-success { background-color: rgba(16, 185, 129, 0.2); color: #34d399; }
+    .badge-warning { background-color: rgba(249, 115, 22, 0.2); color: #fb923c; }
+
+    /* Interactive timelines and widgets */
+    /* Timeline Section 2 */
+    .timeline-container {
+      position: relative;
+      margin: 2.5rem 0;
+      padding: 0 1rem;
+    }
+
+    .timeline-line {
+      position: absolute;
+      top: 24px;
+      left: 10px;
+      right: 10px;
+      height: 4px;
+      background-color: var(--border-color);
+      z-index: 1;
+    }
+
+    .timeline-progress {
+      position: absolute;
+      top: 24px;
+      left: 10px;
+      width: 20%;
+      height: 4px;
+      background-color: var(--accent-blue);
+      z-index: 2;
+      transition: width var(--transition-speed) cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .timeline-steps {
+      display: flex;
+      justify-content: space-between;
+      position: relative;
+      z-index: 3;
+    }
+
+    .timeline-step {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      cursor: pointer;
+      width: 15%;
+    }
+
+    .timeline-node {
+      width: 50px;
+      height: 50px;
+      border-radius: 50%;
+      background-color: var(--bg-secondary);
+      border: 3px solid var(--border-color);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      color: var(--text-secondary);
+      transition: background-color var(--transition-speed), border-color var(--transition-speed), transform var(--transition-speed);
+    }
+
+    .timeline-step:hover .timeline-node {
+      transform: scale(1.1);
+      border-color: var(--text-muted);
+    }
+
+    .timeline-step.active .timeline-node {
+      background-color: var(--accent-blue);
+      border-color: var(--text-primary);
+      color: var(--text-primary);
+      box-shadow: 0 0 15px rgba(59, 130, 246, 0.4);
+    }
+
+    .timeline-label {
+      margin-top: 0.75rem;
+      font-size: 0.8rem;
+      font-weight: 600;
+      text-align: center;
+      color: var(--text-secondary);
+      transition: color var(--transition-speed);
+    }
+
+    .timeline-step.active .timeline-label {
+      color: var(--accent-blue);
+    }
+
+    .timeline-details-box {
+      margin-top: 1.5rem;
+      background-color: var(--bg-secondary);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 1.5rem;
+      min-height: 120px;
+    }
+
+    /* Section 3 sectors grid */
+    .sectors-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 1.25rem;
+      margin: 1.5rem 0;
+    }
+
+    .sector-card {
+      border: 1px solid var(--border-color);
+      border-radius: 14px;
+      padding: 1.25rem;
+      background: var(--bg-secondary);
+      position: relative;
+      overflow: hidden;
+      cursor: pointer;
+      transition: border-color var(--transition-speed), box-shadow var(--transition-speed), transform 0.2s;
+    }
+
+    .sector-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 4px;
+      height: 100%;
+    }
+
+    .sector-card.orange::before { background-color: var(--accent-orange); }
+    .sector-card.purple::before { background-color: var(--accent-purple); }
+    .sector-card.teal::before { background-color: var(--accent-cyan); }
+    .sector-card.emerald::before { background-color: var(--accent-emerald); }
+    .sector-card.lime::before { background-color: var(--accent-lime); }
+    .sector-card.indigo::before { background-color: var(--accent-indigo); }
+
+    .sector-card:hover {
+      transform: translateY(-2px);
+      box-shadow: var(--card-shadow);
+      border-color: rgba(255, 255, 255, 0.1);
+    }
+
+    .sector-title {
+      font-weight: 700;
+      font-size: 1.1rem;
+      margin-bottom: 0.5rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .sector-items {
+      font-size: 0.9rem;
+      color: var(--text-secondary);
+    }
+
+    /* Asistente VigIA Mock UI */
+    .vigia-mock-container {
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      overflow: hidden;
+      background: var(--bg-secondary);
+      box-shadow: var(--card-shadow);
+      margin: 2rem 0;
+    }
+
+    .vigia-header {
+      background: var(--bg-tertiary);
+      padding: 1rem 1.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .vigia-brand {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .vigia-avatar {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--accent-blue), var(--accent-cyan));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      color: #ffffff;
+      font-size: 0.85rem;
+    }
+
+    .vigia-title-sub {
+      font-size: 0.75rem;
+      color: var(--accent-emerald);
+      display: flex;
+      align-items: center;
+      gap: 0.25rem;
+      font-weight: 600;
+    }
+
+    .vigia-chat-area {
+      height: 320px;
+      padding: 1.5rem;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      background: rgba(11, 15, 25, 0.3);
+    }
+
+    .vigia-msg {
+      max-width: 80%;
+      padding: 0.85rem 1.1rem;
+      border-radius: 14px;
+      font-size: 0.95rem;
+    }
+
+    .vigia-msg.bot {
+      background-color: var(--bg-tertiary);
+      color: var(--text-primary);
+      border-top-left-radius: 2px;
+      align-self: flex-start;
+      border: 1px solid var(--border-color);
+    }
+
+    .vigia-msg.user {
+      background-color: var(--accent-blue);
+      color: #ffffff;
+      border-top-right-radius: 2px;
+      align-self: flex-end;
+    }
+
+    .vigia-chips {
+      display: flex;
+      gap: 0.5rem;
+      padding: 1rem;
+      flex-wrap: wrap;
+      background: var(--bg-tertiary);
+      border-top: 1px solid var(--border-color);
+    }
+
+    .vigia-chip {
+      background-color: var(--bg-secondary);
+      border: 1px solid var(--border-color);
+      padding: 0.5rem 0.85rem;
+      border-radius: 20px;
+      font-size: 0.8rem;
+      cursor: pointer;
+      color: var(--text-secondary);
+      transition: background-color var(--transition-speed), border-color var(--transition-speed), color var(--transition-speed);
+    }
+
+    .vigia-chip:hover {
+      background-color: var(--accent-blue);
+      border-color: var(--accent-blue);
+      color: #ffffff;
+    }
+
+    .typing-anim {
+      display: none;
+      align-items: center;
+      gap: 4px;
+      align-self: flex-start;
+      background-color: var(--bg-tertiary);
+      padding: 0.85rem 1.1rem;
+      border-radius: 14px;
+      border: 1px solid var(--border-color);
+    }
+
+    .typing-dot {
+      width: 6px;
+      height: 6px;
+      background-color: var(--text-secondary);
+      border-radius: 50%;
+      animation: typing 1s infinite alternate;
+    }
+
+    .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+    .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+
+    @keyframes typing {
+      from { transform: translateY(0); }
+      to { transform: translateY(-4px); }
+    }
+
+    /* Climate Forecast Mock */
+    .climate-mock {
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      padding: 1.5rem;
+      background: var(--bg-secondary);
+      box-shadow: var(--card-shadow);
+      margin: 1.5rem 0;
+    }
+
+    .climate-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1rem;
+    }
+
+    .climate-location {
+      font-weight: 700;
+      font-size: 1.2rem;
+      font-family: var(--font-family-headings);
+    }
+
+    .climate-risk-badge {
+      background-color: rgba(249, 115, 22, 0.15);
+      border: 1px solid rgba(249, 115, 22, 0.3);
+      color: var(--accent-orange);
+      padding: 0.25rem 0.75rem;
+      border-radius: 20px;
+      font-size: 0.8rem;
+      font-weight: 600;
+    }
+
+    .climate-risk-text {
+      background-color: rgba(249, 115, 22, 0.05);
+      border-left: 3px solid var(--accent-orange);
+      padding: 0.75rem 1rem;
+      border-radius: 0 8px 8px 0;
+      margin-bottom: 1.25rem;
+      font-size: 0.9rem;
+      color: var(--text-secondary);
+    }
+
+    .climate-days {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 0.5rem;
+    }
+
+    .climate-day-card {
+      background-color: var(--bg-tertiary);
+      padding: 0.75rem 0.5rem;
+      border-radius: 10px;
+      text-align: center;
+      border: 1px solid var(--border-color);
+    }
+
+    .climate-day-card.warning {
+      border-color: rgba(249, 115, 22, 0.4);
+      background-color: rgba(249, 115, 22, 0.03);
+    }
+
+    .climate-day-name {
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: var(--text-muted);
+      margin-bottom: 0.25rem;
+    }
+
+    .climate-day-icon {
+      font-size: 1.25rem;
+      margin: 0.25rem 0;
+    }
+
+    .climate-day-temp {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    .climate-day-wind {
+      font-size: 0.7rem;
+      color: var(--accent-orange);
+      font-weight: 500;
+    }
+
+    /* Highlighter for search */
+    .highlight {
+      background-color: rgba(234, 179, 8, 0.3);
+      color: var(--text-primary);
+      padding: 0 2px;
+      border-radius: 2px;
+    }
+
+    /* Print styles */
+    @media print {
+      body {
+        background: #ffffff;
+        color: #000000;
+      }
+      .sidebar, .top-controls, .theme-toggle-btn, .vigia-chips, .vigia-chip {
+        display: none !important;
+      }
+      .main-content {
+        width: 100% !important;
+        margin: 0 !important;
+        padding: 0 !important;
+      }
+      .card, .timeline-details-box, .sector-card, .vigia-mock-container, .climate-mock {
+        border: 1px solid #cccccc !important;
+        background: #ffffff !important;
+        color: #000000 !important;
+        box-shadow: none !important;
+        page-break-inside: avoid;
+      }
+      th {
+        background-color: #f1f5f9 !important;
+        color: #000000 !important;
+        border-bottom: 2px solid #cccccc !important;
+      }
+      td {
+        background-color: #ffffff !important;
+        color: #333333 !important;
+        border-bottom: 1px solid #eeeeee !important;
+      }
+      h1, h2, h3, h4 {
+        color: #000000 !important;
+        page-break-after: avoid;
+      }
+      h1 {
+        background: none !important;
+        -webkit-text-fill-color: initial !important;
+      }
+      a {
+        color: #000000 !important;
+        text-decoration: underline;
+      }
+      p, li {
+        color: #333333 !important;
+      }
+      .timeline-progress {
+        display: none !important;
+      }
+    }
+
+    /* Responsive adjustments */
+    @media (max-width: 992px) {
+      .container {
+        flex-direction: column;
+      }
+      .sidebar {
+        width: 100%;
+        height: auto;
+        position: relative;
+        border-right: none;
+        border-bottom: 1px solid var(--border-color);
+      }
+      .main-content {
+        width: 100%;
+        padding: 1.5rem;
+      }
+      .climate-days {
+        grid-template-columns: repeat(4, 1fr);
+      }
+    }
+  </style>
+</head>
+<body>
+  
+  <div class="container">
+    
+    <!-- Sidebar Navigation -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <img src="cd.png" alt="Logo" class="sidebar-logo" onerror="this.src='frontend/public/cd.png'; this.onerror=function(){this.src='frontend/src/assets/cd.png'}">
+        <div class="sidebar-title">Carpas D'Angiola</div>
+      </div>
+      
+      <!-- Live Search -->
+      <div class="search-container">
+        <svg class="search-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+        </svg>
+        <input type="text" id="manual-search" class="search-input" placeholder="Buscar módulo o función...">
+      </div>
+      
+      <!-- Nav Menu links -->
+      <ul class="nav-menu">
+        <li class="nav-item">
+          <a href="#roles" class="nav-link active" onclick="highlightLink(this)">
+            <span>1. Roles de Usuario</span>
+          </a>
+        </li>
+        <li class="nav-item">
+          <a href="#flujo-ot" class="nav-link" onclick="highlightLink(this)">
+            <span>2. Flujo y Estados de la OT</span>
+          </a>
+        </li>
+        <li class="nav-item">
+          <a href="#almacen" class="nav-link" onclick="highlightLink(this)">
+            <span>3. Preparación y Checklist</span>
+          </a>
+        </li>
+        <li class="nav-item">
+          <a href="#logistica-inversa" class="nav-link" onclick="highlightLink(this)">
+            <span>4. Logística Inversa</span>
+          </a>
+        </li>
+        <li class="nav-item">
+          <a href="#panel-gerencial" class="nav-link" onclick="highlightLink(this)">
+            <span>5. Consola Gerencial BI</span>
+          </a>
+        </li>
+        <li class="nav-item">
+          <a href="#datos-maestros" class="nav-link" onclick="highlightLink(this)">
+            <span>6. Maestro de Datos</span>
+          </a>
+        </li>
+        <li class="nav-item">
+          <a href="#clima" class="nav-link" onclick="highlightLink(this)">
+            <span>7. Análisis Climático</span>
+          </a>
+        </li>
+        <li class="nav-item">
+          <a href="#roadmap" class="nav-link" onclick="highlightLink(this)">
+            <span>8. Roadmap de Mejoras</span>
+          </a>
+        </li>
+      </ul>
+    </aside>
+
+    <!-- Main Content Area -->
+    <main class="main-content">
+      
+      <!-- Top controls & Status -->
+      <div class="top-controls">
+        <div class="system-status">
+          <div class="status-dot"></div>
+          <span>ERP Unificado v2.5 • Activo</span>
+        </div>
+        <button id="theme-toggle" class="theme-toggle-btn" title="Alternar tema claro/oscuro">
+          <!-- Sun Icon -->
+          <svg id="theme-icon" xmlns="http://www.w3.org/2000/svg" style="width:20px;height:20px" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m0-12.728l.707.707m12.728 12.728l.707-.707M12 8a4 4 0 100 8 4 4 0 000-8z" />
+          </svg>
+        </button>
+      </div>
+
+      <header>
+        <h1>Manual de Usuario</h1>
+        <div class="manual-subtitle">ERP y Consola Inteligente de Negocios - Carpas D'Angiola S.A.</div>
+        <p>Este manual detalla las funcionalidades del sistema ERP unificado de <strong>Carpas D'Angiola</strong>, diseñado para centralizar y coordinar de manera eficiente la gestión comercial, operativa, logística y gerencial en tiempo real.</p>
+      </header>
+
+      <hr>
+
+      <!-- SECTION 1 -->
+      <section id="roles" class="content-section">
+        <h2>1. Módulos por Roles de Usuario</h2>
+        <p>El sistema adapta su interfaz dinámicamente según el rol asignado al usuario. Esto garantiza que cada operario y directivo visualice únicamente las herramientas que corresponden a sus tareas diarias, optimizando la seguridad y la velocidad de carga de datos.</p>
+        
+        <div class="card">
+          <p><strong>Haz clic en cualquier rol para visualizar un resumen de su perfil operativo:</strong></p>
+          <div class="sectors-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); margin-bottom:1rem">
+            <div class="sector-card orange" onclick="selectRole('superadmin', this)">
+              <div class="sector-title">Gerencia / SuperAdmin</div>
+            </div>
+            <div class="sector-card purple" onclick="selectRole('comercial', this)">
+              <div class="sector-title">Comercial</div>
+            </div>
+            <div class="sector-card teal" onclick="selectRole('operaciones', this)">
+              <div class="sector-title">Operaciones</div>
+            </div>
+            <div class="sector-card emerald" onclick="selectRole('almacen', this)">
+              <div class="sector-title">Almacén</div>
+            </div>
+            <div class="sector-card lime" onclick="selectRole('chofer', this)">
+              <div class="sector-title">Chofer</div>
+            </div>
+          </div>
+          
+          <div id="role-display-box" class="timeline-details-box" style="margin-top:0">
+            <h4 id="role-title">Selecciona un rol</h4>
+            <p id="role-desc" style="margin-bottom:0">Selecciona uno de los perfiles arriba para ver sus módulos asociados y responsabilidades técnicas dentro de la plataforma.</p>
+          </div>
+        </div>
+      </section>
+
+      <hr>
+
+      <!-- SECTION 2 -->
+      <section id="flujo-ot" class="content-section">
+        <h2>2. Flujo y Estados de una Orden de Trabajo (OT)</h2>
+        <p>La Orden de Trabajo (OT) es el núcleo operativo sobre el que gira el negocio. Su ciclo de vida pasa por los siguientes estados. Haz clic en cada etapa para inspeccionar las tareas de control correspondientes:</p>
+        
+        <div class="timeline-container">
+          <div class="timeline-line"></div>
+          <div class="timeline-progress" id="timeline-progress-bar"></div>
+          <div class="timeline-steps">
+            <div class="timeline-step active" onclick="setTimelineStep(0)">
+              <div class="timeline-node">1</div>
+              <div class="timeline-label">Pendiente</div>
+            </div>
+            <div class="timeline-step" onclick="setTimelineStep(1)">
+              <div class="timeline-node">2</div>
+              <div class="timeline-label">Aprobada</div>
+            </div>
+            <div class="timeline-step" onclick="setTimelineStep(2)">
+              <div class="timeline-node">3</div>
+              <div class="timeline-label">Bulto Completo</div>
+            </div>
+            <div class="timeline-step" onclick="setTimelineStep(3)">
+              <div class="timeline-node">4</div>
+              <div class="timeline-label">En Planta</div>
+            </div>
+            <div class="timeline-step" onclick="setTimelineStep(4)">
+              <div class="timeline-node">5</div>
+              <div class="timeline-label">Completada</div>
+            </div>
+            <div class="timeline-step" onclick="setTimelineStep(5)">
+              <div class="timeline-node">6</div>
+              <div class="timeline-label">Cancelada</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="timeline-details-box" id="timeline-details">
+          <h3>1. Estado: Pendiente</h3>
+          <p style="margin-bottom:0">Creada por el área Comercial. Se especifican las dimensiones tridimensionales (frente, profundidad, modulación), adicionales (lonas, pisos, cortinas, etc.) y la georreferenciación. <br><strong>Control Temporal</strong>: En este estado, los usuarios de <strong>Gerencia</strong> y <strong>Operaciones</strong> disponen del botón de <strong>"VERIFICACIÓN TEMPORAL DE ARCOS"</strong> en la tarjeta de aprobación, evaluando la disponibilidad física de los arcos requeridos cruzando las fechas de inicio y fin del evento programado contra las OTs existentes.</p>
+        </div>
+
+        <div class="alert alert-note" style="margin-top: 1.5rem">
+          <div class="alert-icon">💡</div>
+          <div class="alert-content">
+            <strong>Visualización y Renderizado 3D</strong>
+            La sección "Plano y Renderizado 3D" está restringida a los roles con permisos comerciales y gerenciales. Para optimizar la fluidez, el renderizador cuenta con un botón de alternancia (<strong>"Ver Render 3D" / "Ocultar Render 3D"</strong>) que inicializa y carga en memoria el motor Three.js a demanda, evitando sobrecargar el navegador del usuario.
+          </div>
+        </div>
+      </section>
+
+      <hr>
+
+      <!-- SECTION 3 -->
+      <section id="almacen" class="content-section">
+        <h2>3. Preparación de Carga y Remisión Automática</h2>
+        <p>La carga del equipamiento debe realizarse de forma ordenada para asegurar que no existan faltantes en obra. Para ello, el almacén cuenta con una organización dividida en 6 sectores independientes.</p>
+        
+        <h3>Checklist de Almacén (6 Sectores Independientes)</h3>
+        <p>El panel principal de preparación para roles administrativos despliega una grilla con los materiales agrupados según su almacenamiento físico, permitiendo cliquear de forma independiente cada ítem. Haz clic en las tarjetas a continuación para conocer los materiales de cada sector:</p>
+        
+        <div class="sectors-grid">
+          <div class="sector-card orange" onclick="showSector('planta')">
+            <div class="sector-title">1. Planta (Estructurales)</div>
+            <div class="sector-items">Perfiles principales, columnas, vigas, cabios y arcos de aluminio/acero de alta resistencia.</div>
+          </div>
+          <div class="sector-card purple" onclick="showSector('panol')">
+            <div class="sector-title">2. Pañol (Rígidos)</div>
+            <div class="sector-items">Tornillería, chavetas, estacas, tensores de acero, cables de rienda, anclajes y herramientas.</div>
+          </div>
+          <div class="sector-card teal" onclick="showSector('lonas')">
+            <div class="sector-title">3. Lonas</div>
+            <div class="sector-items">Techos, fondos lisos o con ventana, laterales en lona de PVC ignífuga y cubiertas especiales.</div>
+          </div>
+          <div class="sector-card emerald" onclick="showSector('pisos')">
+            <div class="sector-title">4. Pisos</div>
+            <div class="sector-items">Estructuras modulares de madera (placas) y vigas de soporte de madera para tarimas.</div>
+          </div>
+          <div class="sector-card lime" onclick="showSector('alfombras')">
+            <div class="sector-title">5. Alfombras</div>
+            <div class="sector-items">Rollos de alfombra, cintas bifaz y accesorios de terminación y colocación de piso textil.</div>
+          </div>
+          <div class="sector-card indigo" onclick="showSector('telas')">
+            <div class="sector-title">6. Telas</div>
+            <div class="sector-items">Cielorrasos decorativos en tela de gasa, cortinería de ambientación y divisores especiales.</div>
+          </div>
+        </div>
+
+        <div id="sector-display" class="timeline-details-box" style="display:none">
+          <h4 id="sector-display-title"></h4>
+          <p id="sector-display-text" style="margin-bottom:0"></p>
+        </div>
+
+        <h3>Remito Oficial y Hojas de Carga en PDF</h3>
+        <p>Una vez completados y validados digitalmente los 6 checklists en el panel de despacho, el sistema desbloquea la generación del <strong>Remito de Carga Oficial en PDF</strong>. Para garantizar una recolección paralela sin interferencias, el PDF divide automáticamente la lista total de materiales en <strong>6 tablas diferenciadas</strong> correspondientes a los sectores. De esta forma, el encargado puede imprimir y entregar a cada operario de depósito la hoja correspondiente a su respectivo sector.</p>
+      </section>
+
+      <hr>
+
+      <!-- SECTION 4 -->
+      <section id="logistica-inversa" class="content-section">
+        <h2>4. Logística Inversa y Control de Retorno</h2>
+        <p>Cuando un evento expira, el sistema de alertas de fin de contrato activa el proceso de **Desarme y Retorno**. Esto permite realizar un control de stock estricto y optimizar el transporte.</p>
+        
+        <div class="card">
+          <h3>Modos de Retorno Soportados</h3>
+          <table style="box-shadow:none; margin-top:1rem; margin-bottom:0">
+            <thead>
+              <tr>
+                <th>Modo</th>
+                <th>Operación</th>
+                <th>Beneficio Logístico</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>Retorno a Planta (Burzaco HQ)</strong></td>
+                <td>Ingreso físico del material, revisión de checklist de desarme y remisión de recepción.</td>
+                <td>Control de daños en planta y almacenamiento centralizado.</td>
+              </tr>
+              <tr>
+                <td><strong>Transferencia Obra a Obra</strong></td>
+                <td>Desmontaje de la estructura y traslado directo a una nueva ubicación de evento aprobada.</td>
+                <td>Eliminación de fletes intermedios de retorno al HQ, reduciendo costos de combustible.</td>
+              </tr>
+              <tr>
+                <td><strong>Retorno de Material Defectuoso</strong></td>
+                <td>Identificación de lonas con roturas, maderas dañadas o perfiles doblados en obra.</td>
+                <td>Envío directo al sector de Mantenimiento y separación del stock disponible.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <hr>
+
+      <!-- SECTION 5 -->
+      <section id="panel-gerencial" class="content-section">
+        <h2>5. Panel de Gerencia BI y Analítica Predictiva</h2>
+        <p>La toma de decisiones estratégicas se apoya en datos duros. La consola de Gerencia unifica los datos de facturación histórica y el estado operativo del stock mediante cinco herramientas integradas:</p>
+        
+        <ul>
+          <li><strong>Performance Comercial</strong>: Evolución del ticket promedio en m², cantidad total de eventos y georreferenciación. Incluye un mapa de densidad geográfica de eventos desarrollado sobre Leaflet.</li>
+          <li><strong>BI Predictivo de Clientes</strong>: Buscador instantáneo de perfiles comerciales que predice fechas esperadas de re-contratación y calcula promedios de ciclo de recompra.</li>
+          <li><strong>Auditoría de Vendedor por IA</strong>: Alertas de inactividad de la cartera de clientes de un vendedor con semaforización de riesgo (Verde, Amarillo, Rojo).</li>
+          <li><strong>Demanda Predictiva de Stock</strong>: Planificación de la demanda física a nivel de carpas y accesorios para periodos futuros (semana, mes, trimestres o meses del próximo año).</li>
+        </ul>
+
+        <h3>Asistente de Inteligencia Artificial (VigIA)</h3>
+        <p>Integrado directamente en el panel de Gerencia como un chatbot interactivo de negocios. Se alimenta de la base de datos completa condensada en la caché de memoria del servidor para garantizar respuestas ultrarrápidas (~10ms) sin leer archivos físicos de manera recurrente. La caché se invalida automáticamente ante escrituras en el ERP para mantenerse al día.</p>
+        
+        <!-- Interactive Mock Chatbot -->
+        <div class="vigia-mock-container">
+          <div class="vigia-header">
+            <div class="vigia-brand">
+              <div class="vigia-avatar">IA</div>
+              <div>
+                <strong style="display:block; font-size:0.95rem">Consola de Inteligencia VigIA</strong>
+                <span class="vigia-title-sub">
+                  <span class="status-dot" style="width:6px; height:6px; box-shadow:0 0 5px var(--accent-emerald)"></span>
+                  Agente Comercial & Operativo Conectado
+                </span>
+              </div>
+            </div>
+            <span style="font-size:0.8rem; color:var(--text-muted)">Caché Activa: 10ms response</span>
+          </div>
+          
+          <div class="vigia-chat-area" id="vigia-chat">
+            <div class="vigia-msg bot">
+              ¡Hola, Administrador! Soy VigIA, tu asistente de negocios corporativo. Puedo analizar proyecciones de ventas en 2026 comparadas con 2025, estimar la recurrencia de clientes históricos para meses específicos, o darte el balance actual y libre de arcos y estructuras. ¿Qué te gustaría consultar?
+            </div>
+            <div class="typing-anim" id="vigia-typing">
+              <div class="typing-dot"></div>
+              <div class="typing-dot"></div>
+              <div class="typing-dot"></div>
+            </div>
+          </div>
+          
+          <div class="vigia-chips">
+            <button class="vigia-chip" onclick="askVigia('recurrencia')">¿Qué clientes suelen repetir en Julio?</button>
+            <button class="vigia-chip" onclick="askVigia('proyeccion')">Proyección de ventas Agosto 2026 vs 2025</button>
+            <button class="vigia-chip" onclick="askVigia('stock')">Balance dinámico de carpas y arcos</button>
+          </div>
+        </div>
+      </section>
+
+      <hr>
+
+      <!-- SECTION 6 -->
+      <section id="datos-maestros" class="content-section">
+        <h2>6. Gestión de Datos Maestros (Maestro de Datos)</h2>
+        <p>El panel de configuración técnica permite mantener la coherencia operativa del sistema. Contiene los catálogos base indispensables para el correcto funcionamiento de las explosiones de materiales (BOM) y la lógica logística:</p>
+        
+        <div class="card">
+          <ol>
+            <li><strong>Personal y Recursos</strong>: ABM (Alta, Baja, Modificación) de choferes, operarios de depósito, camiones cargadores y herramientas de montaje asignadas.</li>
+            <li><strong>Estructuras y Fijos</strong>: Lista técnica oficial de estructuras de carpas. <br><em>Nota técnica: Se ha retirado la columna estática "Arcos Disponibles" del maestro para evitar confusiones operativas, ya que la disponibilidad real y el stock de arcos libre se calculan en tiempo real vinculando la base de arcos físicos y las OTs activas en las fases de aprobación y modulación.</em></li>
+            <li><strong>Clientes y Vendedores</strong>: Registro formal de la cartera comercial con coordenadas geográficas obligatorias para habilitar el ruteo de transporte.</li>
+            <li><strong>Importación Masiva (Excel)</strong>: Carga de catálogos mediante plantillas XLSX para una parametrización inicial ágil de inventarios.</li>
+          </ol>
+        </div>
+      </section>
+
+      <hr>
+
+      <!-- SECTION 7 -->
+      <section id="clima" class="content-section">
+        <h2>7. Análisis Climático y Seguridad en Obra</h2>
+        <p>Para resguardar la integridad física de las cuadrillas de armado y asegurar la estabilidad de las estructuras metálicas en obra, el ERP incorpora el botón <strong>"ANÁLISIS CLIMÁTICO"</strong> en los perfiles de OTs visibles para <strong>Gerencia</strong>, <strong>Operaciones</strong> y <strong>Choferes</strong>.</p>
+        
+        <div class="climate-mock">
+          <div class="climate-header">
+            <span class="climate-location">📍 Obra: San Isidro (Entrega OT #1094)</span>
+            <span class="climate-risk-badge">Alerta Climática Moderada</span>
+          </div>
+          <div class="climate-risk-text">
+            ⚠️ <strong>Recomendación VigIA / Seguridad e Higiene:</strong> Se detectan vientos fuertes previstos para el Jueves y Viernes que alcanzan los 38 km/h. Se sugiere posponer los trabajos de techado de lona o reforzar los tensores con anclajes estresados de pañol.
+          </div>
+          
+          <div class="climate-days">
+            <div class="climate-day-card">
+              <div class="climate-day-name">LUN</div>
+              <div class="climate-day-icon">☀️</div>
+              <div class="climate-day-temp">18°C</div>
+              <div class="climate-day-wind">14 km/h</div>
+            </div>
+            <div class="climate-day-card">
+              <div class="climate-day-name">MAR</div>
+              <div class="climate-day-icon">⛅</div>
+              <div class="climate-day-temp">16°C</div>
+              <div class="climate-day-wind">18 km/h</div>
+            </div>
+            <div class="climate-day-card">
+              <div class="climate-day-name">MIE</div>
+              <div class="climate-day-icon">☁️</div>
+              <div class="climate-day-temp">15°C</div>
+              <div class="climate-day-wind">22 km/h</div>
+            </div>
+            <div class="climate-day-card warning">
+              <div class="climate-day-name">JUE</div>
+              <div class="climate-day-icon">💨</div>
+              <div class="climate-day-temp">13°C</div>
+              <div class="climate-day-wind" style="font-weight:700">38 km/h</div>
+            </div>
+            <div class="climate-day-card warning">
+              <div class="climate-day-name">VIE</div>
+              <div class="climate-day-icon">🌧️💨</div>
+              <div class="climate-day-temp">12°C</div>
+              <div class="climate-day-wind" style="font-weight:700">35 km/h</div>
+            </div>
+            <div class="climate-day-card">
+              <div class="climate-day-name">SAB</div>
+              <div class="climate-day-icon">⛅</div>
+              <div class="climate-day-temp">15°C</div>
+              <div class="climate-day-wind">16 km/h</div>
+            </div>
+            <div class="climate-day-card">
+              <div class="climate-day-name">DOM</div>
+              <div class="climate-day-icon">☀️</div>
+              <div class="climate-day-temp">17°C</div>
+              <div class="climate-day-wind">10 km/h</div>
+            </div>
+          </div>
+        </div>
+
+        <p>Al hacer clic en el botón de análisis climático, el sistema lee las coordenadas geográficas de la OT, consulta en tiempo real las previsiones meteorológicas detalladas para los próximos 7 días mediante Weather API, y el motor de IA evalúa riesgos estructurales (velocidad del viento, ráfagas, precipitaciones abundantes y temperaturas extremas) emitiendo alertas inmediatas.</p>
+      </section>
+
+      <hr>
+
+      <!-- SECTION 8 -->
+      <section id="roadmap" class="content-section">
+        <h2>8. Roadmap de Mejoras y Próximas Integraciones</h2>
+        <p>El sistema continúa evolucionando. Las siguientes integraciones y optimizaciones de software se encuentran programadas dentro de la hoja de ruta de desarrollo técnico:</p>
+        
+        <div class="card" style="border-left:4px solid var(--accent-indigo)">
+          <h3 style="margin-top:0; color:var(--accent-indigo)">Integración Oficial con WhatsApp</h3>
+          <p>Envío automático de notificaciones comerciales y logísticas a clientes y operarios utilizando WhatsApp Business API.</p>
+          <ul>
+            <li><strong>Clientes</strong>: Recepción instantánea de enlaces de descarga del Remito Oficial en PDF e hitos de armado/desarme completados.</li>
+            <li><strong>Choferes y Cuadrilla</strong>: Envío directo del itinerario de viaje asignado en formato simplificado con acceso directo a Google Maps para navegación.</li>
+            <li><strong>Alertas de Almacén</strong>: Configuración de notificaciones ante cambios de último momento en el diseño estructural de OTs aprobadas para evitar cargas incorrectas.</li>
+          </ul>
+        </div>
+
+        <div class="card" style="border-left:4px solid var(--accent-cyan)">
+          <h3 style="margin-top:0; color:var(--accent-cyan)">Escucha Social e Inteligencia de Opinión</h3>
+          <p>Módulo de análisis automático del impacto de marca y clima de satisfacción.</p>
+          <ul>
+            <li><strong>Lectura de Redes</strong>: Conexión mediante API a perfiles de Instagram, Facebook y LinkedIn para monitorear comentarios.</li>
+            <li><strong>NLP de Sentimiento</strong>: Evaluación de opiniones en tiempo real (Positivo, Neutro, Negativo) mediante Gemini API para auditar la atención en obras.</li>
+            <li><strong>Métricas de Engagement</strong>: Reportes cruzados de interacción frente a consultas comerciales entrantes de nuevos clientes.</li>
+          </ul>
+        </div>
+
+        <div class="card" style="border-left:4px solid var(--accent-orange)">
+          <h3 style="margin-top:0; color:var(--accent-orange)">Seguimiento de Flotas por GPS</h3>
+          <p>Monitoreo geográfico integral de transporte y tiempos de traslado.</p>
+          <ul>
+            <li><strong>API de Geolocalización</strong>: Integración con los dispositivos GPS a bordo de los camiones de la flota corporativa.</li>
+            <li><strong>ETA Logístico</strong>: Cálculo automatizado del tiempo de arribo a destino según condiciones actuales del tráfico vehicular.</li>
+            <li><strong>Validación de Ubicación</strong>: Contraste automático entre la coordenada física real reportada por el camión y las coordenadas de la OT para autorizar la descarga.</li>
+          </ul>
+        </div>
+      </section>
+
+    </main>
+
+  </div>
+
+  <!-- JavaScript for Interactive Controls -->
+  <script>
+    // Theme Toggle
+    const themeBtn = document.getElementById('theme-toggle');
+    const htmlElement = document.documentElement;
+    const themeIcon = document.getElementById('theme-icon');
+
+    themeBtn.addEventListener('click', () => {
+      const currentTheme = htmlElement.getAttribute('data-theme');
+      const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+      htmlElement.setAttribute('data-theme', newTheme);
+      
+      // Update icon visual representation
+      if (newTheme === 'light') {
+        themeIcon.innerHTML = `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />`;
+      } else {
+        themeIcon.innerHTML = `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m0-12.728l.707.707m12.728 12.728l.707-.707M12 8a4 4 0 100 8 4 4 0 000-8z" />`;
+      }
+    });
+
+    // Active link highlighting on click & scroll
+    function highlightLink(link) {
+      document.querySelectorAll('.nav-link').forEach(item => item.classList.remove('active'));
+      link.classList.add('active');
+    }
+
+    // Scrollspy behavior
+    const sections = document.querySelectorAll('.content-section');
+    const navLinks = document.querySelectorAll('.nav-link');
+
+    window.addEventListener('scroll', () => {
+      let currentSectionId = '';
+      sections.forEach(section => {
+        const sectionTop = section.offsetTop;
+        const sectionHeight = section.clientHeight;
+        if (pageYOffset >= (sectionTop - 150)) {
+          currentSectionId = section.getAttribute('id');
+        }
+      });
+
+      navLinks.forEach(link => {
+        link.classList.remove('active');
+        if (link.getAttribute('href').substring(1) === currentSectionId) {
+          link.classList.add('active');
+        }
+      });
+    });
+
+    // Roles selector logic
+    const rolesData = {
+      superadmin: {
+        title: "Gerencia / SuperAdmin",
+        desc: "Acceso ilimitado de lectura y escritura en todas las áreas del ERP. Controla el panel de analíticas predictivas comerciales, auditoría de vendedores, planificación semanal de stock y logística de flota. Integra de forma exclusiva la consola de IA VigIA para responder consultas de negocio directas sobre la base de datos consolidada."
+      },
+      comercial: {
+        title: "Comercial",
+        desc: "Gestión de la base de clientes y prospectos corporativos. Emisión de cotizaciones formales estructuradas y creación de nuevas Órdenes de Trabajo (OT). Tiene acceso al visor 3D de modulación de carpas para verificar y validar las piezas con el cliente de forma interactiva."
+      },
+      operaciones: {
+        title: "Operaciones",
+        desc: "Planificación temporal y asignación de los recursos de la empresa. Autoriza y asigna choferes, personal de armado y camiones. Utiliza la verificación temporal de arcos para certificar la disponibilidad física y evitar quiebres de stock en temporadas de alta demanda."
+      },
+      almacen: {
+        title: "Personal de Almacén",
+        desc: "Organización física del inventario en Burzaco HQ. Responsable de procesar los 6 checklists independientes correspondientes a cada sector de almacenamiento (Planta, Pañol, Lonas, Pisos, Alfombras, Telas). Genera y descarga las listas de empaque y los remitos oficiales de salida."
+      },
+      chofer: {
+        title: "Logística y Chofer",
+        desc: "Seguimiento satelital y ruteo logístico de entregas. Reporta arribos en tiempo real mediante GPS y gestiona la logística inversa (desarmes, devoluciones defectuosas y transferencias directas de obra a obra). Accede al análisis climático antes de iniciar las maniobras de descarga y montaje en terreno."
+      }
+    };
+
+    function selectRole(roleKey, cardElement) {
+      // Highlight card
+      cardElement.parentNode.querySelectorAll('.sector-card').forEach(c => c.style.transform = 'none');
+      cardElement.style.transform = 'translateY(-4px)';
+      
+      const role = rolesData[roleKey];
+      document.getElementById('role-title').innerText = role.title;
+      document.getElementById('role-desc').innerText = role.desc;
+    }
+
+    // Initialize first role display
+    selectRole('superadmin', document.querySelector('.sectors-grid .sector-card.orange'));
+
+    // Timeline steps logic (Section 2)
+    const timelineData = [
+      {
+        title: "1. Estado: Pendiente",
+        desc: "Creada por el área Comercial. Se especifican las dimensiones tridimensionales (frente, profundidad, modulación), adicionales (lonas, pisos, cortinas, etc.) y la georreferenciación. <br><strong>Control Temporal</strong>: En este estado, los usuarios de <strong>Gerencia</strong> y <strong>Operaciones</strong> disponen del botón de <strong>\"VERIFICACIÓN TEMPORAL DE ARCOS\"</strong> en la tarjeta de aprobación, evaluando la disponibilidad física de los arcos requeridos cruzando las fechas de inicio y fin del evento programado contra las OTs existentes."
+      },
+      {
+        title: "2. Estado: Aprobada",
+        desc: "La OT ha sido validada y confirmada para su producción logística. El ERP ejecuta de forma automática la explosión de materiales (BOM) estimando las partes requeridas de perfiles, fijos y uniones. <br><strong>Modulación y Estructura</strong>: En el panel de modulación estructural (Paso 1), el operador cuenta con el botón de **\"VERIFICAR TEMPORAL DE ARCOS\"** para simular y afinar el diseño definitivo garantizando el abastecimiento físico antes del guardado."
+      },
+      {
+        title: "3. Estado: Bulto Completo",
+        desc: "El pedido es enviado a depósito. El personal de almacén completa los checklists de los 6 sectores de recolección (Planta, Pañol, Lonas, Pisos, Alfombras, Telas). Una vez marcados todos los elementos como validados, el remito de despacho en PDF se habilita de forma automática estructurado en 6 tablas específicas."
+      },
+      {
+        title: "4. Estado: En Planta",
+        desc: "Toda la carga ha sido consolidada físicamente en el playón de despacho y verificada bajo firma digital del supervisor de depósito. Se encuentra embalada en el transporte listo para el ruteo del chofer asignado."
+      },
+      {
+        title: "5. Estado: Completada (Entregada / Armada)",
+        desc: "El camión arriba a la obra (se corrobora la coordenada real de llegada GPS contra la OT). Se completa el montaje físico de la estructura de la carpa y adicionales contratados. El chofer adjunta la firma digital del cliente y fotografías de conformidad de obra."
+      },
+      {
+        title: "6. Estado: Cancelada",
+        desc: "Cancelación administrativa de la OT. El sistema libera de inmediato la reserva física temporal de arcos y accesorios asociados para que puedan ser rentados o asignados en nuevas planificaciones comerciales de forma inmediata."
+      }
+    ];
+
+    function setTimelineStep(index) {
+      const steps = document.querySelectorAll('.timeline-step');
+      steps.forEach((step, idx) => {
+        if (idx <= index) {
+          step.classList.add('active');
+        } else {
+          step.classList.remove('active');
+        }
+      });
+
+      // Update progress bar width
+      const progressBar = document.getElementById('timeline-progress-bar');
+      progressBar.style.width = `${(index / (steps.length - 1)) * 95}%`;
+
+      // Update text details
+      const detailsBox = document.getElementById('timeline-details');
+      detailsBox.innerHTML = `<h3>${timelineData[index].title}</h3><p style="margin-bottom:0">${timelineData[index].desc}</p>`;
+    }
+
+    // Warehouse sectors display (Section 3)
+    const sectorsData = {
+      planta: {
+        title: "Sector Planta (Estructurales)",
+        desc: "Almacenamiento de perfiles pesados de aluminio extruido y acero galvanizado estructural. Incluye vigas, columnas, cabios de apoyo, cumbreras, diagonales de arriostramiento, y los arcos físicos de modulación. Todos etiquetados y ordenados por modelo de carpa (arcos de 10m, 15m, 20m, etc.)."
+      },
+      panol: {
+        title: "Sector Pañol (Rígidos y Conectores)",
+        desc: "Resguardo bajo llave de accesorios metálicos pequeños, bulonería de alta resistencia, chavetas de seguridad, estacas de anclaje para suelos blandos, cables tensores de rienda con crique, planchuelas de base, herramientas de mano (martillos neumáticos, llaves inglesas) y equipamiento de seguridad de altura para montadores."
+      },
+      lonas: {
+        title: "Sector Lonas",
+        desc: "Almacenamiento climatizado y libre de humedad para lonas de PVC ignífugas. Se ordenan y catalogan techos (modulares de 4m o 5m de ancho), paños de fondo (lisos o con ventanas de policarbonato transparente), cubremontantes y lonas laterales correderas con ojales reforzados."
+      },
+      pisos: {
+        title: "Sector Pisos y Madera",
+        desc: "Almacenamiento de placas de madera fenólica multilaminada de alta resistencia y vigas transversales de soporte estructural de madera o perfiles de hierro estructurales, utilizadas para la conformación de los pisos llanos o las tarimas sobreelevadas de la carpa."
+      },
+      alfombras: {
+        title: "Sector Alfombras",
+        desc: "Bobinas y rollos cerrados de alfombra (tipo punzonada en colores gris, azul, rojo o negro), cintas adhesivas doble faz de alta adherencia para fijación perimetral y elementos cortantes e insumos descartables de colocación rápida."
+      },
+      telas: {
+        title: "Sector Telas y Ambientación",
+        desc: "Resguardo de telas de decoración livianas e ignífugas. Incluye los paños de cielorraso plisados o tensados (gasa/jersey blanca), telas decorativas de columnas, cortinados de ambientación interna y cortinas divisorias de vestuarios u oficinas temporales."
+      }
+    };
+
+    function showSector(sectorKey) {
+      const display = document.getElementById('sector-display');
+      const title = document.getElementById('sector-display-title');
+      const text = document.getElementById('sector-display-text');
+      
+      const sector = sectorsData[sectorKey];
+      title.innerText = sector.title;
+      text.innerText = sector.desc;
+      
+      display.style.display = 'block';
+      
+      // Scroll to display box
+      display.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+
+    // VigIA Chatbot UI simulation logic (Section 5)
+    const chatResponses = {
+      recurrencia: {
+        user: "¿Qué clientes suelen repetir en Julio?",
+        bot: "Analizando la base de <strong>fidelidad_clientes</strong> y ventas históricas en memoria...<br><br>He detectado patrones recurrentes fuertes para el mes de <strong>Julio</strong>:<br>1. <strong>EXPO INDUSTRIAL S.A.</strong>: Contrató estructuras de 20m en Burzaco consecutivamente en Julio 2023, 2024 y 2025. Proyección de recurrencia para Julio 2026: <strong>95% (Muy Alta)</strong>.<br>2. <strong>CLUB ATLETICO SAN ISIDRO</strong>: Contrató carpas con piso y alfombra para eventos invernales en Julio de los últimos 2 años. Proyección: <strong>85% (Alta)</strong>."
+      },
+      proyeccion: {
+        user: "Proyección de ventas Agosto 2026 vs 2025",
+        bot: "Cruzando el histórico comercial de ventas para los periodos de Agosto...<br><br>En <strong>Agosto 2025</strong> se facturaron un total de 3,200 m² traccionados en 12 eventos.<br>Para <strong>Agosto 2026</strong>, basándome en los leads comerciales cargados en estado 'Pendiente' y la probabilidad estadística de recompra de clientes recurrentes históricos, se proyecta un volumen estimado de <strong>3,650 m² traccionados (+14% respecto a 2025)</strong>, impulsado principalmente por el evento corporativo de 'SIDERAR S.A.' programado para montaje el 10-08-2026."
+      },
+      stock: {
+        user: "Balance dinámico de carpas y arcos",
+        bot: "Calculando disponibilidad neta de stock consultando <code>base_arco</code> física y OTs activas...<br><br><strong>Modelo de Carpa: CARA20 (Aluminio 20 mts de frente)</strong><br>- Stock total de arcos en base_arco (arcos.xlsx): <strong>42 arcos</strong>.<br>- Reservados en OTs activas (no canceladas): <strong>18 arcos</strong>.<br>- Stock neto disponible para montaje: <strong>24 arcos</strong> (Equivale a 120 metros lineales de estructura CARA20 libre en Burzaco HQ)."
+      }
+    };
+
+    function askVigia(key) {
+      const chatArea = document.getElementById('vigia-chat');
+      const typing = document.getElementById('vigia-typing');
+      const response = chatResponses[key];
+
+      // Append User message
+      const userMsg = document.createElement('div');
+      userMsg.className = 'vigia-msg user';
+      userMsg.innerText = response.user;
+      chatArea.insertBefore(userMsg, typing);
+      
+      // Scroll to bottom
+      chatArea.scrollTop = chatArea.scrollHeight;
+      
+      // Show typing animation
+      typing.style.display = 'flex';
+      chatArea.scrollTop = chatArea.scrollHeight;
+      
+      setTimeout(() => {
+        // Hide typing
+        typing.style.display = 'none';
+        
+        // Append Bot message
+        const botMsg = document.createElement('div');
+        botMsg.className = 'vigia-msg bot';
+        botMsg.innerHTML = response.bot;
+        chatArea.insertBefore(botMsg, typing);
+        
+        // Scroll to bottom
+        chatArea.scrollTop = chatArea.scrollHeight;
+      }, 1000);
+    }
+
+    // Live search functionality
+    const searchInput = document.getElementById('manual-search');
+    searchInput.addEventListener('input', function() {
+      const query = this.value.toLowerCase().trim();
+      const contentSections = document.querySelectorAll('.content-section');
+      
+      if (!query) {
+        // Clear all highlights
+        document.querySelectorAll('.highlight').forEach(el => {
+          el.outerHTML = el.innerHTML;
+        });
+        contentSections.forEach(sec => sec.style.display = 'block');
+        return;
+      }
+      
+      contentSections.forEach(section => {
+        const text = section.innerText.toLowerCase();
+        if (text.includes(query)) {
+          section.style.display = 'block';
+          // Simple highlighter for text
+          // Note: In a production app, we would use a more robust DOM-based text highlighting parser, 
+          // but for this presentation manual, we use simple display filtering which works instantly.
+        } else {
+          section.style.display = 'none';
+        }
+      });
+    });
+  </script>
+</body>
+</html>
