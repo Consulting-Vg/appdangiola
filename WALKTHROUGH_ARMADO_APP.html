@@ -1,0 +1,975 @@
+<!DOCTYPE html>
+<html lang="es" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Presentación Técnica: Arquitectura y Armado del ERP D'Angiola</title>
+  
+  <!-- Modern Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  
+  <!-- Embedded Vanilla CSS -->
+  <style>
+    :root {
+      --bg-primary: #0b0f19;
+      --bg-secondary: #161c2a;
+      --bg-tertiary: #1e293b;
+      --text-primary: #f8fafc;
+      --text-secondary: #94a3b8;
+      --text-muted: #64748b;
+      --accent-blue: #3b82f6;
+      --accent-blue-hover: #2563eb;
+      --accent-cyan: #06b6d4;
+      --accent-orange: #f97316;
+      --accent-purple: #8b5cf6;
+      --accent-emerald: #10b981;
+      --accent-lime: #84cc16;
+      --accent-indigo: #6366f1;
+      --border-color: #334155;
+      --card-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.6);
+      --glass-bg: rgba(22, 28, 42, 0.75);
+      --glass-border: rgba(255, 255, 255, 0.05);
+      --font-family-headings: 'Plus Jakarta Sans', sans-serif;
+      --font-family-body: 'Inter', sans-serif;
+      --transition-speed: 0.4s;
+    }
+
+    [data-theme="light"] {
+      --bg-primary: #f8fafc;
+      --bg-secondary: #ffffff;
+      --bg-tertiary: #f1f5f9;
+      --text-primary: #0f172a;
+      --text-secondary: #475569;
+      --text-muted: #94a3b8;
+      --accent-blue: #2563eb;
+      --accent-blue-hover: #1d4ed8;
+      --accent-cyan: #0891b2;
+      --border-color: #e2e8f0;
+      --card-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.1);
+      --glass-bg: rgba(255, 255, 255, 0.75);
+      --glass-border: rgba(0, 0, 0, 0.05);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg-primary);
+      color: var(--text-primary);
+      font-family: var(--font-family-body);
+      overflow: hidden;
+      transition: background-color var(--transition-speed), color var(--transition-speed);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Presentation Wrapper */
+    .presentation-container {
+      flex-grow: 1;
+      display: flex;
+      position: relative;
+      height: calc(100vh - 80px);
+    }
+
+    /* Navbar / Header */
+    .header-nav {
+      height: 80px;
+      background-color: var(--bg-secondary);
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 2rem;
+      z-index: 50;
+      transition: background-color var(--transition-speed), border-color var(--transition-speed);
+    }
+
+    .brand-logo {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .logo-img {
+      height: 44px;
+      width: auto;
+      object-contain: fit;
+      filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.2));
+    }
+
+    .brand-text {
+      font-family: var(--font-family-headings);
+      font-size: 1.25rem;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      background: linear-gradient(135deg, var(--text-primary), var(--accent-blue));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .nav-controls {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+
+    .theme-btn {
+      background-color: var(--bg-primary);
+      border: 1px solid var(--border-color);
+      color: var(--text-primary);
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: transform 0.2s, background-color var(--transition-speed);
+    }
+
+    .theme-btn:hover {
+      transform: scale(1.05);
+      background-color: var(--bg-tertiary);
+    }
+
+    /* Slide Deck Layout */
+    .sidebar-slides {
+      width: 280px;
+      background-color: var(--bg-secondary);
+      border-right: 1px solid var(--border-color);
+      padding: 1.5rem 1rem;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      transition: width var(--transition-speed), background-color var(--transition-speed);
+    }
+
+    .slide-thumb {
+      padding: 0.75rem 1rem;
+      background-color: var(--bg-primary);
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--text-secondary);
+      transition: all 0.2s;
+      text-align: left;
+    }
+
+    .slide-thumb:hover {
+      border-color: var(--accent-blue);
+      color: var(--text-primary);
+    }
+
+    .slide-thumb.active {
+      background-color: var(--accent-blue);
+      border-color: var(--text-primary);
+      color: #ffffff;
+      box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+    }
+
+    .slide-thumb-num {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background-color: rgba(255, 255, 255, 0.1);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.75rem;
+      flex-shrink: 0;
+    }
+
+    .slide-thumb.active .slide-thumb-num {
+      background-color: rgba(0, 0, 0, 0.2);
+    }
+
+    /* Main Slide Stage */
+    .slide-stage {
+      flex-grow: 1;
+      padding: 3rem;
+      overflow-y: auto;
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background-color: var(--bg-primary);
+    }
+
+    .slide-content {
+      width: 100%;
+      max-width: 900px;
+      display: none;
+      animation: fadeIn 0.4s ease-out forwards;
+    }
+
+    .slide-content.active {
+      display: block;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(15px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Visual Slides Styling */
+    .slide-header {
+      margin-bottom: 2rem;
+      text-align: center;
+    }
+
+    .slide-category {
+      font-size: 0.85rem;
+      font-weight: 700;
+      color: var(--accent-blue);
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      margin-bottom: 0.5rem;
+      display: block;
+    }
+
+    .slide-title {
+      font-family: var(--font-family-headings);
+      font-size: 2.25rem;
+      font-weight: 800;
+      color: var(--text-primary);
+      line-height: 1.25;
+      letter-spacing: -0.5px;
+    }
+
+    .slide-body {
+      font-size: 1.05rem;
+      line-height: 1.7;
+      color: var(--text-secondary);
+    }
+
+    /* Dashboard Widgets / Visualizations */
+    .grid-2 {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 2rem;
+      margin-top: 1.5rem;
+    }
+
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1.25rem;
+      margin-top: 1.5rem;
+    }
+
+    .visual-card {
+      background-color: var(--bg-secondary);
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      padding: 1.5rem;
+      box-shadow: var(--card-shadow);
+      transition: border-color var(--transition-speed);
+      position: relative;
+    }
+
+    .visual-card:hover {
+      border-color: var(--accent-blue);
+    }
+
+    .card-icon {
+      font-size: 2rem;
+      margin-bottom: 1rem;
+    }
+
+    .card-title {
+      font-family: var(--font-family-headings);
+      font-size: 1.15rem;
+      font-weight: 700;
+      color: var(--text-primary);
+      margin-bottom: 0.5rem;
+    }
+
+    /* Diagram flow representation */
+    .diagram-flow {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin: 2.5rem 0;
+      background: var(--bg-secondary);
+      padding: 2rem;
+      border-radius: 16px;
+      border: 1px solid var(--border-color);
+      position: relative;
+    }
+
+    .diagram-step {
+      width: 22%;
+      background-color: var(--bg-tertiary);
+      border: 1px solid var(--border-color);
+      padding: 1rem;
+      border-radius: 12px;
+      text-align: center;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+      z-index: 5;
+    }
+
+    .diagram-step-title {
+      font-weight: 700;
+      font-size: 0.9rem;
+      color: var(--text-primary);
+      margin-bottom: 0.25rem;
+    }
+
+    .diagram-step-detail {
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+    }
+
+    .diagram-arrow {
+      flex-grow: 1;
+      height: 2px;
+      background-color: var(--border-color);
+      position: relative;
+      margin: 0 0.5rem;
+    }
+
+    .diagram-arrow::after {
+      content: '';
+      position: absolute;
+      right: 0;
+      top: -4px;
+      width: 0;
+      height: 0;
+      border-top: 5px solid transparent;
+      border-bottom: 5px solid transparent;
+      border-left: 8px solid var(--border-color);
+    }
+
+    /* Banner / Cover Slide special styling */
+    .cover-slide {
+      text-align: center;
+      padding: 2rem;
+    }
+
+    .cover-logo {
+      height: 100px;
+      margin-bottom: 2rem;
+      filter: drop-shadow(0 4px 15px rgba(0,0,0,0.3));
+    }
+
+    .cover-title {
+      font-size: 3rem;
+      font-weight: 800;
+      font-family: var(--font-family-headings);
+      line-height: 1.15;
+      background: linear-gradient(135deg, #ffffff 20%, var(--accent-blue) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 1.5rem;
+    }
+    
+    [data-theme="light"] .cover-title {
+      background: linear-gradient(135deg, #0f172a 20%, var(--accent-blue) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .cover-desc {
+      font-size: 1.25rem;
+      color: var(--text-secondary);
+      max-width: 650px;
+      margin: 0 auto 3rem auto;
+    }
+
+    .cover-meta {
+      display: flex;
+      justify-content: center;
+      gap: 3rem;
+      font-size: 0.9rem;
+      color: var(--text-muted);
+      border-top: 1px solid var(--border-color);
+      padding-top: 1.5rem;
+      max-width: 500px;
+      margin: 0 auto;
+    }
+
+    /* Control keys presentation guide */
+    .keyboard-guide {
+      position: absolute;
+      bottom: 1.5rem;
+      right: 2rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+    }
+
+    .key-cap {
+      background-color: var(--bg-secondary);
+      border: 1px solid var(--border-color);
+      padding: 0.2rem 0.5rem;
+      border-radius: 4px;
+      font-family: monospace;
+      font-weight: 700;
+      color: var(--text-primary);
+    }
+
+    /* Presentation controls at bottom center */
+    .deck-controls {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 1.5rem;
+      margin-top: 2rem;
+    }
+
+    .control-btn {
+      background-color: var(--bg-secondary);
+      border: 1px solid var(--border-color);
+      color: var(--text-primary);
+      padding: 0.75rem 1.25rem;
+      border-radius: 12px;
+      cursor: pointer;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      transition: all 0.2s;
+    }
+
+    .control-btn:hover {
+      background-color: var(--accent-blue);
+      border-color: var(--accent-blue);
+      color: #ffffff;
+    }
+
+    .control-btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+      background-color: var(--bg-secondary);
+      border-color: var(--border-color);
+      color: var(--text-muted);
+    }
+
+    .slide-progress-indicator {
+      font-size: 0.9rem;
+      font-weight: 700;
+      color: var(--text-secondary);
+    }
+
+    /* Custom visuals for code block */
+    .code-window {
+      background-color: #0b0f19;
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      overflow: hidden;
+      font-family: 'Courier New', Courier, monospace;
+      margin-top: 1.5rem;
+      box-shadow: var(--card-shadow);
+    }
+
+    .code-header {
+      background-color: var(--bg-secondary);
+      padding: 0.5rem 1rem;
+      display: flex;
+      gap: 0.4rem;
+      align-items: center;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+    }
+    .dot-red { background-color: #ef4444; }
+    .dot-yellow { background-color: #f59e0b; }
+    .dot-green { background-color: #10b981; }
+
+    .code-body {
+      padding: 1rem 1.5rem;
+      font-size: 0.8rem;
+      color: #38bdf8;
+      overflow-x: auto;
+      white-space: pre;
+      line-height: 1.5;
+    }
+
+    /* Accent color lines */
+    .accent-border-left {
+      border-left: 4px solid var(--accent-blue);
+      padding-left: 1rem;
+    }
+
+    /* Responsiveness */
+    @media (max-width: 900px) {
+      .sidebar-slides {
+        display: none;
+      }
+      .slide-stage {
+        padding: 1.5rem;
+      }
+      .grid-2 {
+        grid-template-columns: 1fr;
+      }
+      .diagram-flow {
+        flex-direction: column;
+        gap: 1.5rem;
+      }
+      .diagram-step {
+        width: 100%;
+      }
+      .diagram-arrow {
+        width: 2px;
+        height: 20px;
+        margin: 0.5rem 0;
+      }
+      .diagram-arrow::after {
+        transform: rotate(90deg);
+        bottom: 0;
+        top: auto;
+        right: -3px;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Top Nav Bar -->
+  <header class="header-nav">
+    <div class="brand-logo">
+      <img src="cd.png" alt="Logo" class="logo-img" onerror="this.src='frontend/public/cd.png'; this.onerror=function(){this.src='frontend/src/assets/cd.png'}">
+      <span class="brand-text">Carpas D'Angiola ERP</span>
+    </div>
+    
+    <div class="nav-controls">
+      <div class="slide-progress-indicator" id="top-progress">Slide 1 de 8</div>
+      <button id="toggle-theme" class="theme-btn" title="Cambiar Tema">
+        <!-- Sun/Moon SVG -->
+        <svg id="theme-svg" xmlns="http://www.w3.org/2000/svg" style="width:20px;height:20px" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m0-12.728l.707.707m12.728 12.728l.707-.707M12 8a4 4 0 100 8 4 4 0 000-8z" />
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- Presentation Workspace -->
+  <div class="presentation-container">
+    
+    <!-- Sidebar Slide Thumbnails -->
+    <aside class="sidebar-slides">
+      <button class="slide-thumb active" onclick="goToSlide(1)">
+        <div class="slide-thumb-num">1</div>
+        <span>Portada</span>
+      </button>
+      <button class="slide-thumb" onclick="goToSlide(2)">
+        <div class="slide-thumb-num">2</div>
+        <span>Objetivos</span>
+      </button>
+      <button class="slide-thumb" onclick="goToSlide(3)">
+        <div class="slide-thumb-num">3</div>
+        <span>Arquitectura</span>
+      </button>
+      <button class="slide-thumb" onclick="goToSlide(4)">
+        <div class="slide-thumb-num">4</div>
+        <span>Motor & Caché</span>
+      </button>
+      <button class="slide-thumb" onclick="goToSlide(5)">
+        <div class="slide-thumb-num">5</div>
+        <span>Logística 6 Sectores</span>
+      </button>
+      <button class="slide-thumb" onclick="goToSlide(6)">
+        <div class="slide-thumb-num">6</div>
+        <span>Integración Clima</span>
+      </button>
+      <button class="slide-thumb" onclick="goToSlide(7)">
+        <div class="slide-thumb-num">7</div>
+        <span>Consola VigIA IA</span>
+      </button>
+      <button class="slide-thumb" onclick="goToSlide(8)">
+        <div class="slide-thumb-num">8</div>
+        <span>Roadmap</span>
+      </button>
+    </aside>
+
+    <!-- Main Slide Stage -->
+    <section class="slide-stage">
+      
+      <!-- SLIDE 1 -->
+      <div class="slide-content active" id="slide-1">
+        <div class="cover-slide">
+          <img src="cd.png" alt="Carpas D'Angiola Logo" class="cover-logo" onerror="this.src='frontend/public/cd.png'; this.onerror=function(){this.src='frontend/src/assets/cd.png'}">
+          <h1 class="cover-title">Dossier Técnico:<br>Arquitectura del ERP Unificado</h1>
+          <p class="cover-desc">Presentación completa sobre el diseño, integraciones satelitales, lógica de bases de datos y motor de Inteligencia Artificial (VigIA) de Carpas D'Angiola S.A.</p>
+          
+          <div class="cover-meta">
+            <div>
+              <strong style="display:block; color:var(--text-primary)">Diseño del Sistema</strong>
+              <span style="font-size:0.85rem">Frontend & Backend</span>
+            </div>
+            <div>
+              <strong style="display:block; color:var(--text-primary)">Fecha de Versión</strong>
+              <span style="font-size:0.85rem">Junio 2026</span>
+            </div>
+            <div>
+              <strong style="display:block; color:var(--text-primary)">Estado</strong>
+              <span style="color:var(--accent-emerald); font-weight:700; font-size:0.85rem">Desplegado</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- SLIDE 2 -->
+      <div class="slide-content" id="slide-2">
+        <div class="slide-header">
+          <span class="slide-category">Visión General</span>
+          <h2 class="slide-title">Objetivos Clave de la Aplicación</h2>
+        </div>
+        <div class="slide-body">
+          <p>El ERP unificado fue concebido para erradicar la fragmentación en el flujo de información de la empresa, reemplazando múltiples archivos de planillas aislados por una plataforma sincronizada en tiempo real.</p>
+          
+          <div class="grid-3">
+            <div class="visual-card">
+              <div class="card-icon" style="color:var(--accent-blue)">⚡</div>
+              <div class="card-title">Consolidación de Roles</div>
+              <p style="font-size:0.85rem; margin-bottom:0">Interconexión digital inmediata entre Vendedores, Operaciones, Choferes, Almacén y la Dirección de la empresa.</p>
+            </div>
+            <div class="visual-card">
+              <div class="card-icon" style="color:var(--accent-emerald)">📦</div>
+              <div class="card-title">Precisión de Inventario</div>
+              <p style="font-size:0.85rem; margin-bottom:0">Gestión de stock físico de arcos y accesorios vinculando las hojas de datos oficiales a la carga de remitos.</p>
+            </div>
+            <div class="visual-card">
+              <div class="card-icon" style="color:var(--accent-orange)">🛡️</div>
+              <div class="card-title">Seguridad y Prevención</div>
+              <p style="font-size:0.85rem; margin-bottom:0">Integración de alertas meteorológicas automáticas y auditoría de disponibilidad temporal de arcos.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- SLIDE 3 -->
+      <div class="slide-content" id="slide-3">
+        <div class="slide-header">
+          <span class="slide-category">Ingeniería de Software</span>
+          <h2 class="slide-title">Arquitectura del Sistema</h2>
+        </div>
+        <div class="slide-body">
+          <p>La aplicación implementa un patrón cliente-servidor optimizado para entornos de baja latencia con integraciones distribuidas:</p>
+          
+          <div class="diagram-flow">
+            <div class="diagram-step">
+              <div class="diagram-step-title">Cliente Web (SPA)</div>
+              <div class="diagram-step-detail">Vite + React.js, Three.js (3D engine), Leaflet maps</div>
+            </div>
+            <div class="diagram-arrow"></div>
+            <div class="diagram-step">
+              <div class="diagram-step-title">Servidor Express</div>
+              <div class="diagram-step-detail">Node.js, middleware de seguridad y enrutamiento</div>
+            </div>
+            <div class="diagram-arrow"></div>
+            <div class="diagram-step">
+              <div class="diagram-step-title">Caché & Base de Datos</div>
+              <div class="diagram-step-detail">Caché en memoria del servidor + DB en JSON</div>
+            </div>
+            <div class="diagram-arrow"></div>
+            <div class="diagram-step">
+              <div class="diagram-step-title">APIs Externas</div>
+              <div class="diagram-step-detail">Gemini 2.5 API (VigIA), Open-Meteo API</div>
+            </div>
+          </div>
+
+          <div class="accent-border-left">
+            <p style="font-size:0.95rem; margin-bottom:0"><strong>Despliegue y Rendering 3D a demanda:</strong> Para agilizar el rendimiento inicial, el motor Three.js para la modulación visual de estructuras en 3D solo se carga en memoria tras la interacción del usuario mediante un interruptor de activación explícito.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- SLIDE 4 -->
+      <div class="slide-content" id="slide-4">
+        <div class="slide-header">
+          <span class="slide-category">Lógica de Servidor</span>
+          <h2 class="slide-title">Motor de Datos y Caché de Memoria</h2>
+        </div>
+        <div class="slide-body">
+          <p>Para garantizar respuestas inmediatas a la consola comercial y en particular al Asistente IA VigIA, implementamos una capa de **procesamiento condensado en caché de memoria**:</p>
+          
+          <div class="grid-2">
+            <div class="visual-card">
+              <div class="card-title">Carga Eficiente de Datos</div>
+              <p style="font-size:0.9rem">
+                El backend procesa y unifica múltiples tablas al iniciar (Clientes, OTs, Stock de Accesorios, Estructuras y Ventas Históricas). El resumen se almacena en memoria, reduciendo el tiempo de consulta a solo <strong>~10ms</strong> en lugar de analizar archivos xlsx recurrentes.
+              </p>
+            </div>
+            <div class="visual-card">
+              <div class="card-title">Invalidación y Stock Dinámico</div>
+              <p style="font-size:0.9rem">
+                <strong>Autocleaning</strong>: La caché se invalida y reconstruye instantáneamente tras cualquier acción de escritura (POST/PUT/DELETE).<br>
+                <strong>Stock de Arcos</strong>: El balance ya no lee la columna estática de estructuras, sino que cuenta arcos físicos en <code>base_arco</code> y resta reservas de OTs activas.
+              </p>
+            </div>
+          </div>
+
+          <!-- Mock representation of code -->
+          <div class="code-window">
+            <div class="code-header">
+              <div class="dot dot-red"></div>
+              <div class="dot dot-yellow"></div>
+              <div class="dot dot-green"></div>
+              <span style="font-size: 0.7rem; color: var(--text-muted); margin-left: 0.5rem">server.js - getDBCacheSummary()</span>
+            </div>
+            <div class="code-body">const [arches, structures, ots] = await Promise.all([db.getArches(), db.getStructures(), db.getOTs()]);
+const archesCountByModel = countPhysicalArches(arches); // Real stock from arcos.xlsx
+const reservedArches = countActiveOTReservations(ots);
+const condensedStructures = structures.map(s => ({
+  modelo_estructura: s.modelo_estructura,
+  arcos_totales_stock: archesCountByModel[s.modelo_estructura],
+  arcos_disponibles_stock: archesCountByModel[s.modelo_estructura] - reservedArches[s.modelo_estructura]
+}));</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- SLIDE 5 -->
+      <div class="slide-content" id="slide-5">
+        <div class="slide-header">
+          <span class="slide-category">Operaciones & Depósito</span>
+          <h2 class="slide-title">Re-ingeniería Logística (6 Sectores)</h2>
+        </div>
+        <div class="slide-body">
+          <p>Para evitar mezclas de materiales durante el despacho del almacén de Burzaco y agilizar el montaje de la carga en los transportes, el flujo de checklists y remisión fue rediseñado por completo:</p>
+          
+          <div class="grid-2" style="margin-bottom:1.5rem">
+            <div class="visual-card">
+              <strong style="color:var(--accent-orange)">Checklists Independientes:</strong>
+              <p style="font-size:0.9rem; margin-top:0.5rem; margin-bottom:0">
+                La interfaz principal agrupa los elementos en <strong>6 áreas físicas independientes</strong> (Planta, Pañol, Lonas, Pisos, Alfombras, Telas). Los operarios visualizan únicamente la sección correspondiente a su sector asignado en planta.
+              </p>
+            </div>
+            <div class="visual-card">
+              <strong style="color:var(--accent-cyan)">PDF de Remisión Segmentado:</strong>
+              <p style="font-size:0.9rem; margin-top:0.5rem; margin-bottom:0">
+                El Remito de Salida y las Hojas de Control en PDF dividen los materiales en <strong>6 tablas diferenciadas</strong>. Esto permite imprimir y repartir las listas a diferentes recolectores para cargar camiones en paralelo sin superposiciones.
+              </p>
+            </div>
+          </div>
+
+          <div style="display:flex; justify-content:center; gap:0.5rem">
+            <span class="badge badge-primary" style="background-color:rgba(249,115,22,0.1); color:var(--accent-orange)">1. Planta</span>
+            <span class="badge badge-primary" style="background-color:rgba(139,92,246,0.1); color:var(--accent-purple)">2. Pañol</span>
+            <span class="badge badge-primary" style="background-color:rgba(6,182,212,0.1); color:var(--accent-cyan)">3. Lonas</span>
+            <span class="badge badge-primary" style="background-color:rgba(16,185,129,0.1); color:var(--accent-emerald)">4. Pisos</span>
+            <span class="badge badge-primary" style="background-color:rgba(132,204,22,0.1); color:var(--accent-lime)">5. Alfombras</span>
+            <span class="badge badge-primary" style="background-color:rgba(99,102,241,0.1); color:var(--accent-indigo)">6. Telas</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- SLIDE 6 -->
+      <div class="slide-content" id="slide-6">
+        <div class="slide-header">
+          <span class="slide-category">Seguridad e Higiene</span>
+          <h2 class="slide-title">Integración Climática Preventiva</h2>
+        </div>
+        <div class="slide-body">
+          <p>Las condiciones climáticas adversas en la zona geográfica de destino son uno de los mayores riesgos para el armado de estructuras. El sistema incorpora un detector de alertas inteligentes:</p>
+          
+          <div class="grid-2">
+            <div class="visual-card">
+              <div class="card-title">Geolocalización en Tiempo Real</div>
+              <p style="font-size:0.9rem; margin-bottom:0">
+                Al presionar el botón <strong>"Análisis Climático"</strong> en cualquier Orden de Trabajo, el sistema lee las coordenadas asignadas de la obra y conecta con el API meteorológico para extraer previsiones de viento, lluvia y ráfagas para el día corriente y los siguientes 7 días.
+              </p>
+            </div>
+            <div class="visual-card" style="border-left:4px solid var(--accent-orange)">
+              <div class="card-title">Evaluación por IA Gemini</div>
+              <p style="font-size:0.9rem; margin-bottom:0">
+                La información climática cruda es procesada por el modelo de IA. Si se detectan vientos sostenidos superiores a 35 km/h o tormentas eléctricas severas, el sistema emite <strong>alertas de suspensión de armado</strong> o recomendaciones de anclaje de seguridad.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- SLIDE 7 -->
+      <div class="slide-content" id="slide-7">
+        <div class="slide-header">
+          <span class="slide-category">Inteligencia de Negocios</span>
+          <h2 class="slide-title">VigIA: Asistente de Consultas Comerciales</h2>
+        </div>
+        <div class="slide-body">
+          <p>VigIA representa el núcleo cognitivo de la consola de Gerencia. Es un agente de inteligencia artificial entrenado para interactuar sobre la base de datos viva preprocesada del ERP:</p>
+          
+          <div class="visual-card" style="margin-top:1.5rem">
+            <ul>
+              <li style="margin-bottom:0.75rem">
+                <strong>Análisis de Proyecciones de Ventas</strong>: El usuario puede formular consultas en lenguaje natural respecto a la estimación de volumen de metros cuadrados de carpa a alquilar para meses de 2026 comparándolo con los mismos periodos históricos de 2025.
+              </li>
+              <li style="margin-bottom:0.75rem">
+                <strong>Detección de Recurrencia y Estacionalidad</strong>: Identificación automatizada de perfiles de clientes recurrentes (aquellos que arriendan estructuras de forma recurrente todos los meses de Julio o Agosto para exposiciones o campeonatos de invierno).
+              </li>
+              <li>
+                <strong>Cálculo Dinámico de Disponibilidades</strong>: Responde de forma precisa balances y existencias cruzando arcos físicos en inventario y reservaciones temporales por fecha en OTs activas.
+              </li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <!-- SLIDE 8 -->
+      <div class="slide-content" id="slide-8">
+        <div class="slide-header">
+          <span class="slide-category">Evolución</span>
+          <h2 class="slide-title">Roadmap de Próximas Integraciones</h2>
+        </div>
+        <div class="slide-body">
+          <p>Para las siguientes etapas del ciclo de vida de desarrollo de software, se contemplan tres integraciones clave para optimizar el control de flota y la comunicación:</p>
+          
+          <div class="grid-3">
+            <div class="visual-card" style="border-top:4px solid var(--accent-indigo)">
+              <strong style="color:var(--accent-indigo)">1. WhatsApp API</strong>
+              <p style="font-size:0.85rem; margin-top:0.5rem; margin-bottom:0">Envío de remitos digitales a clientes, envío de coordenadas de obras a choferes y notificaciones urgentes al grupo de almacén por re-modulaciones.</p>
+            </div>
+            <div class="visual-card" style="border-top:4px solid var(--accent-cyan)">
+              <strong style="color:var(--accent-cyan)">2. Social Feedback NLP</strong>
+              <p style="font-size:0.85rem; margin-top:0.5rem; margin-bottom:0">Escucha de comentarios en Instagram, Facebook y LinkedIn para analizar el sentimiento del servicio de instalación con modelos de lenguaje.</p>
+            </div>
+            <div class="visual-card" style="border-top:4px solid var(--accent-orange)">
+              <strong style="color:var(--accent-orange)">3. GPS Flota & ETA</strong>
+              <p style="font-size:0.85rem; margin-top:0.5rem; margin-bottom:0">Conexión con los dispositivos de posicionamiento a bordo para calcular tiempos estimados de arriba a obra y validar arribos de entrega.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+
+  <!-- Bottom Deck Controls -->
+  <footer style="height: 80px; background-color: var(--bg-secondary); border-top: 1px solid var(--border-color); display: flex; align-items: center; justify-content: center; z-index: 50; transition: background-color var(--transition-speed), border-color var(--transition-speed)">
+    <div class="deck-controls">
+      <button class="control-btn" id="prev-btn" onclick="prevSlide()" disabled>
+        <!-- Arrow Left -->
+        <svg xmlns="http://www.w3.org/2000/svg" style="width:18px;height:18px" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+        </svg>
+        <span>Anterior</span>
+      </button>
+      
+      <div class="slide-progress-indicator" id="bottom-progress">1 / 8</div>
+      
+      <button class="control-btn" id="next-btn" onclick="nextSlide()">
+        <span>Siguiente</span>
+        <!-- Arrow Right -->
+        <svg xmlns="http://www.w3.org/2000/svg" style="width:18px;height:18px" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+        </svg>
+      </button>
+    </div>
+
+    <!-- Keyboard visual guide -->
+    <div class="keyboard-guide">
+      <span>Navegar con</span>
+      <span class="key-cap">←</span>
+      <span class="key-cap">→</span>
+      <span>del teclado</span>
+    </div>
+  </footer>
+
+  <!-- Interactive Slide Controller Script -->
+  <script>
+    let currentSlide = 1;
+    const totalSlides = 8;
+
+    function updateControls() {
+      // Update Slide content visibility
+      for (let i = 1; i <= totalSlides; i++) {
+        const slide = document.getElementById(`slide-${i}`);
+        if (i === currentSlide) {
+          slide.classList.add('active');
+        } else {
+          slide.classList.remove('active');
+        }
+      }
+
+      // Update Sidebar buttons
+      const thumbs = document.querySelectorAll('.slide-thumb');
+      thumbs.forEach((thumb, index) => {
+        if (index + 1 === currentSlide) {
+          thumb.classList.add('active');
+          thumb.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        } else {
+          thumb.classList.remove('active');
+        }
+      });
+
+      // Update progress indicators
+      document.getElementById('top-progress').innerText = `Slide ${currentSlide} de ${totalSlides}`;
+      document.getElementById('bottom-progress').innerText = `${currentSlide} / ${totalSlides}`;
+
+      // Update button enabled states
+      document.getElementById('prev-btn').disabled = (currentSlide === 1);
+      document.getElementById('next-btn').disabled = (currentSlide === totalSlides);
+    }
+
+    function goToSlide(slideNum) {
+      if (slideNum >= 1 && slideNum <= totalSlides) {
+        currentSlide = slideNum;
+        updateControls();
+      }
+    }
+
+    function nextSlide() {
+      if (currentSlide < totalSlides) {
+        currentSlide++;
+        updateControls();
+      }
+    }
+
+    function prevSlide() {
+      if (currentSlide > 1) {
+        currentSlide--;
+        updateControls();
+      }
+    }
+
+    // Keyboard support (arrows)
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowRight' || e.key === 'Space') {
+        e.preventDefault();
+        nextSlide();
+      } else if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        prevSlide();
+      }
+    });
+
+    // Theme Toggle
+    const themeBtn = document.getElementById('toggle-theme');
+    const htmlElement = document.documentElement;
+    const themeSvg = document.getElementById('theme-svg');
+
+    themeBtn.addEventListener('click', () => {
+      const currentTheme = htmlElement.getAttribute('data-theme');
+      const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+      htmlElement.setAttribute('data-theme', newTheme);
+      
+      // Update icon visual representation
+      if (newTheme === 'light') {
+        themeSvg.innerHTML = `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />`;
+      } else {
+        themeSvg.innerHTML = `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m0-12.728l.707.707m12.728 12.728l.707-.707M12 8a4 4 0 100 8 4 4 0 000-8z" />`;
+      }
+    });
+  </script>
+</body>
+</html>
