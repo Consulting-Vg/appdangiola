@@ -1116,12 +1116,14 @@ export default function App() {
           frente: formFrente,
           largo: formLargo,
           modulacion_config: formModConfig,
+          arcos_reservados: selectedArches,
           adicionales: {
             pisos: { si: formPisos, tipo: formPisosTipo, obs: formPisosObs },
             alfombras: { si: formAlfombras, color: formAlfombrasColor, obs: formAlfombrasObs },
             lonas: { si: formLonas, color: formLonasColor, obs: formLonasObs },
             telas_cielorraso: { si: formTelasCielorraso, color: formTelasCielorrasoColor, obs: formTelasCielorrasoObs },
-            telas_cortinas: { si: formTelasCortinas, color: formTelasCortinasColor, tipo: formTelasCortinasTipo, obs: formTelasCortinasObs }
+            telas_cortinas: { si: formTelasCortinas, color: formTelasCortinasColor, tipo: formTelasCortinasTipo, obs: formTelasCortinasObs },
+            arcos_reservados: selectedArches
           }
         })
       });
@@ -1584,6 +1586,7 @@ export default function App() {
           frente: selectedOT.frente,
           largo: selectedOT.largo,
           modulacion_config: modConfig,
+          arcos_reservados: conformanceSelectedArches,
           adicionales: typeof selectedOT.adicionales === 'string' ? safeJsonParse(selectedOT.adicionales) : selectedOT.adicionales,
           fijo_modelo_estructura: conformanceSelectedFijoModel || selectedOT.modelo_estructura,
           conformed_modulos_list: conformedList
@@ -1654,6 +1657,7 @@ export default function App() {
           frente: selectedOT.frente,
           largo: selectedOT.largo,
           modulacion_config: modConfig,
+          arcos_reservados: conformanceSelectedArches,
           adicionales: typeof selectedOT.adicionales === 'string' ? safeJsonParse(selectedOT.adicionales) : selectedOT.adicionales,
           fijo_modelo_estructura: fijoModel || selectedOT.modelo_estructura,
           conformed_modulos_list: conformedList
@@ -2033,6 +2037,7 @@ export default function App() {
           frente: ot.frente,
           largo: ot.largo,
           modulacion_config: modConfig,
+          arcos_reservados: adds?.arcos_reservados,
           adicionales: adds
         })
       });

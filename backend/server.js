@@ -909,7 +909,7 @@ app.post('/api/estructuras/arcos-status', async (req, res) => {
 
 // Materials Explosion Algorithm (Modulo 2)
 app.post('/api/estructuras/explode', async (req, res) => {
-  const { modelo_estructura, frente, largo, modulacion_config, adicionales, fijo_modelo_estructura, modulo_modelo_estructura, conformed_modulos_list } = req.body;
+  const { modelo_estructura, frente, largo, modulacion_config, adicionales, fijo_modelo_estructura, modulo_modelo_estructura, conformed_modulos_list, arcos_reservados } = req.body;
   if (!modelo_estructura || !modulacion_config) {
     return res.status(400).json({ error: 'Missing configuration parameters' });
   }
@@ -937,9 +937,20 @@ app.post('/api/estructuras/explode', async (req, res) => {
       accesorios: []
     };
 
-    // A. Resolve Arch Components (based on A1 to A_n)
-    // For each arch from A1 to A_archesCount, fetch components
-    const archIds = Array.from({ length: archesCount }, (_, i) => `${modelo_estructura}_A${i + 1}`);
+    // A. Resolve Arch Components (based on explicit reserved arches or A1 to A_archesCount)
+    const explicitArches = arcos_reservados || adicionales?.arcos_reservados;
+    let archIds = [];
+    if (Array.isArray(explicitArches) && explicitArches.length >= archesCount) {
+      archIds = explicitArches.slice(0, archesCount);
+    } else if (Array.isArray(explicitArches) && explicitArches.length > 0) {
+      archIds = [...explicitArches];
+      while (archIds.length < archesCount) {
+        archIds.push(`${modelo_estructura}_A${archIds.length + 1}`);
+      }
+    } else {
+      archIds = Array.from({ length: archesCount }, (_, i) => `${modelo_estructura}_A${i + 1}`);
+    }
+
     const archComponents = archesData.filter(a => 
       a.modelo_estructura === modelo_estructura && 
       archIds.includes(a.arco)
@@ -947,12 +958,36 @@ app.post('/api/estructuras/explode', async (req, res) => {
     
     // Group and sum arch components
     const archSummary = {};
-    archComponents.forEach(c => {
-      if (!archSummary[c.producto]) {
-        archSummary[c.producto] = { producto: c.producto, sector: c.sector, qty: 0 };
-      }
-      archSummary[c.producto].qty += c.qty_fija_arco;
-    });
+    if (archComponents.length > 0) {
+      archComponents.forEach(c => {
+        if (!archSummary[c.producto]) {
+          archSummary[c.producto] = { producto: c.producto, sector: c.sector || 'Planta', qty: 0 };
+        }
+        archSummary[c.producto].qty += c.qty_fija_arco;
+      });
+    } else {
+      // Fallback: Generate strict standard components for this exact model
+      archIds.forEach(archId => {
+        const archSuffix = archId.includes('_') ? archId.split('_')[1] : `A${archId}`;
+        const defaultArchItems = [
+          { producto: `${modelo_estructura}-B-${archId}`, sector: 'Planta', qty: 1 },
+          { producto: `${modelo_estructura}-V-${archId}`, sector: 'Planta', qty: 2 },
+          { producto: `${modelo_estructura}-P-${archId}`, sector: 'Planta', qty: 2 },
+          { producto: `${modelo_estructura}-BASES_${archSuffix}`, sector: 'Planta', qty: 2 },
+          { producto: `${modelo_estructura}-ARCOS_${archSuffix}`, sector: 'Planta', qty: 1 },
+          { producto: `${modelo_estructura}-BULON M16X110_${archSuffix}`, sector: 'Pañol', qty: 10 },
+          { producto: `${modelo_estructura}-TRACA MALACATE 35X2000_${archSuffix}`, sector: 'Pañol', qty: 2 },
+          { producto: `${modelo_estructura}-GUSANO TENSALONA_${archSuffix}`, sector: 'Pañol', qty: 2 },
+          { producto: `${modelo_estructura}-PERFIL 30X50X500_${archSuffix}`, sector: 'Pañol', qty: 2 }
+        ];
+        defaultArchItems.forEach(item => {
+          if (!archSummary[item.producto]) {
+            archSummary[item.producto] = { producto: item.producto, sector: item.sector, qty: 0 };
+          }
+          archSummary[item.producto].qty += item.qty;
+        });
+      });
+    }
     explosion.arcos = Object.values(archSummary);
 
     // B. Resolve Module Components
@@ -966,56 +1001,82 @@ app.post('/api/estructuras/explode', async (req, res) => {
 
       let modComponents = modulesData.filter(mod => {
         const matchModel = m.largo === 5
-          ? (mod.modulo_val === `${lookupModel}-M1` || mod.modulo_val === `${modelo_estructura}-M1` || mod.modelo_estructura === lookupModel)
+          ? (mod.modulo_val === `${lookupModel}-M1` || mod.modulo_val === `${modelo_estructura}-M1` || mod.modelo_estructura === lookupModel || mod.modelo_estructura === modelo_estructura)
           : (mod.modelo_estructura === lookupModel);
         return matchModel && mod.modulacion === m.largo;
       });
 
-      // Fallback: search by prefix (e.g. C10-L1 or generic C10)
+      // Fallback: search by prefix belonging to the same structure (e.g. C10-L1)
       if (modComponents.length === 0) {
         modComponents = modulesData.filter(mod => 
-          (mod.modelo_estructura === `${prefix}-L1` || mod.modelo_estructura?.startsWith(prefix)) && 
+          (mod.modelo_estructura === modelo_estructura || mod.modelo_estructura === `${prefix}-L1`) && 
           mod.modulacion === m.largo
         );
       }
 
-      // Fallback generic if not found in table
+      // Fallback generic strictly with this structure's name
       if (modComponents.length === 0) {
         modComponents = [
-          { producto: `${prefix}-VIGA MODULACION ${m.largo}MTS`, sector: 'Planta', qty_fija_modulo: 4 },
-          { producto: `${prefix}-LONA TECHO MODULO ${m.largo}MTS`, sector: 'Pañol', qty_fija_modulo: 1 },
-          { producto: `${prefix}-CORREAS ${m.largo}MTS`, sector: 'Planta', qty_fija_modulo: 6 }
+          { producto: `${modelo_estructura}-RL_M1`, sector: 'Planta', qty_fija_modulo: 6 },
+          { producto: `${modelo_estructura}-RF_M1`, sector: 'Planta', qty_fija_modulo: 4 },
+          { producto: `${modelo_estructura}-TENSALONA_M1`, sector: 'Planta', qty_fija_modulo: 4 },
+          { producto: `${modelo_estructura}-TENSALATERALES_M1`, sector: 'Planta', qty_fija_modulo: 4 }
         ];
       }
       
       modComponents.forEach(c => {
-        if (!moduleSummary[c.producto]) {
-          moduleSummary[c.producto] = { producto: c.producto, sector: c.sector || 'Planta', qty: 0 };
+        // Ensure product name starts with selected structure model if it had a generic fallback
+        let prodName = c.producto;
+        if (!prodName.startsWith(modelo_estructura) && !prodName.startsWith(prefix)) {
+          prodName = `${modelo_estructura}-${prodName}`;
+        }
+        if (!moduleSummary[prodName]) {
+          moduleSummary[prodName] = { producto: prodName, sector: c.sector || 'Planta', qty: 0 };
         }
         const qtyPerMod = c.stock_inicial || c.qty_fija_modulo || 1;
-        moduleSummary[c.producto].qty += qtyPerMod * m.qty;
+        moduleSummary[prodName].qty += qtyPerMod * m.qty;
       });
     });
     explosion.modulos = Object.values(moduleSummary);
 
     // C. Resolve Fixed Components (Single selection per total structure)
     const lookupFijoModel = fijo_modelo_estructura || modelo_estructura;
-    let fixedComponents = fijosData.filter(f => f.modelo_estructura === lookupFijoModel);
+    let fixedComponents = fijosData.filter(f => f.modelo_estructura === lookupFijoModel || f.modelo_estructura === modelo_estructura);
     if (fixedComponents.length === 0) {
-      fixedComponents = fijosData.filter(f => f.modelo_estructura === `${prefix}-L1` || f.modelo_estructura?.startsWith(prefix));
+      fixedComponents = fijosData.filter(f => f.modelo_estructura === `${prefix}-L1`);
     }
     if (fixedComponents.length === 0) {
       fixedComponents = [
-        { producto: `${prefix}-CRUZ SAN ANDRES FIJO`, sector: 'Planta', qty_fija_carpa: 4 },
-        { producto: `${prefix}-ESQUINEROS DE FIJACION`, sector: 'Planta', qty_fija_carpa: 4 },
-        { producto: `${prefix}-CUMBRERA TERMINAL`, sector: 'Planta', qty_fija_carpa: 2 }
+        { producto: `${modelo_estructura}-CT-${modelo_estructura}`, sector: 'Planta', qty_fija_carpa: 2 },
+        { producto: `${modelo_estructura}-RT-${modelo_estructura}`, sector: 'Planta', qty_fija_carpa: 4 },
+        { producto: `${modelo_estructura}-TENSALONA TCH`, sector: 'Planta', qty_fija_carpa: 4 },
+        { producto: `${modelo_estructura}-TENSALATERALES TCH`, sector: 'Planta', qty_fija_carpa: 4 },
+        { producto: `${modelo_estructura}-CR-${modelo_estructura}`, sector: 'Planta', qty_fija_carpa: 2 },
+        { producto: `${modelo_estructura}-BASES TCH`, sector: 'Planta', qty_fija_carpa: 2 },
+        { producto: `${modelo_estructura}-GT-${modelo_estructura}`, sector: 'Planta', qty_fija_carpa: 2 },
+        { producto: `${modelo_estructura}-BULON BASE TCH M16X110`, sector: 'Pañol', qty_fija_carpa: 2 },
+        { producto: `${modelo_estructura}-ESQUINERO 70X30X350`, sector: 'Pañol', qty_fija_carpa: 4 },
+        { producto: `${modelo_estructura}-PERFIL TCH 30X50X300`, sector: 'Pañol', qty_fija_carpa: 2 },
+        { producto: `${modelo_estructura}-CABLE ACERO (ARRIBA) Ø8X6750`, sector: 'Pañol', qty_fija_carpa: 4 },
+        { producto: `${modelo_estructura}-TRACA MALACATE TCH`, sector: 'Pañol', qty_fija_carpa: 2 },
+        { producto: `${modelo_estructura}-BULON CRUZ FIJA M16X120`, sector: 'Pañol', qty_fija_carpa: 8 },
+        { producto: `${modelo_estructura}-BULON TAPACHATA M16X120`, sector: 'Pañol', qty_fija_carpa: 2 },
+        { producto: `${modelo_estructura}-PERNO 70 LORO`, sector: 'Pañol', qty_fija_carpa: 8 },
+        { producto: `${modelo_estructura}-LORITO SIMPLE`, sector: 'Pañol', qty_fija_carpa: 8 }
       ];
     }
-    explosion.fijos = fixedComponents.map(f => ({
-      producto: f.producto,
-      sector: f.sector || 'Planta',
-      qty: f.qty_fija_carpa
-    }));
+    explosion.fijos = fixedComponents.map(f => {
+      // If the template was from another submodel (e.g. C10-L1), adapt the name to the target modelo_estructura
+      let prodName = f.producto;
+      if (f.modelo_estructura !== modelo_estructura && prodName.startsWith(f.modelo_estructura)) {
+        prodName = prodName.replace(f.modelo_estructura, modelo_estructura);
+      }
+      return {
+        producto: prodName,
+        sector: f.sector || 'Planta',
+        qty: f.qty_fija_carpa
+      };
+    });
 
     // D. Resolve Accessories & Calculations
     const area = frente * largo;

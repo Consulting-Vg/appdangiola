@@ -401,76 +401,100 @@ const initDb = async () => {
         console.log(`[DB] Base de datos con datos existentes (${row.usuarios} usuarios, ${row.clientes} clientes, ${row.ordenes_trabajo} OTs). Omitiendo seed.`);
       }
 
-      // Execute migrations/updates safely
-      console.log('[DB] Ejecutando migraciones automáticas...');
-      await pool.query('ALTER TABLE personal ADD COLUMN IF NOT EXISTS usuario_id INTEGER REFERENCES usuarios(id) ON DELETE SET NULL');
-      await pool.query('ALTER TABLE personal ADD COLUMN IF NOT EXISTS tipo VARCHAR(50) DEFAULT \'Fijo\'');
-      await pool.query('ALTER TABLE personal ADD COLUMN IF NOT EXISTS subtipo_chofer VARCHAR(100)');
-      await pool.query('ALTER TABLE personal ADD COLUMN IF NOT EXISTS roles_secundarios TEXT');
-      await pool.query('ALTER TABLE personal ADD COLUMN IF NOT EXISTS examen_medico_vencimiento DATE');
-      await pool.query('ALTER TABLE personal ADD COLUMN IF NOT EXISTS licencia_conducir_vencimiento DATE');
-      await pool.query('ALTER TABLE recursos ADD COLUMN IF NOT EXISTS subtipo VARCHAR(100)');
-      await pool.query('ALTER TABLE recursos ADD COLUMN IF NOT EXISTS vtv_vencimiento DATE');
-      await pool.query('ALTER TABLE recursos ADD COLUMN IF NOT EXISTS seguro_vencimiento DATE');
-      await pool.query(`
-        CREATE TABLE IF NOT EXISTS planificacion_diaria (
-          id SERIAL PRIMARY KEY,
-          fecha DATE UNIQUE NOT NULL,
-          asignaciones JSONB NOT NULL DEFAULT '{"ots": {}, "sectores": {}, "novedades": {}}',
-          publicado BOOLEAN DEFAULT FALSE,
-          publicado_por VARCHAR(100),
-          fecha_publicacion TIMESTAMP,
-          fecha_modificacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-      `);
-      await pool.query(`
-        CREATE TABLE IF NOT EXISTS planificacion_planta (
-          id SERIAL PRIMARY KEY,
-          fecha DATE UNIQUE NOT NULL,
-          tareas JSONB NOT NULL DEFAULT '[]',
-          fecha_modificacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-      `);
-      await pool.query(`
-        CREATE TABLE IF NOT EXISTS recordatorios_operativos (
-          id SERIAL PRIMARY KEY,
-          fecha DATE NOT NULL,
-          titulo VARCHAR(255) NOT NULL,
-          tipo VARCHAR(50) NOT NULL,
-          entidad_id INT,
-          entidad_tipo VARCHAR(50),
-          descripcion TEXT,
-          completado BOOLEAN DEFAULT FALSE,
-          fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-      `);
-      await pool.query(`
-        CREATE TABLE IF NOT EXISTS vendedores (
-          id SERIAL PRIMARY KEY,
-          nombre VARCHAR(255) UNIQUE NOT NULL,
-          activo BOOLEAN DEFAULT TRUE,
-          fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-      `);
-      await pool.query(`
-        CREATE TABLE IF NOT EXISTS base_conocimiento (
-          id SERIAL PRIMARY KEY,
-          titulo TEXT NOT NULL,
-          tipo TEXT DEFAULT 'general',
-          contenido TEXT NOT NULL,
-          fecha_carga TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-      `);
-      await pool.query(`
-        CREATE TABLE IF NOT EXISTS skills_agente (
-          id SERIAL PRIMARY KEY,
-          nombre TEXT UNIQUE NOT NULL,
-          descripcion TEXT,
-          trigger_keywords TEXT,
-          instrucciones TEXT NOT NULL,
-          fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-      `);
+      // Ensure Master Data (estructuras_maestras, base_arco, base_modulo, base_fijo) is always complete
+      const masterCheck = await pool.query('SELECT COUNT(*) FROM base_arco');
+      const baseArcoCount = parseInt(masterCheck.rows[0].count || 0);
+      if (baseArcoCount < 6000) {
+        console.log(`[DB] base_arco incompleta en PostgreSQL (${baseArcoCount} registros). Sincronizando 66 estructuras y 6105 arcos desde db.json...`);
+        const fullData = loadJsonDb();
+        if (fullData.base_arco && fullData.base_arco.length > 0) {
+          await pool.query('TRUNCATE base_fijo, base_modulo, base_arco, estructuras_maestras RESTART IDENTITY CASCADE');
+          
+          for (const est of fullData.estructuras_maestras || []) {
+            await pool.query(
+              `INSERT INTO estructuras_maestras (id, modelo_estructura, arcos_totales, estructura_tipo, frente, largo_maximo, arcos_disponibles)
+               VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (id) DO UPDATE
+               SET modelo_estructura = EXCLUDED.modelo_estructura, arcos_totales = EXCLUDED.arcos_totales,
+                   estructura_tipo = EXCLUDED.estructura_tipo, frente = EXCLUDED.frente, largo_maximo = EXCLUDED.largo_maximo,
+                   arcos_disponibles = EXCLUDED.arcos_disponibles`,
+              [est.id, est.modelo_estructura, est.arcos_totales, est.estructura_tipo, est.frente, est.largo_maximo, est.arcos_disponibles]
+            );
+          }
+
+          for (const arc of fullData.base_arco || []) {
+            await pool.query(
+              `INSERT INTO base_arco (id, producto, arco, modelo_estructura, sector, qty_fija_arco)
+               VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (id) DO UPDATE
+               SET producto = EXCLUDED.producto, arco = EXCLUDED.arco, modelo_estructura = EXCLUDED.modelo_estructura,
+                   sector = EXCLUDED.sector, qty_fija_arco = EXCLUDED.qty_fija_arco`,
+              [arc.id, arc.producto, arc.arco, arc.modelo_estructura, arc.sector, arc.qty_fija_arco]
+            );
+          }
+
+          for (const mod of fullData.base_modulo || []) {
+            await pool.query(
+              `INSERT INTO base_modulo (id, producto, modelo_estructura, sector, modulacion, stock_inicial, modulo_val)
+               VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (id) DO UPDATE
+               SET producto = EXCLUDED.producto, modelo_estructura = EXCLUDED.modelo_estructura, sector = EXCLUDED.sector,
+                   modulacion = EXCLUDED.modulacion, stock_inicial = EXCLUDED.stock_inicial, modulo_val = EXCLUDED.modulo_val`,
+              [mod.id, mod.producto, mod.modelo_estructura, mod.sector, mod.modulacion, mod.stock_inicial, mod.modulo_val || null]
+            );
+          }
+
+          for (const fj of fullData.base_fijo || []) {
+            await pool.query(
+              `INSERT INTO base_fijo (id, producto, modelo_estructura, sector, qty_fija_carpa)
+               VALUES ($1, $2, $3, $4, $5) ON CONFLICT (id) DO UPDATE
+               SET producto = EXCLUDED.producto, modelo_estructura = EXCLUDED.modelo_estructura, sector = EXCLUDED.sector,
+                   qty_fija_carpa = EXCLUDED.qty_fija_carpa`,
+              [fj.id, fj.producto, fj.modelo_estructura, fj.sector, fj.qty_fija_carpa]
+            );
+          }
+          console.log('[DB] Sincronización de tablas maestras completada exitosamente.');
+        }
+      }
+
+      // Repair existing OTs that have mismatched component prefixes (e.g. C10-H2 on C10-L1 OTs)
+      const existingOTsRes = await pool.query('SELECT id, ot_numero, modelo_estructura, adicionales, planta_status, panol_status FROM ordenes_trabajo');
+      for (const ot of existingOTsRes.rows) {
+        if (!ot.modelo_estructura) continue;
+        let modified = false;
+        let planta = typeof ot.planta_status === 'string' ? safeJsonParse(ot.planta_status, { items: [] }) : ot.planta_status || { items: [] };
+        let panol = typeof ot.panol_status === 'string' ? safeJsonParse(ot.panol_status, { items: [] }) : ot.panol_status || { items: [] };
+
+        const targetModel = ot.modelo_estructura; // e.g. C10-L1
+        const targetPrefix = targetModel.split('-')[0]; // e.g. C10
+
+        const repairItems = (items) => {
+          if (!Array.isArray(items)) return items;
+          return items.map(item => {
+            if (!item.producto) return item;
+            let p = item.producto;
+            // Detect if item starts with a wrong submodel (e.g. C10-H2 when OT is C10-L1)
+            const match = p.match(/^([A-Z0-9]+-[A-Z0-9]+)/);
+            if (match) {
+              const itemModel = match[1];
+              if (itemModel.startsWith(targetPrefix) && itemModel !== targetModel) {
+                p = p.replaceAll(itemModel, targetModel);
+                modified = true;
+              }
+            }
+            return { ...item, producto: p };
+          });
+        };
+
+        if (planta.items) planta.items = repairItems(planta.items);
+        if (panol.items) panol.items = repairItems(panol.items);
+
+        if (modified) {
+          console.log(`[DB] Reparando checklist de OT #${ot.ot_numero || ot.id} para modelo ${targetModel}...`);
+          await pool.query(
+            'UPDATE ordenes_trabajo SET planta_status = $1, panol_status = $2 WHERE id = $3',
+            [JSON.stringify(planta), JSON.stringify(panol), ot.id]
+          );
+        }
+      }
+
       console.log('[DB] Migraciones completadas.');
     } catch (err) {
       console.error('[DB] Error durante inicialización del schema/migraciones:', err.message);
