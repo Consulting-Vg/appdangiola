@@ -4,6 +4,42 @@ import {
   Briefcase, Tag, Hash, FileText, Phone, UserCheck, ShieldCheck
 } from 'lucide-react';
 
+const renderDateBadge = (dateStr) => {
+  if (!dateStr) return <span className="text-slate-350 font-mono text-[11px]">-</span>;
+  const cleanDateStr = String(dateStr).includes('T') ? String(dateStr).split('T')[0] : String(dateStr).trim();
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const target = new Date(cleanDateStr + 'T00:00:00');
+  if (isNaN(target.getTime())) return <span className="text-slate-400 font-mono text-[11px]">{dateStr}</span>;
+  const diffDays = Math.round((target - today) / (1000 * 60 * 60 * 24));
+
+  if (diffDays < 0) {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] font-black px-2 py-0.5 rounded-md bg-rose-100 text-rose-800 border border-rose-300 font-mono">
+        🚨 Vencido ({cleanDateStr})
+      </span>
+    );
+  } else if (diffDays <= 7) {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] font-black px-2 py-0.5 rounded-md bg-amber-100 text-amber-900 border border-amber-300 font-mono animate-pulse">
+        ⚠️ Vence en {diffDays === 0 ? 'HOY' : `${diffDays}d`} ({cleanDateStr})
+      </span>
+    );
+  } else if (diffDays <= 30) {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md bg-yellow-50 text-yellow-800 border border-yellow-200 font-mono">
+        🕒 {cleanDateStr} ({diffDays}d)
+      </span>
+    );
+  } else {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-800 border border-emerald-200 font-mono">
+        ✅ {cleanDateStr}
+      </span>
+    );
+  }
+};
+
 export default function PersonalRecursos({
   personalList = [],
   recursosList = [],
@@ -26,6 +62,11 @@ export default function PersonalRecursos({
     cuit: '',
     telefono: '',
     rol_funcion: 'Operario',
+    tipo: 'Fijo',
+    subtipo_chofer: '',
+    roles_secundarios: '',
+    examen_medico_vencimiento: '',
+    licencia_conducir_vencimiento: '',
     activo: true,
     usuario_id: null
   });
@@ -35,7 +76,10 @@ export default function PersonalRecursos({
   const [recursoForm, setRecursoForm] = useState({
     nombre: '',
     tipo: 'Vehículo / Camión',
+    subtipo: '',
     patente_identificador: '',
+    vtv_vencimiento: '',
+    seguro_vencimiento: '',
     descripcion: '',
     activo: true
   });
@@ -72,7 +116,8 @@ export default function PersonalRecursos({
     return (
       (r.nombre || '').toLowerCase().includes(term) ||
       (r.tipo || '').toLowerCase().includes(term) ||
-      (r.patente_identificador || '').toLowerCase().includes(term)
+      (r.patente_identificador || '').toLowerCase().includes(term) ||
+      (r.vtv_vencimiento || '').toLowerCase().includes(term)
     );
   });
 
@@ -84,6 +129,11 @@ export default function PersonalRecursos({
       cuit: '',
       telefono: '',
       rol_funcion: 'Operario',
+      tipo: 'Fijo',
+      subtipo_chofer: '',
+      roles_secundarios: '',
+      examen_medico_vencimiento: '',
+      licencia_conducir_vencimiento: '',
       activo: true,
       usuario_id: null
     });
@@ -92,11 +142,20 @@ export default function PersonalRecursos({
 
   const handleOpenPersonalEdit = (p) => {
     setEditingPersona(p);
+    const rawMed = p.examen_medico_vencimiento || p.examen_medico || p.Examen_Medico_Vencimiento || '';
+    const cleanMedico = rawMed ? (String(rawMed).includes('T') ? String(rawMed).split('T')[0] : String(rawMed).trim()) : '';
+    const rawLic = p.licencia_conducir_vencimiento || p.licencia_conducir || p.Licencia_Conducir_Vencimiento || '';
+    const cleanLicencia = rawLic ? (String(rawLic).includes('T') ? String(rawLic).split('T')[0] : String(rawLic).trim()) : '';
     setPersonaForm({
-      nombre: p.nombre,
+      nombre: p.nombre || '',
       cuit: p.cuit || '',
       telefono: p.telefono || '',
-      rol_funcion: p.rol_funcion,
+      rol_funcion: p.rol_funcion || 'Operario',
+      tipo: p.tipo || 'Fijo',
+      subtipo_chofer: p.subtipo_chofer || '',
+      roles_secundarios: p.roles_secundarios || '',
+      examen_medico_vencimiento: cleanMedico,
+      licencia_conducir_vencimiento: cleanLicencia,
       activo: p.activo !== false,
       usuario_id: p.usuario_id || null
     });
@@ -111,6 +170,8 @@ export default function PersonalRecursos({
     }
     const payload = {
       ...personaForm,
+      examen_medico_vencimiento: personaForm.examen_medico_vencimiento ? personaForm.examen_medico_vencimiento.trim() : null,
+      licencia_conducir_vencimiento: personaForm.licencia_conducir_vencimiento ? personaForm.licencia_conducir_vencimiento.trim() : null,
       id: editingPersona ? editingPersona.id : undefined
     };
     await onSavePersonal(payload);
@@ -123,7 +184,10 @@ export default function PersonalRecursos({
     setRecursoForm({
       nombre: '',
       tipo: 'Vehículo / Camión',
+      subtipo: '',
       patente_identificador: '',
+      vtv_vencimiento: '',
+      seguro_vencimiento: '',
       descripcion: '',
       activo: true
     });
@@ -132,10 +196,17 @@ export default function PersonalRecursos({
 
   const handleOpenRecursoEdit = (r) => {
     setEditingRecurso(r);
+    const rawVtv = r.vtv_vencimiento || r.vtv || r.VTV_Vencimiento || '';
+    const cleanVTV = rawVtv ? (String(rawVtv).includes('T') ? String(rawVtv).split('T')[0] : String(rawVtv).trim()) : '';
+    const rawSeguro = r.seguro_vencimiento || r.seguro || r.Seguro_Vencimiento || '';
+    const cleanSeguro = rawSeguro ? (String(rawSeguro).includes('T') ? String(rawSeguro).split('T')[0] : String(rawSeguro).trim()) : '';
     setRecursoForm({
-      nombre: r.nombre,
-      tipo: r.tipo,
-      patente_identificador: r.patente_identificador || '',
+      nombre: r.nombre || '',
+      tipo: r.tipo || 'Vehículo / Camión',
+      subtipo: r.subtipo || '',
+      patente_identificador: r.patente_identificador || r.patente || '',
+      vtv_vencimiento: cleanVTV,
+      seguro_vencimiento: cleanSeguro,
       descripcion: r.descripcion || '',
       activo: r.activo !== false
     });
@@ -150,6 +221,9 @@ export default function PersonalRecursos({
     }
     const payload = {
       ...recursoForm,
+      vtv_vencimiento: recursoForm.vtv_vencimiento ? recursoForm.vtv_vencimiento.trim() : null,
+      seguro_vencimiento: recursoForm.seguro_vencimiento ? recursoForm.seguro_vencimiento.trim() : null,
+      patente_identificador: recursoForm.patente_identificador ? recursoForm.patente_identificador.trim().toUpperCase() : null,
       id: editingRecurso ? editingRecurso.id : undefined
     };
     await onSaveRecurso(payload);
@@ -235,6 +309,8 @@ export default function PersonalRecursos({
                   <th className="p-4">CUIT</th>
                   <th className="p-4">Teléfono</th>
                   <th className="p-4">Rol / Función</th>
+                  <th className="p-4">Examen Médico</th>
+                  <th className="p-4">Licencia Conducir</th>
                   <th className="p-4 text-center">Estado</th>
                   {canEdit && <th className="p-4 text-right pr-6">Acciones</th>}
                 </tr>
@@ -242,7 +318,7 @@ export default function PersonalRecursos({
               <tbody className="divide-y divide-slate-150">
                 {filteredPersonal.length === 0 ? (
                   <tr>
-                    <td colSpan={canEdit ? 7 : 6} className="p-8 text-center text-xs font-semibold text-slate-400">
+                    <td colSpan={canEdit ? 9 : 8} className="p-8 text-center text-xs font-semibold text-slate-400">
                       No se encontraron miembros del personal registrados.
                     </td>
                   </tr>
@@ -280,6 +356,12 @@ export default function PersonalRecursos({
                         }`}>
                           {p.rol_funcion}
                         </span>
+                      </td>
+                      <td className="p-4">
+                        {renderDateBadge(p.examen_medico_vencimiento || p.examen_medico)}
+                      </td>
+                      <td className="p-4">
+                        {renderDateBadge(p.licencia_conducir_vencimiento || p.licencia_conducir)}
                       </td>
                       <td className="p-4 text-center">
                         <span className={`inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full ${
@@ -356,6 +438,8 @@ export default function PersonalRecursos({
                   <th className="p-4 pl-6">Nombre de Recurso</th>
                   <th className="p-4">Tipo</th>
                   <th className="p-4">Patente / ID</th>
+                  <th className="p-4">Vencimiento VTV</th>
+                  <th className="p-4">Vencimiento Seguro</th>
                   <th className="p-4">Descripción</th>
                   <th className="p-4 text-center">Estado</th>
                   {canEdit && <th className="p-4 text-right pr-6">Acciones</th>}
@@ -364,65 +448,71 @@ export default function PersonalRecursos({
               <tbody className="divide-y divide-slate-150">
                 {filteredRecursos.length === 0 ? (
                   <tr>
-                    <td colSpan={canEdit ? 6 : 5} className="p-8 text-center text-xs font-semibold text-slate-400">
+                    <td colSpan={canEdit ? 8 : 7} className="p-8 text-center text-xs font-semibold text-slate-400">
                       No se encontraron recursos registrados.
                     </td>
                   </tr>
                 ) : (
                   filteredRecursos.map((r) => (
                     <tr key={r.id} className="hover:bg-slate-50/50 transition-all-300">
-                      <td className="p-4 pl-6 font-bold text-slate-800 text-xs">
-                        {r.nombre}
-                      </td>
-                      <td className="p-4">
-                        <span className={`inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wide px-2 py-0.5 rounded border ${
-                          r.tipo === 'Vehículo / Camión' ? 'bg-indigo-50 border-indigo-200 text-indigo-700' :
-                          r.tipo === 'Maquinaria' ? 'bg-amber-50 border-amber-200 text-amber-700' :
-                          r.tipo === 'Herramienta' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' :
-                          'bg-slate-50 border-slate-200 text-slate-700'
-                        }`}>
-                          {r.tipo}
-                        </span>
-                      </td>
-                      <td className="p-4 font-mono text-slate-650 text-xs font-bold">
-                        {r.patente_identificador || '-'}
-                      </td>
-                      <td className="p-4 text-slate-500 text-xs font-medium max-w-xs truncate" title={r.descripcion}>
-                        {r.descripcion || '-'}
-                      </td>
-                      <td className="p-4 text-center">
-                        <span className={`inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full ${
-                          r.activo !== false ? 'bg-emerald-100 text-emerald-800 border border-emerald-250' : 'bg-slate-100 text-slate-500 border border-slate-250'
-                        }`}>
-                          {r.activo !== false ? 'Activo' : 'Inactivo'}
-                        </span>
-                      </td>
-                      {canEdit && (
-                        <td className="p-4 text-right pr-6">
-                          <div className="inline-flex items-center gap-1.5">
-                            <button
-                              onClick={() => handleOpenRecursoEdit(r)}
-                              title="Editar"
-                              className="p-1.5 rounded-lg text-slate-500 hover:text-blue-900 hover:bg-slate-100 transition-all-300 cursor-pointer"
-                            >
-                              <Edit3 className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => {
-                                if (window.confirm(`¿Estás seguro de eliminar el recurso: ${r.nombre}?`)) {
-                                  onDeleteRecurso(r.id);
-                                }
-                              }}
-                              title="Eliminar"
-                              className="p-1.5 rounded-lg text-slate-500 hover:text-red-650 hover:bg-slate-100 transition-all-300 cursor-pointer"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
+                        <td className="p-4 pl-6 font-bold text-slate-800 text-xs">
+                          {r.nombre}
                         </td>
-                      )}
-                    </tr>
-                  ))
+                        <td className="p-4">
+                          <span className={`inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wide px-2 py-0.5 rounded border ${
+                            r.tipo === 'Vehículo / Camión' ? 'bg-indigo-50 border-indigo-200 text-indigo-700' :
+                            r.tipo === 'Maquinaria' ? 'bg-amber-50 border-amber-200 text-amber-700' :
+                            r.tipo === 'Herramienta' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' :
+                            'bg-slate-50 border-slate-200 text-slate-700'
+                          }`}>
+                            {r.tipo}
+                          </span>
+                        </td>
+                        <td className="p-4 font-mono text-slate-650 text-xs font-bold">
+                          {r.patente_identificador || '-'}
+                        </td>
+                        <td className="p-4">
+                          {renderDateBadge(r.vtv_vencimiento || r.vtv)}
+                        </td>
+                        <td className="p-4">
+                          {renderDateBadge(r.seguro_vencimiento || r.seguro)}
+                        </td>
+                        <td className="p-4 text-slate-500 text-xs font-medium max-w-xs truncate" title={r.descripcion}>
+                          {r.descripcion || '-'}
+                        </td>
+                        <td className="p-4 text-center">
+                          <span className={`inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full ${
+                            r.activo !== false ? 'bg-emerald-100 text-emerald-800 border border-emerald-250' : 'bg-slate-100 text-slate-500 border border-slate-250'
+                          }`}>
+                            {r.activo !== false ? 'Activo' : 'Inactivo'}
+                          </span>
+                        </td>
+                        {canEdit && (
+                          <td className="p-4 text-right pr-6">
+                            <div className="inline-flex items-center gap-1.5">
+                              <button
+                                onClick={() => handleOpenRecursoEdit(r)}
+                                title="Editar"
+                                className="p-1.5 rounded-lg text-slate-500 hover:text-blue-900 hover:bg-slate-100 transition-all-300 cursor-pointer"
+                              >
+                                <Edit3 className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => {
+                                  if (window.confirm(`¿Estás seguro de eliminar el recurso: ${r.nombre}?`)) {
+                                    onDeleteRecurso(r.id);
+                                  }
+                                }}
+                                title="Eliminar"
+                                className="p-1.5 rounded-lg text-slate-500 hover:text-red-650 hover:bg-slate-100 transition-all-300 cursor-pointer"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </td>
+                        )}
+                      </tr>
+                    ))
                 )}
               </tbody>
             </table>
@@ -493,6 +583,66 @@ export default function PersonalRecursos({
                     <option key={opt} value={opt}>{opt}</option>
                   ))}
                 </select>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-[9px] uppercase tracking-widest font-black text-slate-400 block mb-1">Tipo de Personal</label>
+                  <select
+                    value={personaForm.tipo || 'Fijo'}
+                    onChange={(e) => setPersonaForm({ ...personaForm, tipo: e.target.value })}
+                    className="w-full bg-white border border-slate-200 rounded-xl p-2.5 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all-300"
+                  >
+                    <option value="Fijo">Fijo (Planta permanente)</option>
+                    <option value="Eventual">Eventual (Por jornada/evento)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[9px] uppercase tracking-widest font-black text-slate-400 block mb-1">Subtipo Chofer / Licencia</label>
+                  <select
+                    value={personaForm.subtipo_chofer || ''}
+                    onChange={(e) => setPersonaForm({ ...personaForm, subtipo_chofer: e.target.value })}
+                    className="w-full bg-white border border-slate-200 rounded-xl p-2.5 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all-300"
+                  >
+                    <option value="">No aplica (No conduce)</option>
+                    <option value="Camión Pesado">Camión Pesado (Chasis/Balancín)</option>
+                    <option value="Semi / Tractor">Semi / Tractor</option>
+                    <option value="Camioneta / Furgón">Camioneta / Furgón</option>
+                    <option value="Autoelevador">Autoelevador / Hidroelevador</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[9px] uppercase tracking-widest font-black text-slate-400 block mb-1">Roles / Habilidades Secundarias (tags)</label>
+                <input
+                  type="text"
+                  value={personaForm.roles_secundarios || ''}
+                  onChange={(e) => setPersonaForm({ ...personaForm, roles_secundarios: e.target.value })}
+                  className="w-full bg-white border border-slate-200 rounded-xl p-2.5 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all-300"
+                  placeholder="Ej. Encargado, Chofer, Alfombras, Telas"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-[9px] uppercase tracking-widest font-black text-blue-900 block mb-1">Vencimiento Examen Médico / Libreta</label>
+                  <input
+                    type="date"
+                    value={personaForm.examen_medico_vencimiento || ''}
+                    onChange={(e) => setPersonaForm({ ...personaForm, examen_medico_vencimiento: e.target.value })}
+                    className="w-full bg-blue-50/40 border border-blue-200 rounded-xl p-2.5 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all-300 font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="text-[9px] uppercase tracking-widest font-black text-blue-900 block mb-1">Vencimiento Licencia de Conducir</label>
+                  <input
+                    type="date"
+                    value={personaForm.licencia_conducir_vencimiento || ''}
+                    onChange={(e) => setPersonaForm({ ...personaForm, licencia_conducir_vencimiento: e.target.value })}
+                    className="w-full bg-blue-50/40 border border-blue-200 rounded-xl p-2.5 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all-300 font-mono"
+                  />
+                </div>
               </div>
 
               <div>
@@ -584,14 +734,50 @@ export default function PersonalRecursos({
                     ))}
                   </select>
                 </div>
+
                 <div>
-                  <label className="text-[9px] uppercase tracking-widest font-black text-slate-400 block mb-1">Patente / Nro. de Serie</label>
+                  <label className="text-[9px] uppercase tracking-widest font-black text-slate-400 block mb-1">Subtipo / Porte</label>
+                  <select
+                    value={recursoForm.subtipo || ''}
+                    onChange={(e) => setRecursoForm({ ...recursoForm, subtipo: e.target.value })}
+                    className="w-full bg-white border border-slate-200 rounded-xl p-2.5 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all-300"
+                  >
+                    <option value="">General</option>
+                    <option value="Camión Chasis">Camión Chasis</option>
+                    <option value="Camión Semi">Camión Semi</option>
+                    <option value="Camioneta / Furgón">Camioneta / Furgón</option>
+                    <option value="Autoelevador">Autoelevador</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="text-[9px] uppercase tracking-widest font-black text-slate-400 block mb-1">Patente / Identificador</label>
                   <input
                     type="text"
                     value={recursoForm.patente_identificador}
                     onChange={(e) => setRecursoForm({ ...recursoForm, patente_identificador: e.target.value })}
+                    className="w-full bg-white border border-slate-200 rounded-xl p-2.5 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all-300 uppercase font-mono"
+                    placeholder="Ej. AF 123 CD"
+                  />
+                </div>
+                <div>
+                  <label className="text-[9px] uppercase tracking-widest font-black text-slate-400 block mb-1">Vencimiento VTV</label>
+                  <input
+                    type="date"
+                    value={recursoForm.vtv_vencimiento || ''}
+                    onChange={(e) => setRecursoForm({ ...recursoForm, vtv_vencimiento: e.target.value })}
                     className="w-full bg-white border border-slate-200 rounded-xl p-2.5 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all-300 font-mono"
-                    placeholder="Ej. AE-456-XY"
+                  />
+                </div>
+                <div>
+                  <label className="text-[9px] uppercase tracking-widest font-black text-slate-400 block mb-1">Vencimiento Seguro</label>
+                  <input
+                    type="date"
+                    value={recursoForm.seguro_vencimiento || ''}
+                    onChange={(e) => setRecursoForm({ ...recursoForm, seguro_vencimiento: e.target.value })}
+                    className="w-full bg-white border border-slate-200 rounded-xl p-2.5 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all-300 font-mono"
                   />
                 </div>
               </div>

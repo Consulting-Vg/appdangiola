@@ -2,7 +2,25 @@ import React from 'react';
 import { jsPDF } from 'jspdf';
 import { FileText, Download } from 'lucide-react';
 
-export default function PDFReplicator({ ot, explosion }) {
+const safeJsonParse = (val, fallback = {}) => {
+  if (!val) return fallback;
+  if (typeof val === 'object') return val;
+  try {
+    return JSON.parse(val);
+  } catch (e) {
+    console.error("Error parsing JSON:", e, val);
+    return fallback;
+  }
+};
+
+const safeDateString = (dateStr) => {
+  if (!dateStr) return '';
+  if (typeof dateStr === 'string') return dateStr;
+  if (dateStr instanceof Date) return dateStr.toISOString();
+  return String(dateStr);
+};
+
+export default function PDFReplicator({ ot, explosion, ots = [], desarmeRecords = [] }) {
   const generatePDF = () => {
     const doc = new jsPDF({
       orientation: 'portrait',
@@ -69,8 +87,8 @@ export default function PDFReplicator({ ot, explosion }) {
     text("FECHA INICIO EVENTO:", startX + 4, y + 18, 8, 'bold', primaryColor);
     text(new Date(ot.fecha_inicio).toLocaleDateString('es-ES'), startX + 38, y + 18, 8, 'normal');
 
-    text("FECHA FINALIZACION:", startX + 100, y + 18, 8, 'bold', primaryColor);
-    text(new Date(ot.fecha_fin).toLocaleDateString('es-ES'), startX + 135, y + 18, 8, 'normal');
+    text("COMIENZO DESARMADO:", startX + 90, y + 18, 8, 'bold', primaryColor);
+    text(new Date(ot.fecha_comienzo_desarmado || ot.fecha_fin).toLocaleDateString('es-ES'), startX + 135, y + 18, 8, 'normal');
     
     y += 30;
 
@@ -91,7 +109,7 @@ export default function PDFReplicator({ ot, explosion }) {
     text(`${ot.superficie || (ot.frente * ot.largo)} m²`, startX + 34, y + 14, 8, 'normal');
 
     text("MODULACION:", startX + 90, y + 14, 8, 'bold', primaryColor);
-    const modConfig = typeof ot.modulacion_config === 'string' ? JSON.parse(ot.modulacion_config) : ot.modulacion_config;
+    const modConfig = typeof ot.modulacion_config === 'string' ? safeJsonParse(ot.modulacion_config) : ot.modulacion_config;
     const modsStr = modConfig?.modulos?.map(m => `${m.qty} mod. de ${m.largo}m`).join(' + ') || 'S/D';
     text(modsStr, startX + 115, y + 14, 8, 'normal');
 
@@ -108,7 +126,7 @@ export default function PDFReplicator({ ot, explosion }) {
     text("OBSERVACIONES", startX + 105, y + 5, 8, 'bold', primaryColor);
     line(startX, y + 7, startX + 180, y + 7, 0.2);
 
-    const adds = typeof ot.adicionales === 'string' ? JSON.parse(ot.adicionales) : ot.adicionales;
+    const adds = typeof ot.adicionales === 'string' ? safeJsonParse(ot.adicionales) : ot.adicionales;
     
     // Floors
     text("PISOS", startX + 4, y + 11, 8, 'normal');
@@ -129,7 +147,7 @@ export default function PDFReplicator({ ot, explosion }) {
     rect(startX, y, 180, 16);
     text("4. GEOLOCALIZACION Y MONTAJE", startX + 2, y - 2, 7, 'bold', primaryColor);
     
-    const geo = typeof ot.georef === 'string' ? JSON.parse(ot.georef) : ot.georef;
+    const geo = typeof ot.georef === 'string' ? safeJsonParse(ot.georef) : ot.georef;
     text("LUGAR DE ARMADO:", startX + 4, y + 6, 8, 'bold', primaryColor);
     text(String(geo?.direccion || 'S/D'), startX + 36, y + 6, 7.5, 'normal');
 
@@ -179,32 +197,75 @@ export default function PDFReplicator({ ot, explosion }) {
 
       // Determine provenance
       let provenance = "Desde Depósito";
-      const match = obs.match(/transferencia de (OT-\d+)/i);
+      const match = obs.match(/transferencia de OT-(\d+)/i);
       if (match) {
-        provenance = `Transf. directo desde ${match[1]}`;
+        const sourceOtNum = match[1];
+        const sourceOt = ots.find(o => String(o.ot_numero) === String(sourceOtNum));
+        if (sourceOt) {
+          provenance = `Transf. OT-${sourceOtNum} (${sourceOt.cliente_nombre})`;
+        } else {
+          provenance = `Transf. directo desde OT-${sourceOtNum}`;
+        }
+      } else {
+        const otAdds = typeof ot.adicionales === 'string' ? safeJsonParse(ot.adicionales) : ot.adicionales || {};
+        const originId = otAdds.transfer_origin_ot_id;
+        if (originId) {
+          const sourceOt = ots.find(o => o.id === parseInt(originId));
+          if (sourceOt) {
+            provenance = `Transf. OT-${sourceOt.ot_numero} (${sourceOt.cliente_nombre})`;
+          }
+        } else {
+          // Check if any disassembly direct transfer destino matches this OT and product
+          const originDesarme = desarmeRecords.find(rec => {
+            if (!rec.destinos) return false;
+            return rec.destinos.some(dest => {
+              const isTarget = dest.ot_id === ot.id || dest.ot_numero === ot.ot_numero;
+              const productMatch = String(dest.producto || dest.nombre || '').replace(/[-_][a-zA-Z]\d*$/i, '').toLowerCase() === name.replace(/[-_][a-zA-Z]\d*$/i, '').toLowerCase();
+              return isTarget && productMatch;
+            });
+          });
+
+          if (originDesarme) {
+            const sourceOt = ots.find(o => o.id === originDesarme.ot_origen_id);
+            if (sourceOt) {
+              provenance = `Desarme OT-${sourceOt.ot_numero} (${sourceOt.cliente_nombre})`;
+            } else {
+              provenance = `Desarme OT-${originDesarme.ot_origen_id}`;
+            }
+          }
+        }
       }
 
       const enrichedItem = { producto: name, qty, sector, provenance };
 
-      if (sector === 'Lonas' || isLona(name)) {
+      // Respect item.sector first before fallback matching
+      if (sector === 'Lonas') {
         lonasItems.push(enrichedItem);
-      } else if (sector === 'Pisos' || isPiso(name)) {
+      } else if (sector === 'Pisos') {
         pisosItems.push(enrichedItem);
-      } else if (sector === 'Alfombras' || isAlfombra(name)) {
+      } else if (sector === 'Alfombras') {
         alfombrasItems.push(enrichedItem);
-      } else if (sector === 'Telas' || isTela(name)) {
+      } else if (sector === 'Telas') {
         telasItems.push(enrichedItem);
       } else if (sector === 'Planta') {
         plantaItems.push(enrichedItem);
       } else if (sector === 'Pañol') {
         panolItems.push(enrichedItem);
+      } else if (isLona(name)) {
+        lonasItems.push(enrichedItem);
+      } else if (isPiso(name)) {
+        pisosItems.push(enrichedItem);
+      } else if (isAlfombra(name)) {
+        alfombrasItems.push(enrichedItem);
+      } else if (isTela(name)) {
+        telasItems.push(enrichedItem);
       } else {
         panolItems.push(enrichedItem);
       }
     };
 
-    const panol = typeof ot.panol_status === 'string' ? JSON.parse(ot.panol_status) : ot.panol_status;
-    const planta = typeof ot.planta_status === 'string' ? JSON.parse(ot.planta_status) : ot.planta_status;
+    const panol = typeof ot.panol_status === 'string' ? safeJsonParse(ot.panol_status) : ot.panol_status;
+    const planta = typeof ot.planta_status === 'string' ? safeJsonParse(ot.planta_status) : ot.planta_status;
     
     let checklistItems = [];
     if (panol?.items?.length > 0 || planta?.items?.length > 0) {

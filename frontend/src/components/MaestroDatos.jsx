@@ -4,6 +4,44 @@ import {
   FileText, X, Check, AlertCircle, RefreshCw, User, HelpCircle, CheckSquare, Square
 } from 'lucide-react';
 
+const formatExpiryBadge = (dateStr) => {
+  if (!dateStr) return <span className="text-slate-400 font-mono text-xs">─ Sin Cargar</span>;
+  const cleanDateStr = String(dateStr).includes('T') ? String(dateStr).split('T')[0] : String(dateStr).trim();
+  const target = new Date(cleanDateStr + 'T00:00:00');
+  if (isNaN(target.getTime())) return <span className="text-slate-500 font-mono text-xs">{dateStr}</span>;
+  
+  const now = new Date();
+  const nowOnlyDate = new Date(now.toISOString().split('T')[0] + 'T00:00:00');
+  const diffDays = Math.round((target - nowOnlyDate) / (1000 * 60 * 60 * 24));
+
+  if (diffDays < 0) {
+    return (
+      <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-red-100 text-red-700 border border-red-300" title={`Venció hace ${Math.abs(diffDays)} días`}>
+        🔴 {cleanDateStr} (Vencido)
+      </span>
+    );
+  }
+  if (diffDays <= 7) {
+    return (
+      <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-orange-100 text-orange-800 border border-orange-300" title={`Vence en ${diffDays} días - Solicitar turno urgente`}>
+        🟠 {cleanDateStr} ({diffDays === 0 ? 'Vence HOY' : `${diffDays}d`})
+      </span>
+    );
+  }
+  if (diffDays <= 30) {
+    return (
+      <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-amber-100 text-amber-800 border border-amber-300" title={`Vence en ${diffDays} días`}>
+        🟡 {cleanDateStr} ({diffDays}d)
+      </span>
+    );
+  }
+  return (
+    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+      🟢 {cleanDateStr}
+    </span>
+  );
+};
+
 export default function MaestroDatos({ currentUser }) {
   const [activeTab, setActiveTab] = useState('personal');
   const [data, setData] = useState([]);
@@ -40,11 +78,21 @@ export default function MaestroDatos({ currentUser }) {
     setError('');
     setImportResult(null);
     try {
-      const res = await fetch(`/api/maestro/${activeTab}`);
+      const url = `/api/maestro/${activeTab}?_t=${Date.now()}`;
+      console.log('[MaestroDatos] fetching:', url);
+      const res = await fetch(url, {
+        cache: 'no-store',
+        headers: {
+          'Pragma': 'no-cache',
+          'Cache-Control': 'no-cache'
+        }
+      });
       if (!res.ok) throw new Error('Error al cargar datos del servidor');
       const json = await res.json();
+      console.log('[MaestroDatos] data received for tab', activeTab, ':', JSON.stringify(json));
       setData(json);
     } catch (err) {
+      console.error('[MaestroDatos] fetch error:', err);
       setError(err.message);
     } finally {
       setLoading(false);
@@ -54,6 +102,12 @@ export default function MaestroDatos({ currentUser }) {
   useEffect(() => {
     fetchData();
     setSearchQuery('');
+
+    const handleFocus = () => {
+      fetchData();
+    };
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
   }, [activeTab]);
 
   const handleDelete = async (id) => {
@@ -77,9 +131,16 @@ export default function MaestroDatos({ currentUser }) {
     const defaults = {};
     if (activeTab === 'personal') {
       defaults.rol_funcion = 'Operario';
+      defaults.examen_medico_vencimiento = '';
+      defaults.licencia_conducir_vencimiento = '';
       defaults.activo = true;
     } else if (activeTab === 'recursos') {
-      defaults.tipo = 'Maquinaria';
+      defaults.tipo = 'Vehículo / Camión';
+      defaults.subtipo = '';
+      defaults.patente_identificador = '';
+      defaults.vtv_vencimiento = '';
+      defaults.seguro_vencimiento = '';
+      defaults.descripcion = '';
       defaults.activo = true;
     } else if (activeTab === 'estructuras') {
       defaults.estructura_tipo = 'Aluminio';
@@ -105,7 +166,21 @@ export default function MaestroDatos({ currentUser }) {
 
   const handleOpenEdit = (item) => {
     setEditingItem(item);
-    setFormData({ ...item });
+    const cleanItem = { ...item };
+
+    cleanItem.vtv_vencimiento = cleanItem.vtv_vencimiento || cleanItem.vtv || cleanItem.VTV_Vencimiento || '';
+    cleanItem.seguro_vencimiento = cleanItem.seguro_vencimiento || cleanItem.seguro || cleanItem.Seguro_Vencimiento || '';
+    cleanItem.patente_identificador = cleanItem.patente_identificador || cleanItem.patente || cleanItem.identificador || '';
+    cleanItem.subtipo = cleanItem.subtipo || '';
+    cleanItem.examen_medico_vencimiento = cleanItem.examen_medico_vencimiento || cleanItem.examen_medico || cleanItem.Examen_Medico_Vencimiento || '';
+    cleanItem.licencia_conducir_vencimiento = cleanItem.licencia_conducir_vencimiento || cleanItem.licencia_conducir || cleanItem.Licencia_Conducir_Vencimiento || '';
+
+    ['vtv_vencimiento', 'seguro_vencimiento', 'examen_medico_vencimiento', 'licencia_conducir_vencimiento'].forEach(f => {
+      if (cleanItem[f]) {
+        cleanItem[f] = String(cleanItem[f]).includes('T') ? String(cleanItem[f]).split('T')[0] : String(cleanItem[f]).trim();
+      }
+    });
+    setFormData(cleanItem);
     setShowFormModal(true);
   };
 
@@ -122,6 +197,23 @@ export default function MaestroDatos({ currentUser }) {
       }
     });
 
+    // Clean up dates
+    if (payload.vtv_vencimiento !== undefined) {
+      payload.vtv_vencimiento = payload.vtv_vencimiento ? String(payload.vtv_vencimiento).trim() : null;
+    }
+    if (payload.seguro_vencimiento !== undefined) {
+      payload.seguro_vencimiento = payload.seguro_vencimiento ? String(payload.seguro_vencimiento).trim() : null;
+    }
+    if (payload.examen_medico_vencimiento !== undefined) {
+      payload.examen_medico_vencimiento = payload.examen_medico_vencimiento ? String(payload.examen_medico_vencimiento).trim() : null;
+    }
+    if (payload.licencia_conducir_vencimiento !== undefined) {
+      payload.licencia_conducir_vencimiento = payload.licencia_conducir_vencimiento ? String(payload.licencia_conducir_vencimiento).trim() : null;
+    }
+    if (payload.patente_identificador !== undefined && payload.patente_identificador) {
+      payload.patente_identificador = String(payload.patente_identificador).trim().toUpperCase();
+    }
+
     try {
       const res = await fetch(url, {
         method,
@@ -129,7 +221,7 @@ export default function MaestroDatos({ currentUser }) {
         body: JSON.stringify(payload)
       });
       if (!res.ok) {
-        const err = await res.json();
+        const err = await res.json().catch(() => ({}));
         throw new Error(err.error || 'Error al guardar el registro');
       }
       alert(editingItem ? 'Registro actualizado con éxito.' : 'Registro creado con éxito.');
@@ -195,16 +287,16 @@ export default function MaestroDatos({ currentUser }) {
     let rows = [];
     
     if (activeTab === 'personal') {
-      headers = ['Nombre', 'CUIT', 'Teléfono', 'Rol', 'Activo'];
+      headers = ['Nombre', 'CUIT', 'Teléfono', 'Rol', 'Examen_Medico_Vencimiento', 'Licencia_Conducir_Vencimiento', 'Activo'];
       rows = [
-        ['Juan Pérez', '20-30456789-2', '11-1234-5678', 'Operario', 'sí'],
-        ['Carlos López', '20-25896321-4', '11-9876-5432', 'Chofer', 'sí']
+        ['Juan Pérez', '20-30456789-2', '11-1234-5678', 'Operario', '2026-12-31', '', 'sí'],
+        ['Carlos López', '20-25896321-4', '11-9876-5432', 'Chofer', '2026-10-15', '2026-11-20', 'sí']
       ];
     } else if (activeTab === 'recursos') {
-      headers = ['Nombre', 'Tipo', 'Patente', 'Descripción', 'Activo'];
+      headers = ['Nombre', 'Tipo', 'Patente', 'VTV_Vencimiento', 'Seguro_Vencimiento', 'Descripción', 'Activo'];
       rows = [
-        ['Elevador Clark 2.5T', 'Maquinaria', '', 'Autoelevador a gas', 'sí'],
-        ['Camión Iveco Daily', 'Vehículo / Camión', 'AF234EE', 'Furgón de traslado', 'sí']
+        ['Elevador Clark 2.5T', 'Maquinaria', '', '', '2026-12-31', 'Autoelevador a gas', 'sí'],
+        ['Camión Iveco Daily', 'Vehículo / Camión', 'AF234EE', '2026-09-30', '2026-10-15', 'Furgón de traslado', 'sí']
       ];
     } else if (activeTab === 'estructuras') {
       headers = ['Modelo_Estructura', 'Arcos totales', 'Estructura', 'Frente', 'Largo_Maximo', 'Arcos_Disponibles_Seleccion'];
@@ -346,15 +438,25 @@ export default function MaestroDatos({ currentUser }) {
         <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm min-h-[400px] flex flex-col">
           {/* Filters and search */}
           <div className="flex flex-col sm:flex-row justify-between items-center gap-3 mb-6">
-            <div className="relative w-full sm:max-w-md">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-              <input
-                type="text"
-                placeholder={`Buscar en ${activeTabConfig?.label.toLowerCase()}...`}
-                value={searchQuery}
-                onChange={e => setSearchQuery(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-4 py-2.5 text-xs font-semibold text-slate-700 outline-none focus:border-blue-400 focus:bg-white transition-all-300"
-              />
+            <div className="flex items-center gap-2 w-full sm:max-w-md">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder={`Buscar en ${activeTabConfig?.label.toLowerCase()}...`}
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-4 py-2.5 text-xs font-semibold text-slate-700 outline-none focus:border-blue-400 focus:bg-white transition-all-300"
+                />
+              </div>
+              <button
+                onClick={fetchData}
+                title="Actualizar datos desde el servidor"
+                className="bg-slate-100 hover:bg-slate-200 text-slate-700 p-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer border border-slate-200 shrink-0"
+              >
+                <RefreshCw className={`w-4 h-4 text-blue-900 ${loading ? 'animate-spin' : ''}`} />
+                <span className="hidden sm:inline text-[11px] font-black uppercase tracking-wider">Refrescar</span>
+              </button>
             </div>
             <div className="text-xs text-slate-400 font-bold shrink-0">
               {filteredData.length} registros encontrados
@@ -391,6 +493,8 @@ export default function MaestroDatos({ currentUser }) {
                         <th className="p-3">CUIT</th>
                         <th className="p-3">Teléfono</th>
                         <th className="p-3">Rol / Función</th>
+                        <th className="p-3">Examen Médico</th>
+                        <th className="p-3">Licencia Conducir</th>
                         <th className="p-3">Estado</th>
                       </>
                     )}
@@ -399,6 +503,8 @@ export default function MaestroDatos({ currentUser }) {
                         <th className="p-3">Nombre</th>
                         <th className="p-3">Tipo</th>
                         <th className="p-3">Patente / Identif.</th>
+                        <th className="p-3">Vencimiento VTV</th>
+                        <th className="p-3">Vencimiento Seguro</th>
                         <th className="p-3">Descripción</th>
                         <th className="p-3">Estado</th>
                       </>
@@ -480,6 +586,8 @@ export default function MaestroDatos({ currentUser }) {
                           <td className="p-3 font-mono">{item.cuit || '─'}</td>
                           <td className="p-3">{item.telefono || '─'}</td>
                           <td className="p-3 font-bold text-blue-900">{item.rol_funcion}</td>
+                          <td className="p-3">{formatExpiryBadge(item.examen_medico_vencimiento || item.examen_medico || item.Examen_Medico_Vencimiento)}</td>
+                          <td className="p-3">{formatExpiryBadge(item.licencia_conducir_vencimiento || item.licencia_conducir || item.Licencia_Conducir_Vencimiento)}</td>
                           <td className="p-3">
                             <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase ${item.activo ? 'bg-emerald-50 text-emerald-600 border border-emerald-200' : 'bg-red-50 text-red-600 border border-red-200'}`}>
                               {item.activo ? 'Activo' : 'Inactivo'}
@@ -491,7 +599,9 @@ export default function MaestroDatos({ currentUser }) {
                         <>
                           <td className="p-3 font-bold text-slate-800 uppercase">{item.nombre}</td>
                           <td className="p-3 text-blue-900 font-black text-[10px] uppercase">{item.tipo}</td>
-                          <td className="p-3 font-mono">{item.patente_identificador || '─'}</td>
+                          <td className="p-3 font-mono">{item.patente_identificador || item.patente || '─'}</td>
+                          <td className="p-3">{formatExpiryBadge(item.vtv_vencimiento || item.vtv || item.VTV_Vencimiento)}</td>
+                          <td className="p-3">{formatExpiryBadge(item.seguro_vencimiento || item.seguro || item.Seguro_Vencimiento)}</td>
                           <td className="p-3 text-slate-400 truncate max-w-44" title={item.descripcion}>{item.descripcion || '─'}</td>
                           <td className="p-3">
                             <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase ${item.activo ? 'bg-emerald-50 text-emerald-600 border border-emerald-200' : 'bg-red-50 text-red-600 border border-red-200'}`}>
@@ -766,7 +876,17 @@ export default function MaestroDatos({ currentUser }) {
                         <option value="Supervisor">Supervisor</option>
                       </select>
                     </div>
-                    <div className="flex items-center pt-5">
+                    <div>
+                      <label className="text-[10px] uppercase tracking-wider font-bold text-slate-400 block mb-1">Vencimiento Examen Médico</label>
+                      <input type="date" value={formData.examen_medico_vencimiento || ''} onChange={e => setFormData({ ...formData, examen_medico_vencimiento: e.target.value })}
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 focus:outline-none focus:border-blue-900 cursor-pointer" />
+                    </div>
+                    <div>
+                      <label className="text-[10px] uppercase tracking-wider font-bold text-slate-400 block mb-1">Vencimiento Licencia Conducir</label>
+                      <input type="date" value={formData.licencia_conducir_vencimiento || ''} onChange={e => setFormData({ ...formData, licencia_conducir_vencimiento: e.target.value })}
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 focus:outline-none focus:border-blue-900 cursor-pointer" />
+                    </div>
+                    <div className="flex items-center pt-2">
                       <button type="button" onClick={() => setFormData({ ...formData, activo: !formData.activo })}
                         className="flex items-center gap-2 focus:outline-none border-0 bg-transparent cursor-pointer">
                         {formData.activo ? <CheckSquare className="w-5 h-5 text-blue-900" /> : <Square className="w-5 h-5 text-slate-300" />}
@@ -788,7 +908,7 @@ export default function MaestroDatos({ currentUser }) {
                     </div>
                     <div>
                       <label className="text-[10px] uppercase tracking-wider font-bold text-slate-400 block mb-1">Tipo de Recurso *</label>
-                      <select value={formData.tipo || 'Maquinaria'} onChange={e => setFormData({ ...formData, tipo: e.target.value })}
+                      <select value={formData.tipo || 'Vehículo / Camión'} onChange={e => setFormData({ ...formData, tipo: e.target.value })}
                         className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 focus:outline-none focus:border-blue-900">
                         <option value="Vehículo / Camión">Vehículo / Camión</option>
                         <option value="Maquinaria">Maquinaria</option>
@@ -797,9 +917,26 @@ export default function MaestroDatos({ currentUser }) {
                       </select>
                     </div>
                     <div>
+                      <label className="text-[10px] uppercase tracking-wider font-bold text-slate-400 block mb-1">Subtipo / Categoría</label>
+                      <input type="text" value={formData.subtipo || ''} onChange={e => setFormData({ ...formData, subtipo: e.target.value })}
+                        placeholder="Ej. Camión Chasis, Furgón, Semi, Autoelevador"
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 focus:outline-none focus:border-blue-900" />
+                    </div>
+                    <div>
                       <label className="text-[10px] uppercase tracking-wider font-bold text-slate-400 block mb-1">Patente / Registro</label>
                       <input type="text" value={formData.patente_identificador || ''} onChange={e => setFormData({ ...formData, patente_identificador: e.target.value })}
-                        className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 focus:outline-none focus:border-blue-900" />
+                        placeholder="Ej. AA 123 BB"
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 focus:outline-none focus:border-blue-900 uppercase font-mono" />
+                    </div>
+                    <div>
+                      <label className="text-[10px] uppercase tracking-wider font-bold text-blue-900 block mb-1">Vencimiento VTV (Fecha)</label>
+                      <input type="date" value={formData.vtv_vencimiento || ''} onChange={e => setFormData({ ...formData, vtv_vencimiento: e.target.value })}
+                        className="w-full bg-blue-50/50 border border-blue-200 rounded-xl p-2.5 focus:outline-none focus:border-blue-900 cursor-pointer font-mono text-xs font-bold" />
+                    </div>
+                    <div>
+                      <label className="text-[10px] uppercase tracking-wider font-bold text-blue-900 block mb-1">Vencimiento Seguro (Fecha)</label>
+                      <input type="date" value={formData.seguro_vencimiento || ''} onChange={e => setFormData({ ...formData, seguro_vencimiento: e.target.value })}
+                        className="w-full bg-blue-50/50 border border-blue-200 rounded-xl p-2.5 focus:outline-none focus:border-blue-900 cursor-pointer font-mono text-xs font-bold" />
                     </div>
                     <div className="col-span-2">
                       <label className="text-[10px] uppercase tracking-wider font-bold text-slate-400 block mb-1">Descripción</label>

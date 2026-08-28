@@ -105,3 +105,113 @@ body {
   border: 1px solid rgba(226, 232, 240, 0.8);
   box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
 }
+
+/* ==========================================================================
+   GLOBAL NIGHT MODE / PALETA OCEÁNICA SUAVE (ANTI-FATIGA VISUAL)
+   ========================================================================== */
+body.night-mode {
+  background-color: #17629b !important;
+  background-image: 
+    radial-gradient(at 0% 0%, rgba(30, 126, 200, 0.45) 0px, transparent 60%),
+    radial-gradient(at 100% 0%, rgba(16, 75, 120, 0.6) 0px, transparent 60%),
+    radial-gradient(at 100% 100%, rgba(30, 126, 200, 0.35) 0px, transparent 60%),
+    radial-gradient(at 0% 100%, rgba(16, 75, 120, 0.5) 0px, transparent 60%) !important;
+  color: #f0f9ff !important;
+}
+
+body.night-mode .glass-panel {
+  background: rgba(25, 111, 169, 0.85) !important;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(56, 148, 219, 0.45) !important;
+  box-shadow: 0 10px 25px -5px rgba(5, 30, 50, 0.45) !important;
+}
+
+body.night-mode header.glass-panel {
+  background: rgba(20, 90, 145, 0.95) !important;
+  border-bottom: 1px solid rgba(56, 148, 219, 0.5) !important;
+}
+
+body.night-mode .bg-white {
+  background-color: #1e7ec8 !important;
+  color: #ffffff !important;
+  border-color: #3894db !important;
+}
+
+body.night-mode .bg-slate-50,
+body.night-mode .bg-slate-100 {
+  background-color: #196fa9 !important;
+  color: #f0f9ff !important;
+  border-color: #2e88cb !important;
+}
+
+body.night-mode .bg-slate-100\/80 {
+  background-color: rgba(20, 93, 143, 0.85) !important;
+  border-color: #297bb9 !important;
+}
+
+body.night-mode .bg-slate-200 {
+  background-color: #145d8f !important;
+  color: #e0f2fe !important;
+}
+
+body.night-mode .text-slate-800,
+body.night-mode .text-slate-700,
+body.night-mode .text-slate-650,
+body.night-mode .text-slate-900,
+body.night-mode .text-blue-900 {
+  color: #ffffff !important;
+}
+
+body.night-mode .text-slate-600,
+body.night-mode .text-slate-500,
+body.night-mode .text-slate-450,
+body.night-mode .text-slate-400 {
+  color: #bae6fd !important;
+}
+
+body.night-mode .border-slate-100,
+body.night-mode .border-slate-150,
+body.night-mode .border-slate-200,
+body.night-mode .border-slate-250,
+body.night-mode .border-slate-300 {
+  border-color: rgba(56, 148, 219, 0.35) !important;
+}
+
+body.night-mode input,
+body.night-mode select,
+body.night-mode textarea {
+  background-color: #134e78 !important;
+  color: #ffffff !important;
+  border-color: #3894db !important;
+}
+
+body.night-mode input::placeholder,
+body.night-mode textarea::placeholder {
+  color: #7dd3fc !important;
+  opacity: 0.7;
+}
+
+body.night-mode .divide-slate-150,
+body.night-mode .divide-slate-200 {
+  border-color: rgba(56, 148, 219, 0.25) !important;
+}
+
+body.night-mode table thead tr {
+  background-color: #145d8f !important;
+  color: #e0f2fe !important;
+  border-color: #297bb9 !important;
+}
+
+body.night-mode table tbody tr:hover {
+  background-color: rgba(35, 137, 214, 0.4) !important;
+}
+
+body.night-mode ::-webkit-scrollbar-thumb {
+  background: #3894db;
+}
+
+body.night-mode ::-webkit-scrollbar-thumb:hover {
+  background: #7dd3fc;
+}
+

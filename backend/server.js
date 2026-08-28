@@ -4,13 +4,48 @@ import dotenv from 'dotenv';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { db } from './db.js';
+import { db, getDbInitError } from './db.js';
 import XLSX from 'xlsx';
+import multer from 'multer';
+import pdfParse from 'pdf-parse';
+import { aprenderSkillAutomatico } from './aprendizaje.js';
 
 dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+const safeJsonParse = (val, fallback = {}) => {
+  if (!val) return fallback;
+  if (typeof val === 'object') return val;
+  try {
+    return JSON.parse(val);
+  } catch (e) {
+    console.error("Error parsing JSON in backend/server.js:", e, val);
+    return fallback;
+  }
+};
+
+const safeDateString = (dateVal) => {
+  if (!dateVal) return '';
+  if (typeof dateVal === 'string') return dateVal.substring(0, 10);
+  if (dateVal instanceof Date) {
+    if (isNaN(dateVal.getTime())) return '';
+    try {
+      const year = dateVal.getFullYear();
+      const month = String(dateVal.getMonth() + 1).padStart(2, '0');
+      const day = String(dateVal.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    } catch (e) {
+      try {
+        return dateVal.toISOString().substring(0, 10);
+      } catch (err) {
+        return '';
+      }
+    }
+  }
+  return String(dateVal).substring(0, 10);
+};
 
 // Ensure temporary AR directories exist
 const tempArDir = path.join(__dirname, 'public', 'temp-ar');
@@ -26,8 +61,62 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 // Serve temporary AR files statically
 app.use('/api/temp-ar', express.static(tempArDir));
 
+// ---------------------------------------------------
+// HEALTH CHECK endpoint — shows DB status diagnostics
+// Access at: https://<your-cloud-run-url>/health
+// ---------------------------------------------------
+app.get('/health', (req, res) => {
+  const dbError = getDbInitError();
+  const isPostgres = db.isPostgreSQL();
+  if (dbError) {
+    return res.status(503).json({
+      status: 'ERROR',
+      db: 'disconnected',
+      error: dbError,
+      env: {
+        NODE_ENV: process.env.NODE_ENV || 'not set',
+        DATABASE_URL: process.env.DATABASE_URL ? 'set (value hidden)' : 'NOT SET'
+      },
+      timestamp: new Date().toISOString()
+    });
+  }
+  res.json({
+    status: 'OK',
+    db: isPostgres ? 'postgresql' : 'json-local',
+    env: {
+      NODE_ENV: process.env.NODE_ENV || 'not set',
+      DATABASE_URL: process.env.DATABASE_URL ? 'set (value hidden)' : 'NOT SET'
+    },
+    timestamp: new Date().toISOString()
+  });
+});
+
 // Database in-memory cache variable for AI chat assistant
 let dbMemoryCache = null;
+
+// Middleware: if DB failed to initialize, return 503 on all /api routes
+app.use('/api', (req, res, next) => {
+  const dbError = getDbInitError();
+  if (dbError && !db.isPostgreSQL()) {
+    return res.status(503).json({
+      error: 'Base de datos no disponible',
+      detalle: dbError,
+      solucion: 'Verificar que la instancia Cloud SQL esté activa y que DATABASE_URL esté configurada correctamente.',
+      health: '/health'
+    });
+  }
+  next();
+});
+
+// Disable ETag and force no-cache on all API routes
+app.set('etag', false);
+app.use('/api', (req, res, next) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0');
+  res.set('Pragma', 'no-cache');
+  res.set('Expires', '0');
+  res.set('Surrogate-Control', 'no-store');
+  next();
+});
 
 // Middleware to clear database memory cache on mutations (non-GET requests)
 app.use((req, res, next) => {
@@ -119,6 +208,7 @@ app.post('/api/recursos', async (req, res) => {
     const recurso = await db.saveRecurso(req.body);
     res.status(201).json(recurso);
   } catch (err) {
+    console.error('[API] Error saving recurso:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -129,6 +219,7 @@ app.put('/api/recursos/:id', async (req, res) => {
     if (!recurso) return res.status(404).json({ error: 'Recurso no encontrado' });
     res.json(recurso);
   } catch (err) {
+    console.error('[API] Error updating recurso:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -137,6 +228,90 @@ app.delete('/api/recursos/:id', async (req, res) => {
   try {
     const success = await db.deleteRecurso(parseInt(req.params.id));
     if (!success) return res.status(404).json({ error: 'Recurso no encontrado' });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ----------------------------------------------------
+// 1d. PLANIFICACIÓN OPERATIVA & CRONOGRAMA DIARIO ENDPOINTS
+// ----------------------------------------------------
+app.get('/api/planificacion/dia/:fecha', async (req, res) => {
+  try {
+    const plan = await db.getPlanificacionDia(req.params.fecha);
+    res.json(plan);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/planificacion/dia', async (req, res) => {
+  try {
+    const { fecha, asignaciones, publicado, publicado_por } = req.body;
+    if (!fecha) return res.status(400).json({ error: 'La fecha es obligatoria' });
+    const saved = await db.savePlanificacionDia(fecha, asignaciones, publicado, publicado_por);
+    res.json(saved);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/planificacion/planta/:fecha', async (req, res) => {
+  try {
+    const plan = await db.getPlanificacionPlanta(req.params.fecha);
+    res.json(plan);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/planificacion/planta', async (req, res) => {
+  try {
+    const { fecha, tareas } = req.body;
+    if (!fecha) return res.status(400).json({ error: 'La fecha es obligatoria' });
+    const saved = await db.savePlanificacionPlanta(fecha, tareas);
+    res.json(saved);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/planificacion/recordatorios', async (req, res) => {
+  try {
+    const { desde, hasta } = req.query;
+    const items = await db.getRecordatorios(desde, hasta);
+    res.json(items);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/planificacion/recordatorios', async (req, res) => {
+  try {
+    const { fecha, titulo, tipo, entidad_id, entidad_tipo, descripcion, completado } = req.body;
+    if (!fecha || !titulo) return res.status(400).json({ error: 'Fecha y título son requeridos' });
+    const saved = await db.saveRecordatorio({ fecha, titulo, tipo, entidad_id, entidad_tipo, descripcion, completado });
+    res.status(201).json(saved);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/planificacion/recordatorios/:id', async (req, res) => {
+  try {
+    const updated = await db.updateRecordatorio(parseInt(req.params.id), req.body);
+    if (!updated) return res.status(404).json({ error: 'Recordatorio no encontrado' });
+    res.json(updated);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/planificacion/recordatorios/:id', async (req, res) => {
+  try {
+    const success = await db.deleteRecordatorio(parseInt(req.params.id));
+    if (!success) return res.status(404).json({ error: 'Recordatorio no encontrado' });
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -162,11 +337,11 @@ app.get('/api/estructuras', async (req, res) => {
 // Range A: [start1, end1]  Range B: [start2, end2]
 // Overlap when: start1 <= end2 AND start2 <= end1
 const datesOverlap = (start1, end1, start2, end2) => {
-  if (!start1 || !end1 || !start2 || !end2) return false;
-  const s1 = start1.substring(0, 10);
-  const e1 = end1.substring(0, 10);
-  const s2 = start2.substring(0, 10);
-  const e2 = end2.substring(0, 10);
+  const s1 = safeDateString(start1);
+  const e1 = safeDateString(end1);
+  const s2 = safeDateString(start2);
+  const e2 = safeDateString(end2);
+  if (!s1 || !e1 || !s2 || !e2) return false;
   return s1 <= e2 && s2 <= e1;
 };
 
@@ -178,10 +353,10 @@ app.post('/api/estructuras/check-availability', async (req, res) => {
   }
 
   try {
-    const structures = await db.getStructures();
+    const structures = (await db.getStructures()) || [];
     const matchingModels = structures.filter(s =>
       parseFloat(s.frente) === parseFloat(frente) &&
-      s.estructura_tipo.toLowerCase() === estructura_tipo.toLowerCase()
+      (s.estructura_tipo || '').toLowerCase() === (estructura_tipo || '').toLowerCase()
     );
 
     if (matchingModels.length === 0) {
@@ -192,8 +367,8 @@ app.post('/api/estructuras/check-availability', async (req, res) => {
       });
     }
 
-    const archesData = await db.getArches();
-    const ots = await db.getOTs();
+    const archesData = (await db.getArches()) || [];
+    const ots = (await db.getOTs()) || [];
 
     const results = [];
     let hasAnyAvailable = false;
@@ -214,34 +389,43 @@ app.post('/api/estructuras/check-availability', async (req, res) => {
         continue;
       }
 
-      // All arches defined for this model
-      const allArches = [...new Set(
+      // All arches defined for this model with fallback
+      let allArches = [...new Set(
         archesData.filter(a => a.modelo_estructura === modelName).map(a => a.arco)
       )];
+      if (allArches.length === 0 && (model.arcos_totales || 0) > 0) {
+        allArches = Array.from({ length: model.arcos_totales }, (_, i) => `${modelName}_A${i + 1}`);
+      }
 
       // OTs that overlap in date AND are active (arches are physically unique and reserved globally by code)
+      // OTs in status 'Cancelada', 'Rechazada', 'Retornada al Depósito', 'Finalizada' DO NOT lock stock
       const overlappingOTs = ots.filter(ot =>
         ot.estado !== 'Cancelada' &&
         ot.estado !== 'Rechazada' &&
-        (!exclude_ot_id || ot.id !== exclude_ot_id) &&
+        ot.estado !== 'Retornada al Depósito' &&
+        ot.estado !== 'Finalizada' &&
+        (!exclude_ot_id || String(ot.id) !== String(exclude_ot_id)) &&
         datesOverlap(ot.fecha_inicio, ot.fecha_comienzo_desarmado || ot.fecha_fin, fecha_inicio, fecha_fin)
       );
 
       // Map reserved arches → which OT/client holds them
       const reservedArchMap = {};
       overlappingOTs.forEach(ot => {
-        const reserved = ot.adicionales?.arcos_reservados || [];
-        reserved.forEach(arch => {
-          if (!reservedArchMap[arch]) {
-            reservedArchMap[arch] = {
-              ot_numero: ot.ot_numero,
-              cliente: ot.cliente_nombre,
-              fecha_inicio: ot.fecha_inicio,
-              fecha_fin: ot.fecha_fin,
-              estado: ot.estado
-            };
-          }
-        });
+        const ad = typeof ot.adicionales === 'string' ? safeJsonParse(ot.adicionales) : ot.adicionales || {};
+        const reserved = ad?.arcos_reservados || ot.arcos_reservados || [];
+        if (Array.isArray(reserved)) {
+          reserved.forEach(arch => {
+            if (!reservedArchMap[arch]) {
+              reservedArchMap[arch] = {
+                ot_numero: ot.ot_numero,
+                cliente: ot.cliente_nombre,
+                fecha_inicio: safeDateString(ot.fecha_inicio),
+                fecha_fin: safeDateString(ot.fecha_fin),
+                estado: ot.estado
+              };
+            }
+          });
+        }
       });
 
       const availableArches = allArches.filter(a => !reservedArchMap[a]);
@@ -249,26 +433,31 @@ app.post('/api/estructuras/check-availability', async (req, res) => {
         .filter(a => reservedArchMap[a])
         .map(a => ({ arco: a, ...reservedArchMap[a] }));
 
-      const modelAvailable = availableArches.length > 0;
+      const isSuficiente = availableArches.length >= arcos_necesarios;
+      const isDisponible = availableArches.length > 0;
 
       results.push({
         modelo_estructura: modelName,
-        arcos_totales: model.arcos_totales,
+        arcos_totales: allArches.length || model.arcos_totales || 0,
         arcos_disponibles: availableArches.length,
         arcos_disponibles_list: availableArches,
         reserved_arches_detail: reservedDetail,
-        status: modelAvailable ? 'Disponible' : 'Insuficiente',
-        reason: modelAvailable
-          ? `${availableArches.length} arco(s) libre(s)`
-          : `Sin arcos disponibles para estas fechas`
+        suficiente: isSuficiente,
+        status: isSuficiente ? 'Disponible' : (isDisponible ? 'Parcial' : 'Sin Stock'),
+        reason: isSuficiente
+          ? `${availableArches.length} arco(s) libre(s) (Cubre los ${arcos_necesarios} solicitados)`
+          : (isDisponible 
+              ? `${availableArches.length} arco(s) libre(s) (Insuficiente para cubrir ${arcos_necesarios} arcos)`
+              : `Sin arcos disponibles para estas fechas`)
       });
     }
 
     const totalAvailableArches = results.reduce((sum, r) => sum + r.arcos_disponibles, 0);
-    hasAnyAvailable = totalAvailableArches >= arcos_necesarios;
+    hasAnyAvailable = results.some(r => r.suficiente) || (totalAvailableArches >= arcos_necesarios);
 
     res.json({ available: hasAnyAvailable, results });
   } catch (err) {
+    console.error("Error in check-availability:", err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -576,7 +765,12 @@ app.post('/api/chat-ia', async (req, res) => {
   try {
     const dbSummary = await getDBCacheSummary();
 
-    const systemInstruction = `Actúas como un agente experto COMERCIAL y de GERENCIA de IA para Carpas D'Angiola, una empresa líder en alquiler y montaje de estructuras temporales (carpas y tinglados).
+    // ── BUSQUEDA RAG & AUTO-SKILLS ──
+    const lastUserMessage = messages.filter(m => m.role === 'user').pop()?.content || '';
+    const contextoNormas = lastUserMessage ? await db.buscarConocimientoLocal(lastUserMessage) : '';
+    const contextoSkill = lastUserMessage ? await db.buscarSkillCoincidente(lastUserMessage) : '';
+
+    let systemInstruction = `Actúas como un agente experto COMERCIAL y de GERENCIA de IA para Carpas D'Angiola, una empresa líder en alquiler y montaje de estructuras temporales (carpas y tinglados).
 Tienes acceso en tiempo real a las bases de datos de la empresa, las cuales han sido procesadas previamente y cargadas en memoria.
 
 Datos de Memoria (Timestamp de carga: ${dbSummary.timestamp}):
@@ -595,6 +789,14 @@ Directrices de Análisis de Ventas Históricas y Proyecciones:
 3. Clientes Recurrentes Estacionales: Si te preguntan qué clientes suelen repetir en ciertos meses del año (ej: todos los julios), busca en 'fidelidad_clientes' a los que contengan ese mes en 'meses_recurrentes' y lista sus totales históricos.
 4. Responde de forma sumamente comercial, profesional, ejecutiva y clara en español. Mantén respuestas concisas pero con datos cuantitativos precisos sacados de los registros. Si no hay datos específicos en la base de datos de memoria para un periodo, indícalo claramente.
 5. Tu nombre es "VigIA Asistente Comercial". Eres el copiloto de la gerencia.`;
+
+    if (contextoNormas) {
+      systemInstruction += `\n\nContexto Normativo y Manuales (RAG):\n${contextoNormas}`;
+    }
+
+    if (contextoSkill) {
+      systemInstruction += `\n\n${contextoSkill}`;
+    }
 
     const formattedContents = messages.map(msg => ({
       role: msg.role === 'user' ? 'user' : 'model',
@@ -623,6 +825,13 @@ Directrices de Análisis de Ventas Históricas y Proyecciones:
     const geminiJson = await geminiRes.json();
     const assistantText = geminiJson.candidates?.[0]?.content?.parts?.[0]?.text || 'No se recibió respuesta del asistente de IA.';
 
+    // ── AUTO-APRENDIZAJE ASINCRONO ──
+    if (contextoNormas) {
+      aprenderSkillAutomatico(lastUserMessage, contextoNormas, assistantText).catch(e => {
+        console.error("Error in background auto-learning trigger:", e);
+      });
+    }
+
     res.json({ response: assistantText });
   } catch (err) {
     console.error("Error in /api/chat-ia:", err);
@@ -638,21 +847,21 @@ app.post('/api/estructuras/arcos-status', async (req, res) => {
     return res.status(400).json({ error: 'Faltan parámetros: modelo_estructura, fecha_inicio, fecha_fin' });
   }
   try {
-    const structures = await db.getStructures();
-    const archesData = await db.getArches();
-    const ots = await db.getOTs();
+    const structures = (await db.getStructures()) || [];
+    const archesData = (await db.getArches()) || [];
+    const ots = (await db.getOTs()) || [];
 
     // Find all structures matching the same frente and material type
     let matchingModels = [];
     if (frente && estructura_tipo) {
       matchingModels = structures.filter(s =>
         parseFloat(s.frente) === parseFloat(frente) &&
-        s.estructura_tipo.toLowerCase() === estructura_tipo.toLowerCase()
+        (s.estructura_tipo || '').toLowerCase() === (estructura_tipo || '').toLowerCase()
       ).map(s => s.modelo_estructura);
     } else {
       const prefix = modelo_estructura.split('-')[0];
       matchingModels = structures.filter(s =>
-        s.modelo_estructura.startsWith(prefix)
+        (s.modelo_estructura || '').startsWith(prefix)
       ).map(s => s.modelo_estructura);
     }
 
@@ -669,18 +878,21 @@ app.post('/api/estructuras/arcos-status', async (req, res) => {
 
     const reservedArchMap = {};
     overlappingOTs.forEach(ot => {
-      const reserved = ot.adicionales?.arcos_reservados || [];
-      reserved.forEach(arch => {
-        if (!reservedArchMap[arch]) {
-          reservedArchMap[arch] = {
-            ot_numero: ot.ot_numero,
-            cliente: ot.cliente_nombre,
-            fecha_inicio: ot.fecha_inicio,
-            fecha_fin: ot.fecha_fin,
-            estado: ot.estado
-          };
-        }
-      });
+      const ad = typeof ot.adicionales === 'string' ? safeJsonParse(ot.adicionales) : ot.adicionales || {};
+      const reserved = ad?.arcos_reservados || [];
+      if (Array.isArray(reserved)) {
+        reserved.forEach(arch => {
+          if (!reservedArchMap[arch]) {
+            reservedArchMap[arch] = {
+              ot_numero: ot.ot_numero,
+              cliente: ot.cliente_nombre,
+              fecha_inicio: safeDateString(ot.fecha_inicio),
+              fecha_fin: safeDateString(ot.fecha_fin),
+              estado: ot.estado
+            };
+          }
+        });
+      }
     });
 
     const archStatus = allArches.map(arco => ({
@@ -745,60 +957,63 @@ app.post('/api/estructuras/explode', async (req, res) => {
 
     // B. Resolve Module Components
     const moduleSummary = {};
-    const prefix = modelo_estructura.split('-')[0]; // e.g. C10
+    const prefix = (modelo_estructura || 'C10').split('-')[0]; // e.g. C10
 
-    if (conformed_modulos_list && conformed_modulos_list.length > 0) {
-      conformed_modulos_list.forEach(m => {
-        let lookupModel = m.modelo_estructura;
-        if (m.largo === 2) lookupModel = `${prefix}_2MTS`;
-        else if (m.largo === 3) lookupModel = `${prefix}_3MTS`;
+    selectedModules.forEach(m => {
+      let lookupModel = modulo_modelo_estructura || modelo_estructura;
+      if (m.largo === 2) lookupModel = `${prefix}_2MTS`;
+      else if (m.largo === 3) lookupModel = `${prefix}_3MTS`;
 
-        const modComponents = modulesData.filter(mod => {
-          const matchModel = m.largo === 5
-            ? (mod.modulo_val === lookupModel)
-            : (mod.modelo_estructura === lookupModel);
-          return matchModel && mod.modulacion === m.largo;
-        });
-        
-        modComponents.forEach(c => {
-          if (!moduleSummary[c.producto]) {
-            moduleSummary[c.producto] = { producto: c.producto, sector: c.sector, qty: 0 };
-          }
-          const qtyPerMod = c.stock_inicial || c.qty_fija_modulo || 0;
-          moduleSummary[c.producto].qty += qtyPerMod * m.qty;
-        });
+      let modComponents = modulesData.filter(mod => {
+        const matchModel = m.largo === 5
+          ? (mod.modulo_val === `${lookupModel}-M1` || mod.modulo_val === `${modelo_estructura}-M1` || mod.modelo_estructura === lookupModel)
+          : (mod.modelo_estructura === lookupModel);
+        return matchModel && mod.modulacion === m.largo;
       });
-    } else {
-      selectedModules.forEach(m => {
-        // Find the model name in database for this module length
-        let lookupModel = modulo_modelo_estructura || modelo_estructura;
-        if (m.largo === 2) lookupModel = `${prefix}_2MTS`;
-        else if (m.largo === 3) lookupModel = `${prefix}_3MTS`;
 
-        const modComponents = modulesData.filter(mod => {
-          const matchModel = m.largo === 5
-            ? (mod.modulo_val === `${lookupModel}-M1` || mod.modulo_val === `${modelo_estructura}-M1`)
-            : (mod.modelo_estructura === lookupModel);
-          return matchModel && mod.modulacion === m.largo;
-        });
-        
-        modComponents.forEach(c => {
-          if (!moduleSummary[c.producto]) {
-            moduleSummary[c.producto] = { producto: c.producto, sector: c.sector, qty: 0 };
-          }
-          const qtyPerMod = c.stock_inicial || c.qty_fija_modulo || 0;
-          moduleSummary[c.producto].qty += qtyPerMod * m.qty;
-        });
+      // Fallback: search by prefix (e.g. C10-L1 or generic C10)
+      if (modComponents.length === 0) {
+        modComponents = modulesData.filter(mod => 
+          (mod.modelo_estructura === `${prefix}-L1` || mod.modelo_estructura?.startsWith(prefix)) && 
+          mod.modulacion === m.largo
+        );
+      }
+
+      // Fallback generic if not found in table
+      if (modComponents.length === 0) {
+        modComponents = [
+          { producto: `${prefix}-VIGA MODULACION ${m.largo}MTS`, sector: 'Planta', qty_fija_modulo: 4 },
+          { producto: `${prefix}-LONA TECHO MODULO ${m.largo}MTS`, sector: 'Pañol', qty_fija_modulo: 1 },
+          { producto: `${prefix}-CORREAS ${m.largo}MTS`, sector: 'Planta', qty_fija_modulo: 6 }
+        ];
+      }
+      
+      modComponents.forEach(c => {
+        if (!moduleSummary[c.producto]) {
+          moduleSummary[c.producto] = { producto: c.producto, sector: c.sector || 'Planta', qty: 0 };
+        }
+        const qtyPerMod = c.stock_inicial || c.qty_fija_modulo || 1;
+        moduleSummary[c.producto].qty += qtyPerMod * m.qty;
       });
-    }
+    });
     explosion.modulos = Object.values(moduleSummary);
 
     // C. Resolve Fixed Components (Single selection per total structure)
     const lookupFijoModel = fijo_modelo_estructura || modelo_estructura;
-    const fixedComponents = fijosData.filter(f => f.modelo_estructura === lookupFijoModel);
+    let fixedComponents = fijosData.filter(f => f.modelo_estructura === lookupFijoModel);
+    if (fixedComponents.length === 0) {
+      fixedComponents = fijosData.filter(f => f.modelo_estructura === `${prefix}-L1` || f.modelo_estructura?.startsWith(prefix));
+    }
+    if (fixedComponents.length === 0) {
+      fixedComponents = [
+        { producto: `${prefix}-CRUZ SAN ANDRES FIJO`, sector: 'Planta', qty_fija_carpa: 4 },
+        { producto: `${prefix}-ESQUINEROS DE FIJACION`, sector: 'Planta', qty_fija_carpa: 4 },
+        { producto: `${prefix}-CUMBRERA TERMINAL`, sector: 'Planta', qty_fija_carpa: 2 }
+      ];
+    }
     explosion.fijos = fixedComponents.map(f => ({
       producto: f.producto,
-      sector: f.sector,
+      sector: f.sector || 'Planta',
       qty: f.qty_fija_carpa
     }));
 
@@ -906,12 +1121,12 @@ app.post('/api/estructuras/explode', async (req, res) => {
         const lonaTecho = accessoriesStock.find(a => 
           a.categoria === 'lona' && 
           a.color === color && 
-          a.tipo === 'Paño' && 
+          (a.tipo?.toLowerCase() === 'paño' || a.tipo?.toLowerCase() === 'techo' || a.nombre?.toLowerCase().includes('paño') || a.nombre?.toLowerCase().includes('techo')) && 
           a.medida === measure
         ) || accessoriesStock.find(a => 
           a.categoria === 'lona' && 
           a.color === color && 
-          a.tipo === 'Paño'
+          (a.tipo?.toLowerCase() === 'paño' || a.tipo?.toLowerCase() === 'techo' || a.nombre?.toLowerCase().includes('paño') || a.nombre?.toLowerCase().includes('techo'))
         );
 
         const name = lonaTecho ? lonaTecho.nombre : `Lona Techo Paño ${color} ${measure}`;
@@ -1055,6 +1270,32 @@ app.put('/api/ots/:id/status', async (req, res) => {
     }
 
     res.json(ot);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/ots/:id/full', async (req, res) => {
+  const { id } = req.params;
+  const { usuario, rol, ...updateData } = req.body;
+  try {
+    const updatedOt = await db.updateOrdenTrabajoFull(parseInt(id), updateData);
+    if (!updatedOt) return res.status(404).json({ error: 'Orden de trabajo no encontrada' });
+
+    await db.saveTransactionLog({
+      ot_id: updatedOt.id,
+      ot_numero: updatedOt.ot_numero,
+      usuario: usuario || 'Sistema',
+      rol: rol || 'Operaciones',
+      accion: 'EDICION_CALENDARIO',
+      detalles: `Modificación completa de OT desde el módulo de planificación operativa: ${Object.keys(updateData).join(', ')}`
+    });
+
+    if (['Aprobada por Gerencia', 'Aprobada', 'Completada'].includes(updatedOt.estado)) {
+      await syncOtToVentasHistoricas(updatedOt);
+    }
+
+    res.json(updatedOt);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1247,19 +1488,30 @@ app.delete('/api/ots/:id', async (req, res) => {
 // ----------------------------------------------------
 app.put('/api/ots/:id/logistica', async (req, res) => {
   const { id } = req.params;
-  const { fecha_fin, fecha_traslado, fecha_comienzo_armado, fecha_comienzo_desarmado, fecha_retorno, usuario, rol } = req.body;
+  const { fecha_fin, fecha_traslado, fecha_comienzo_armado, fecha_comienzo_desarmado, fecha_retorno, fecha_inicio, fecha_evento, usuario, rol } = req.body;
   
   if (!fecha_fin) {
     return res.status(400).json({ error: 'Falta parámetro fecha_fin (Fecha de Desarme original)' });
   }
 
   try {
+    const otList = await db.getOTs();
+    const existingOT = otList.find(o => o.id === parseInt(id));
+    if (!existingOT) {
+      return res.status(404).json({ error: 'OT no encontrada' });
+    }
+
+    const finalFechaInicio = fecha_inicio || existingOT.fecha_inicio;
+    const finalFechaEvento = fecha_evento !== undefined ? fecha_evento : existingOT.fecha_evento;
+
     const ot = await db.updateOTLogistica(parseInt(id), {
       fecha_fin,
       fecha_traslado,
       fecha_comienzo_armado,
       fecha_comienzo_desarmado,
-      fecha_retorno
+      fecha_retorno,
+      fecha_inicio: finalFechaInicio,
+      fecha_evento: finalFechaEvento
     }, usuario, rol);
 
     if (!ot) {
@@ -1348,8 +1600,8 @@ app.post('/api/logistica/desarme', async (req, res) => {
       } else if (type === 'ot' && target_ot_id) {
         const targetOT = ots.find(o => o.id === parseInt(target_ot_id));
         if (targetOT) {
-          const targetPanol = typeof targetOT.panol_status === 'string' ? JSON.parse(targetOT.panol_status) : targetOT.panol_status || { items: [] };
-          const targetPlanta = typeof targetOT.planta_status === 'string' ? JSON.parse(targetOT.planta_status) : targetOT.planta_status || { items: [] };
+          const targetPanol = typeof targetOT.panol_status === 'string' ? safeJsonParse(targetOT.panol_status, { items: [] }) : targetOT.panol_status || { items: [] };
+          const targetPlanta = typeof targetOT.planta_status === 'string' ? safeJsonParse(targetOT.planta_status, { items: [] }) : targetOT.planta_status || { items: [] };
           
           let transferredCount = 0;
           items.forEach(transferItem => {
@@ -1621,7 +1873,13 @@ app.get('/api/inventario/estructuras', async (req, res) => {
     const ots = await db.getOTs();
 
     // 1. Filter out active OTs (status not in 'Cancelada', 'Rechazada')
-    const activeOTs = ots.filter(ot => ot.estado !== 'Cancelada' && ot.estado !== 'Rechazada');
+    const { desde, hasta } = req.query;
+    let activeOTs = ots.filter(ot => ot.estado !== 'Cancelada' && ot.estado !== 'Rechazada');
+    if (desde && hasta) {
+      activeOTs = activeOTs.filter(ot => 
+        datesOverlap(ot.fecha_inicio, ot.fecha_comienzo_desarmado || ot.fecha_fin, desde, hasta)
+      );
+    }
 
     // 2. Compute occupied components for each active OT, split by reserved (in factory) vs in-use (outside)
     const reservedCapacity = {}; // key: master model -> product -> quantity
@@ -1630,8 +1888,8 @@ app.get('/api/inventario/estructuras', async (req, res) => {
     for (const ot of activeOTs) {
       const model = ot.modelo_estructura;
       const prefix = model.split('-')[0];
-      const modConfig = typeof ot.modulacion_config === 'string' ? JSON.parse(ot.modulacion_config) : ot.modulacion_config;
-      const adicionales = typeof ot.adicionales === 'string' ? JSON.parse(ot.adicionales) : ot.adicionales || {};
+      const modConfig = typeof ot.modulacion_config === 'string' ? safeJsonParse(ot.modulacion_config) : ot.modulacion_config;
+      const adicionales = typeof ot.adicionales === 'string' ? safeJsonParse(ot.adicionales) : ot.adicionales || {};
 
       const isEnUso = ot.estado === 'Completada';
       const targetMap = isEnUso ? inUseCapacity : reservedCapacity;
@@ -1639,7 +1897,7 @@ app.get('/api/inventario/estructuras', async (req, res) => {
       const key = model;
       if (!targetMap[key]) targetMap[key] = {};
 
-      const panol = typeof ot.panol_status === 'string' ? JSON.parse(ot.panol_status) : ot.panol_status;
+      const panol = typeof ot.panol_status === 'string' ? safeJsonParse(ot.panol_status) : ot.panol_status;
       if (panol && panol.items) {
         panol.items.forEach(item => {
           if (!targetMap[key][item.producto]) targetMap[key][item.producto] = 0;
@@ -1647,7 +1905,7 @@ app.get('/api/inventario/estructuras', async (req, res) => {
         });
       }
 
-      const planta = typeof ot.planta_status === 'string' ? JSON.parse(ot.planta_status) : ot.planta_status;
+      const planta = typeof ot.planta_status === 'string' ? safeJsonParse(ot.planta_status) : ot.planta_status;
       if (planta && planta.items) {
         planta.items.forEach(item => {
           if (!targetMap[key][item.producto]) targetMap[key][item.producto] = 0;
@@ -1668,7 +1926,13 @@ app.get('/api/inventario/estructuras', async (req, res) => {
       const archComponents = archesData.filter(a => a.modelo_estructura === model);
       archComponents.forEach(c => {
         if (!materialsMap[c.producto]) {
-          materialsMap[c.producto] = { producto: c.producto, sector: c.sector, total: 0 };
+          materialsMap[c.producto] = { 
+            producto: c.producto, 
+            sector: c.sector, 
+            total: 0,
+            component_type: 'arco',
+            qty_fija: c.qty_fija_arco
+          };
         }
         materialsMap[c.producto].total += c.qty_fija_arco;
       });
@@ -1680,10 +1944,16 @@ app.get('/api/inventario/estructuras', async (req, res) => {
         (mod.modelo_estructura === `${prefix}_3MTS`)
       );
       modComponents.forEach(c => {
-        if (!materialsMap[c.producto]) {
-          materialsMap[c.producto] = { producto: c.producto, sector: c.sector, total: 0 };
-        }
         const qtyPerMod = c.stock_inicial || c.qty_fija_modulo || 0;
+        if (!materialsMap[c.producto]) {
+          materialsMap[c.producto] = { 
+            producto: c.producto, 
+            sector: c.sector, 
+            total: 0,
+            component_type: 'modulo',
+            qty_fija: qtyPerMod
+          };
+        }
         materialsMap[c.producto].total += qtyPerMod;
       });
 
@@ -1691,7 +1961,13 @@ app.get('/api/inventario/estructuras', async (req, res) => {
       const fixedComponents = fijosData.filter(f => f.modelo_estructura === model);
       fixedComponents.forEach(f => {
         if (!materialsMap[f.producto]) {
-          materialsMap[f.producto] = { producto: f.producto, sector: f.sector, total: 0 };
+          materialsMap[f.producto] = { 
+            producto: f.producto, 
+            sector: f.sector, 
+            total: 0,
+            component_type: 'fijo',
+            qty_fija: f.qty_fija_carpa
+          };
         }
         materialsMap[f.producto].total += f.qty_fija_carpa;
       });
@@ -1733,6 +2009,160 @@ app.get('/api/inventario', async (req, res) => {
     const accessories = await db.getAccessories();
     res.json(accessories);
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/inventario/catalogo-maestro', async (req, res) => {
+  try {
+    const accessories = await db.getAccessories();
+    const arches = await db.getArches();
+    const modules = await db.getModules();
+    const fijos = await db.getFijos();
+    const ots = await db.getOTs();
+
+    // 1. Calculate occupied quantities across active OTs
+    const occupiedMap = {}; // item_name -> occupied qty
+    const activeOTs = (ots || []).filter(ot => ot.estado !== 'Cancelada' && ot.estado !== 'Rechazada');
+    for (const ot of activeOTs) {
+      const panol = typeof ot.panol_status === 'string' ? safeJsonParse(ot.panol_status) : ot.panol_status;
+      if (panol && Array.isArray(panol.items)) {
+        panol.items.forEach(it => {
+          if (it.producto) {
+            const key = String(it.producto).trim().toUpperCase();
+            occupiedMap[key] = (occupiedMap[key] || 0) + Number(it.qty || 1);
+          }
+        });
+      }
+      const planta = typeof ot.planta_status === 'string' ? safeJsonParse(ot.planta_status) : ot.planta_status;
+      if (planta && Array.isArray(planta.items)) {
+        planta.items.forEach(it => {
+          if (it.producto) {
+            const key = String(it.producto).trim().toUpperCase();
+            occupiedMap[key] = (occupiedMap[key] || 0) + Number(it.qty || 1);
+          }
+        });
+      }
+    }
+
+    const itemsMap = new Map();
+
+    // 2. Add accessories from inventario_accesorios
+    (accessories || []).forEach(acc => {
+      const name = String(acc.nombre).trim();
+      const normKey = name.toUpperCase();
+      let sec = 'Pañol';
+      const cat = String(acc.categoria || '').toLowerCase();
+      if (cat === 'lona') sec = 'Lonas';
+      else if (cat === 'tela') sec = 'Telas';
+      else if (cat === 'alfombra') sec = 'Alfombras';
+      else if (cat === 'piso') sec = 'Planta';
+      else if (cat === 'silla' || cat === 'tribuna') sec = 'Pañol';
+
+      const totalStock = Number(acc.stock_total || 0);
+      const occupied = occupiedMap[normKey] || 0;
+      const available = Math.max(0, totalStock - occupied);
+
+      itemsMap.set(normKey, {
+        id: `acc_${acc.id}`,
+        nombre: name,
+        sector: sec,
+        categoria: acc.categoria,
+        medida: acc.medida || null,
+        color: acc.color || null,
+        estado_item: acc.estado || null,
+        stock_total: totalStock,
+        stock_ocupado: occupied,
+        stock_disponible: available,
+        origen_tabla: 'inventario_accesorios'
+      });
+    });
+
+    // 3. Add base_arco components
+    (arches || []).forEach(arc => {
+      const name = String(arc.producto).trim();
+      const normKey = name.toUpperCase();
+      const qty = Number(arc.qty_fija_arco || 1);
+      const existing = itemsMap.get(normKey);
+
+      if (existing) {
+        existing.stock_total += qty;
+        existing.stock_disponible = Math.max(0, existing.stock_total - existing.stock_ocupado);
+      } else {
+        const occupied = occupiedMap[normKey] || 0;
+        const total = qty * 8;
+        itemsMap.set(normKey, {
+          id: `arc_${arc.id}`,
+          nombre: name,
+          sector: arc.sector || 'Planta',
+          categoria: 'Estructural Arco',
+          modelo_estructura: arc.modelo_estructura,
+          stock_total: total,
+          stock_ocupado: occupied,
+          stock_disponible: Math.max(0, total - occupied),
+          origen_tabla: 'base_arco'
+        });
+      }
+    });
+
+    // 4. Add base_modulo components
+    (modules || []).forEach(mod => {
+      const name = String(mod.producto).trim();
+      const normKey = name.toUpperCase();
+      const qty = Number(mod.stock_inicial || 1);
+      const existing = itemsMap.get(normKey);
+
+      if (existing) {
+        existing.stock_total += qty;
+        existing.stock_disponible = Math.max(0, existing.stock_total - existing.stock_ocupado);
+      } else {
+        const occupied = occupiedMap[normKey] || 0;
+        const total = Math.max(qty * 12, 24);
+        itemsMap.set(normKey, {
+          id: `mod_${mod.id}`,
+          nombre: name,
+          sector: mod.sector || 'Planta',
+          categoria: 'Estructural Módulo',
+          modelo_estructura: mod.modelo_estructura,
+          stock_total: total,
+          stock_ocupado: occupied,
+          stock_disponible: Math.max(0, total - occupied),
+          origen_tabla: 'base_modulo'
+        });
+      }
+    });
+
+    // 5. Add base_fijo components
+    (fijos || []).forEach(fij => {
+      const name = String(fij.producto).trim();
+      const normKey = name.toUpperCase();
+      const qty = Number(fij.qty_fija_carpa || 1);
+      const existing = itemsMap.get(normKey);
+
+      if (existing) {
+        existing.stock_total += qty;
+        existing.stock_disponible = Math.max(0, existing.stock_total - existing.stock_ocupado);
+      } else {
+        const occupied = occupiedMap[normKey] || 0;
+        const total = Math.max(qty * 6, 12);
+        itemsMap.set(normKey, {
+          id: `fij_${fij.id}`,
+          nombre: name,
+          sector: fij.sector || 'Planta',
+          categoria: 'Estructural Fijo',
+          modelo_estructura: fij.modelo_estructura,
+          stock_total: total,
+          stock_ocupado: occupied,
+          stock_disponible: Math.max(0, total - occupied),
+          origen_tabla: 'base_fijo'
+        });
+      }
+    });
+
+    const catalog = Array.from(itemsMap.values()).sort((a, b) => a.nombre.localeCompare(b.nombre));
+    res.json(catalog);
+  } catch (err) {
+    console.error("Error en catalogo-maestro:", err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -1897,8 +2327,8 @@ const syncOtToVentasHistoricas = async (ot) => {
       }
     }
 
-    const adicionales = typeof ot.adicionales === 'string' ? JSON.parse(ot.adicionales) : ot.adicionales || {};
-    const georef = typeof ot.georef === 'string' ? JSON.parse(ot.georef) : ot.georef || {};
+    const adicionales = typeof ot.adicionales === 'string' ? safeJsonParse(ot.adicionales) : ot.adicionales || {};
+    const georef = typeof ot.georef === 'string' ? safeJsonParse(ot.georef) : ot.georef || {};
 
     const piso = adicionales.pisos?.si || false;
     const tarima = adicionales.tarima?.si || adicionales.tarimas?.si || false;
@@ -2739,8 +3169,13 @@ app.post('/api/maestro/import/:table', express.raw({ type: '*/*', limit: '50mb' 
         const cuit = getVal(row, ['CUIT', 'cuit']);
         const telefono = getVal(row, ['Teléfono', 'Telefono', 'telefono']);
         const rol_funcion = getVal(row, ['Rol', 'Función', 'Funcion', 'rol_funcion', 'rol'], 'Operario');
+        const tipo = getVal(row, ['Tipo', 'tipo'], 'Fijo');
+        const subtipo_chofer = getVal(row, ['Subtipo_Chofer', 'Subtipo', 'subtipo_chofer']);
+        const roles_secundarios = getVal(row, ['Roles_Secundarios', 'roles_secundarios']);
+        const examen_medico_vencimiento = getVal(row, ['Examen_Medico_Vencimiento', 'Examen_Medico', 'Examen Medico', 'examen_medico_vencimiento', 'examen_medico', 'Examen_Médico', 'Examen Médico']);
+        const licencia_conducir_vencimiento = getVal(row, ['Licencia_Conducir_Vencimiento', 'Licencia_Conducir', 'Licencia Conducir', 'licencia_conducir_vencimiento', 'licencia_conducir', 'Registro_Conducir', 'Registro']);
         const activo = getVal(row, ['Activo', 'activo'], 'sí') !== 'no' && getVal(row, ['Activo', 'activo'], true) !== false;
-        await db.savePersonal({ nombre, cuit, telefono, rol_funcion, activo });
+        await db.savePersonal({ nombre, cuit, telefono, rol_funcion, tipo, subtipo_chofer, roles_secundarios, examen_medico_vencimiento, licencia_conducir_vencimiento, activo });
         insertedCount++;
       }
     } else if (table === 'recursos') {
@@ -2748,11 +3183,14 @@ app.post('/api/maestro/import/:table', express.raw({ type: '*/*', limit: '50mb' 
       for (const row of rows) {
         const nombre = getVal(row, ['Nombre', 'nombre']);
         if (!nombre) continue;
-        const tipo = getVal(row, ['Tipo', 'tipo'], 'Maquinaria');
-        const patente_identificador = getVal(row, ['Patente', 'Identificador', 'patente_identificador', 'patente']);
-        const descripcion = getVal(row, ['Descripción', 'Descripcion', 'descripcion']);
+        const tipo = getVal(row, ['Tipo', 'tipo'], 'Vehículo / Camión');
+        const subtipo = getVal(row, ['Subtipo', 'subtipo']);
+        const patente_identificador = getVal(row, ['Patente', 'Identificador', 'patente_identificador', 'patente', 'Registro']);
+        const vtv_vencimiento = getVal(row, ['VTV_Vencimiento', 'VTV', 'vtv_vencimiento', 'vtv', 'Vencimiento_VTV', 'Vencimiento VTV']);
+        const seguro_vencimiento = getVal(row, ['Seguro_Vencimiento', 'Seguro', 'seguro_vencimiento', 'seguro', 'Vencimiento_Seguro', 'Vencimiento Seguro']);
+        const descripcion = getVal(row, ['Descripción', 'Descripcion', 'descripcion', 'Observaciones']);
         const activo = getVal(row, ['Activo', 'activo'], 'sí') !== 'no' && getVal(row, ['Activo', 'activo'], true) !== false;
-        await db.saveRecurso({ nombre, tipo, patente_identificador, descripcion, activo });
+        await db.saveRecurso({ nombre, tipo, subtipo, patente_identificador, vtv_vencimiento, seguro_vencimiento, descripcion, activo });
         insertedCount++;
       }
     } else if (table === 'estructuras') {
@@ -2919,6 +3357,101 @@ app.post('/api/maestro/import/:table', express.raw({ type: '*/*', limit: '50mb' 
     res.status(500).json({ error: err.message });
   }
 });
+
+// ── MÓDULO APRENDIZAJE IA (RAG & AUTO-SKILLS) ENDPOINTS ──
+
+const upload = multer({ storage: multer.memoryStorage() });
+
+app.post('/api/aprendizaje/documentos', upload.single('file'), async (req, res) => {
+  try {
+    let { titulo, tipo, contenido } = req.body;
+    
+    if (req.file) {
+      if (!req.file.originalname.toLowerCase().endsWith('.pdf')) {
+        return res.status(400).json({ error: 'El archivo debe ser un PDF válido.' });
+      }
+      if (!titulo) {
+        titulo = path.parse(req.file.originalname).name;
+      }
+      
+      const parsedPdf = await pdfParse(req.file.buffer);
+      contenido = parsedPdf.text;
+      
+      if (!contenido || !contenido.trim()) {
+        return res.status(400).json({ error: 'El archivo PDF no contiene texto legible.' });
+      }
+    }
+    
+    if (!titulo || !contenido) {
+      return res.status(400).json({ error: 'Faltan campos obligatorios (título y contenido).' });
+    }
+    
+    const doc = await db.saveDocumento({ titulo, contenido, tipo: tipo || 'general' });
+    res.status(201).json(doc);
+  } catch (err) {
+    console.error("Error in POST /api/aprendizaje/documentos:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/aprendizaje/estado', async (req, res) => {
+  try {
+    const documentos = await db.getDocumentos();
+    const skills = await db.getSkills();
+    res.json({ documentos, skills });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/aprendizaje/documentos/:id', async (req, res) => {
+  try {
+    const success = await db.deleteDocumento(req.params.id);
+    if (success) {
+      res.json({ message: 'Documento eliminado correctamente.' });
+    } else {
+      res.status(404).json({ error: 'Documento no encontrado.' });
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/aprendizaje/skills', async (req, res) => {
+  try {
+    const { nombre, descripcion, trigger_keywords, instrucciones } = req.body;
+    if (!nombre || !instrucciones) {
+      return res.status(400).json({ error: 'Faltan campos obligatorios (nombre e instrucciones).' });
+    }
+    
+    const skill = await db.saveSkill({ nombre, descripcion, trigger_keywords, instrucciones });
+    res.status(201).json(skill);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/aprendizaje/skills/:id', async (req, res) => {
+  try {
+    const success = await db.deleteSkill(req.params.id);
+    if (success) {
+      res.json({ message: 'Habilidad eliminada correctamente.' });
+    } else {
+      res.status(404).json({ error: 'Habilidad no encontrada.' });
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Serve frontend static assets from ../frontend/dist
+const frontendDistPath = path.join(__dirname, '..', 'frontend', 'dist');
+if (fs.existsSync(frontendDistPath)) {
+  app.use(express.static(frontendDistPath));
+  app.get('*', (req, res) => {
+    res.sendFile(path.join(frontendDistPath, 'index.html'));
+  });
+}
 
 app.listen(PORT, () => {
   console.log(`Carpas D'Angiola ERP Backend API running on port ${PORT}`);

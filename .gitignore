@@ -42,4 +42,8 @@ backend/data/db.json
 *.db
 covelia.db
 
+# Secrets and local credentials
+.env.secrets
 
+
+*.mjs.timestamp*

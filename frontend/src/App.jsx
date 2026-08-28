@@ -4,7 +4,7 @@ import {
   MapPin, MessageSquare, ListTodo, FileText, CheckCircle2,
   Trash2, X, Download, AlertTriangle, Play, HelpCircle, LogOut,
   Printer, ArrowRight, Warehouse, Shuffle, Truck,
-  Sun, Cloud, CloudRain, CloudSnow, CloudLightning, Wind, Thermometer
+  Sun, Moon, Cloud, CloudRain, CloudSnow, CloudLightning, Wind, Thermometer
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import confetti from 'canvas-confetti';
@@ -17,10 +17,50 @@ import RoleDashboard from './components/RoleDashboard';
 import GerenciaDashboard from './components/GerenciaDashboard';
 import PersonalRecursos from './components/PersonalRecursos';
 import MaestroDatos from './components/MaestroDatos';
+import AprendizajeIA from './components/AprendizajeIA';
+
+const safeJsonParse = (val, fallback = {}) => {
+  if (!val) return fallback;
+  if (typeof val === 'object') return val;
+  try {
+    return JSON.parse(val);
+  } catch (e) {
+    console.error("Error parsing JSON:", e, val);
+    return fallback;
+  }
+};
+
+const isLona = (name) => {
+  const n = String(name || '').toLowerCase();
+  return n.includes('lona') || n.includes('techo') || n.includes('lateral') || n.includes('triangulo') || n.includes('tapachata') || n.includes('puerta');
+};
+
+const isPiso = (name) => {
+  const n = String(name || '').toLowerCase();
+  return n.includes('piso') || n.includes('placa') || n.includes('fenolico') || n.includes('caño');
+};
+
+const isAlfombra = (name) => {
+  const n = String(name || '').toLowerCase();
+  return n.includes('alfombra');
+};
+
+const isTela = (name) => {
+  const n = String(name || '').toLowerCase();
+  return n.includes('tela') || n.includes('cortina') || n.includes('cielorraso');
+};
+
+const safeDateString = (dateStr) => {
+  if (!dateStr) return '';
+  if (typeof dateStr === 'string') return dateStr;
+  if (dateStr instanceof Date) return dateStr.toISOString();
+  return String(dateStr);
+};
 
 export default function App() {
+
   // Roles list
-  const roles = ['Comercial', 'Operaciones', 'Gerencia', 'Operario', 'Chofer', 'SuperAdmin'];
+  const roles = ['Comercial', 'Operaciones', 'Gerencia', 'Operario', 'Chofer', 'Jefe de Planta', 'SuperAdmin'];
   const [userRole, setUserRole] = useState('Comercial');
   const [userName, setUserName] = useState('Mariana D´Angiola');
   const [currentUser, setCurrentUser] = useState(null);
@@ -59,6 +99,28 @@ export default function App() {
   const [personalList, setPersonalList] = useState([]);
   const [recursosList, setRecursosList] = useState([]);
   const [desarmeRecords, setDesarmeRecords] = useState([]);
+
+  // Global Night Mode
+  const [isNightMode, setIsNightMode] = useState(() => {
+    try {
+      return localStorage.getItem('dangiola_night_mode') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    if (isNightMode) {
+      document.body.classList.add('night-mode');
+    } else {
+      document.body.classList.remove('night-mode');
+    }
+    try {
+      localStorage.setItem('dangiola_night_mode', String(isNightMode));
+    } catch (e) {}
+  }, [isNightMode]);
+
+  const toggleNightMode = () => setIsNightMode(prev => !prev);
 
   // Modals & Active Selections
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -114,6 +176,37 @@ export default function App() {
   const [conformanceSelectedModuloModel, setConformanceSelectedModuloModel] = useState('');
   const [conformanceSelectedModulesList, setConformanceSelectedModulesList] = useState([]);
 
+  const [showReturnModal, setShowReturnModal] = useState(false);
+  const [returnItemsState, setReturnItemsState] = useState([]);
+
+  const getDispatchedItems = (ot) => {
+    if (!ot) return [];
+    const panol = typeof ot.panol_status === 'string' ? safeJsonParse(ot.panol_status) : ot.panol_status;
+    const planta = typeof ot.planta_status === 'string' ? safeJsonParse(ot.planta_status) : ot.planta_status;
+    const items = [];
+    if (panol?.items) {
+      panol.items.forEach(i => {
+        items.push({ producto: i.producto, qty: i.qty, sector: i.sector || 'Pañol' });
+      });
+    }
+    if (planta?.items) {
+      planta.items.forEach(i => {
+        items.push({ producto: i.producto, qty: i.qty, sector: i.sector || 'Planta' });
+      });
+    }
+    return items;
+  };
+
+  const openReturnModal = (ot) => {
+    const conformedItems = getDispatchedItems(ot);
+    setReturnItemsState(conformedItems.map(item => ({
+      ...item,
+      qty_retornada: item.qty, // default to conformed qty
+      obs: 'Excelente' // default observation
+    })));
+    setShowReturnModal(true);
+  };
+
   // Logistica & Desarme States
   const [disassemblyOT, setDisassemblyOT] = useState(null);
   const [logisticaFechaFin, setLogisticaFechaFin] = useState('');
@@ -121,6 +214,12 @@ export default function App() {
   const [logisticaFechaComienzoArmado, setLogisticaFechaComienzoArmado] = useState('');
   const [logisticaFechaComienzoDesarmado, setLogisticaFechaComienzoDesarmado] = useState('');
   const [logisticaFechaRetorno, setLogisticaFechaRetorno] = useState('');
+  const [expandedArchesModel, setExpandedArchesModel] = useState(null);
+  const [expandedModulesModel, setExpandedModulesModel] = useState(null);
+  const [expandedFijoModel, setExpandedFijoModel] = useState(null);
+  const [lonaFilter, setLonaFilter] = useState('todos');
+  const [logisticaFechaInicio, setLogisticaFechaInicio] = useState('');
+  const [logisticaFechaEvento, setLogisticaFechaEvento] = useState('');
 
   // Disassembly Wizard Specific States
   const [disassemblyStep, setDisassemblyStep] = useState(1);
@@ -216,7 +315,10 @@ export default function App() {
 
   const fetchPersonal = async () => {
     try {
-      const res = await fetch('/api/personal');
+      const res = await fetch(`/api/personal?_t=${Date.now()}`, {
+        cache: 'no-store',
+        headers: { 'Pragma': 'no-cache', 'Cache-Control': 'no-cache' }
+      });
       if (res.ok) {
         const data = await res.json();
         setPersonalList(data);
@@ -228,7 +330,10 @@ export default function App() {
 
   const fetchRecursos = async () => {
     try {
-      const res = await fetch('/api/recursos');
+      const res = await fetch(`/api/recursos?_t=${Date.now()}`, {
+        cache: 'no-store',
+        headers: { 'Pragma': 'no-cache', 'Cache-Control': 'no-cache' }
+      });
       if (res.ok) {
         const data = await res.json();
         setRecursosList(data);
@@ -282,12 +387,14 @@ export default function App() {
         body: JSON.stringify(recurso)
       });
       if (res.ok) {
-        fetchRecursos();
+        await fetchRecursos();
       } else {
-        alert('Error al guardar recurso');
+        const errData = await res.json().catch(() => ({}));
+        alert(`Error al guardar recurso: ${errData.error || res.statusText}`);
       }
     } catch (err) {
       console.error("Error saving resource:", err);
+      alert(`Error de conexión al guardar recurso: ${err.message}`);
     }
   };
 
@@ -297,12 +404,14 @@ export default function App() {
         method: 'DELETE'
       });
       if (res.ok) {
-        fetchRecursos();
+        await fetchRecursos();
       } else {
-        alert('Error al eliminar recurso');
+        const errData = await res.json().catch(() => ({}));
+        alert(`Error al eliminar recurso: ${errData.error || res.statusText}`);
       }
     } catch (err) {
       console.error("Error deleting resource:", err);
+      alert(`Error de conexión al eliminar recurso: ${err.message}`);
     }
   };
 
@@ -378,6 +487,13 @@ export default function App() {
     }
   }, [currentUser]);
 
+  useEffect(() => {
+    if (currentUser && (currentTab === 'personal_recursos' || currentTab === 'maestro' || currentTab === 'calendar')) {
+      fetchPersonal();
+      fetchRecursos();
+    }
+  }, [currentTab, currentUser]);
+
   const fetchChatAlerts = async () => {
     const username = currentUser?.username || 'admin';
     const rol = currentUser?.rol || userRole;
@@ -398,6 +514,144 @@ export default function App() {
     const interval = setInterval(fetchChatAlerts, 10000);
     return () => clearInterval(interval);
   }, [currentUser, userRole, userName]);
+
+  const getModelFromArch = (arco) => {
+    if (!arco) return '';
+    const parts = arco.split('_');
+    return parts[0];
+  };
+
+  const getModelFromModule = (moduloVal) => {
+    if (!moduloVal) return '';
+    const idx = moduloVal.lastIndexOf('-M');
+    if (idx !== -1) {
+      return moduloVal.substring(0, idx);
+    }
+    return moduloVal;
+  };
+
+  const formatLonaName = (name) => {
+    if (!name) return '';
+    return name
+      .replace(/triángulos de piñón/gi, 'Triángulos')
+      .replace(/triángulo de piñón/gi, 'Triángulo')
+      .replace(/triángulos de piñon/gi, 'Triángulos')
+      .replace(/triángulo de piñon/gi, 'Triángulo')
+      .replace(/triángulos de piñón/gi, 'Triángulos')
+      .replace(/triángulo de piñón/gi, 'Triángulo')
+      .replace(/triángulos de pinon/gi, 'Triángulos')
+      .replace(/triángulo de pinon/gi, 'Triángulo')
+      .replace(/piñón/gi, 'Triángulo')
+      .replace(/piñon/gi, 'Triángulo');
+  };
+
+  const getAvailableColorsForAccessory = (catalogId) => {
+    if (!catalogId) return ['Blanco', 'Negro', 'Cristal', 'Ciego'];
+    const selectedItem = accessoriesCatalog.find(c => String(c.id) === String(catalogId));
+    if (!selectedItem) return ['Blanco', 'Negro', 'Cristal', 'Ciego'];
+    
+    const matches = accessoriesCatalog.filter(c => 
+      c.nombre === selectedItem.nombre && 
+      (c.medida === selectedItem.medida || !c.medida)
+    );
+    
+    const colors = matches.map(c => c.color).filter(Boolean);
+    const uniqueColors = [...new Set(colors)];
+    
+    if (uniqueColors.length === 0) {
+      return ['Blanco', 'Negro', 'Cristal', 'Ciego'];
+    }
+    
+    ['Blanco', 'Negro', 'Cristal', 'Ciego'].forEach(col => {
+      if (!uniqueColors.includes(col)) {
+        uniqueColors.push(col);
+      }
+    });
+    
+    return uniqueColors;
+  };
+
+  const getFilteredCatalog = (label, catalog) => {
+    if (label !== 'Lonas') return catalog;
+    if (!lonaFilter || lonaFilter === 'todos') return catalog;
+    
+    return catalog.filter(item => {
+      const nameLower = (item.nombre || '').toLowerCase();
+      const typeLower = (item.tipo || '').toLowerCase();
+      const matchesTecho = nameLower.includes('techo') || typeLower.includes('techo');
+      const matchesTriangulo = nameLower.includes('triángulo') || nameLower.includes('triangulo') || nameLower.includes('piñón') || nameLower.includes('piñon') ||
+                              typeLower.includes('triángulo') || typeLower.includes('triangulo') || typeLower.includes('piñón') || typeLower.includes('piñon');
+      const matchesLateral = nameLower.includes('lateral') || nameLower.includes('laterales') || typeLower.includes('lateral') || typeLower.includes('laterales');
+      
+      if (lonaFilter === 'techo') return matchesTecho;
+      if (lonaFilter === 'triangulo') return matchesTriangulo;
+      if (lonaFilter === 'laterales') return matchesLateral;
+      return true;
+    });
+  };
+
+  useEffect(() => {
+    if (conformanceSelectedArches.length > 0 && selectedOT) {
+      const models = conformanceSelectedArches.map(arco => getModelFromArch(arco));
+      const dominantModel = models[0];
+      
+      if (dominantModel) {
+        const adds = typeof selectedOT.adicionales === 'string' ? safeJsonParse(selectedOT.adicionales) : selectedOT.adicionales || {};
+        const prevFijo = adds?.fijo_modelo_estructura;
+        if (!prevFijo) {
+          const overlapping = ots.filter(o =>
+            o.id !== selectedOT.id &&
+            o.estado !== 'Cancelada' &&
+            o.estado !== 'Rechazada' &&
+            datesOverlap(o.fecha_inicio, o.fecha_fin, selectedOT.fecha_inicio, selectedOT.fecha_fin)
+          );
+          const reservedFijos = new Set();
+          overlapping.forEach(o => {
+            const ad = typeof o.adicionales === 'string' ? safeJsonParse(o.adicionales) : o.adicionales || {};
+            const resFijo = ad.fijo_modelo_estructura || o.modelo_estructura;
+            if (resFijo) reservedFijos.add(resFijo);
+          });
+          if (!reservedFijos.has(dominantModel)) {
+            setConformanceSelectedFijoModel(dominantModel);
+          }
+        }
+
+        const prevConformedList = Array.isArray(adds?.conformed_modulos_list) ? adds.conformed_modulos_list : [];
+        if (prevConformedList.length === 0) {
+          const neededModules = getConformanceModulesNeeded();
+          if (neededModules > 0) {
+            const prefix = getStructurePrefix(selectedOT.modelo_estructura);
+            const overlapping = ots.filter(o =>
+              o.id !== selectedOT.id &&
+              o.estado !== 'Cancelada' &&
+              o.estado !== 'Rechazada' &&
+              datesOverlap(o.fecha_inicio, o.fecha_fin, selectedOT.fecha_inicio, selectedOT.fecha_fin)
+            );
+            const reservedModules = new Set();
+            overlapping.forEach(o => {
+              const ad = typeof o.adicionales === 'string' ? safeJsonParse(o.adicionales) : o.adicionales || {};
+              const list = ad.conformed_modulos_list || [];
+              list.forEach(m => {
+                if (m.largo === 5) reservedModules.add(m.modelo_estructura);
+              });
+            });
+
+            const kits = modulesCatalog
+              .filter(m => m.modulacion === 5 && m.modulo_val && m.modulo_val.startsWith(prefix) && getModelFromModule(m.modulo_val) === dominantModel)
+              .map(m => m.modulo_val)
+              .filter(kit => !reservedModules.has(kit));
+            const uniqueKits = [...new Set(kits)].sort();
+
+            if (uniqueKits.length >= neededModules) {
+              setConformanceSelectedModulesList(uniqueKits.slice(0, neededModules));
+            } else {
+              setConformanceSelectedModulesList(uniqueKits);
+            }
+          }
+        }
+      }
+    }
+  }, [conformanceSelectedArches]);
 
   // Update suggest parameters and reset stock checks on dimension or material changes
   useEffect(() => {
@@ -454,16 +708,24 @@ export default function App() {
           arcos_necesarios: archesNeeded
         })
       });
+      if (!res.ok) {
+        throw new Error(`Error del servidor (${res.status})`);
+      }
       const data = await res.json();
 
       if (data.available) {
-        setAvailabilityResults(data.results || []);
+        const results = data.results || [];
+        setAvailabilityResults(results);
         setStockCheckStatus('ok');
-        setStockCheckMsg(`✓ ¡Disponibilidad encontrada! Revisa la lista de estructuras abajo y selecciona cuál deseas reservar para esta orden.`);
+        const firstAvailable = results.find(r => r.suficiente || r.arcos_disponibles >= archesNeeded);
+        if (firstAvailable && (!formModeloEst || !results.some(r => r.modelo_estructura === formModeloEst && (r.suficiente || r.arcos_disponibles >= archesNeeded)))) {
+          setFormModeloEst(firstAvailable.modelo_estructura);
+        }
+        setStockCheckMsg(`✓ ¡Disponibilidad confirmada! Selecciona la estructura deseada abajo para reservarla.`);
       } else {
         setAvailabilityResults(data.results || []);
         setStockCheckStatus('error');
-        setStockCheckMsg(`✗ Conflicto de Stock: No hay arcos suficientes en estas fechas para ninguna de las estructuras de ${formTipoEst} de ${formFrente}m.`);
+        setStockCheckMsg(`✗ Conflicto de Stock: No hay arcos suficientes en estas fechas para ninguna estructura de ${formTipoEst} de ${formFrente}m.`);
       }
     } catch (err) {
       console.error(err);
@@ -482,7 +744,7 @@ export default function App() {
     const matchingStruct = structuresStock?.find(s => s.modelo_estructura === ot.modelo_estructura);
     const resolvedType = matchingStruct ? matchingStruct.estructura_tipo : 'Aluminio';
 
-    const modConfig = typeof ot.modulacion_config === 'string' ? JSON.parse(ot.modulacion_config) : ot.modulacion_config;
+    const modConfig = typeof ot.modulacion_config === 'string' ? safeJsonParse(ot.modulacion_config) : ot.modulacion_config;
     let archesNeeded = 0;
     if (modConfig && modConfig.modulos) {
       let totalModules = 0;
@@ -505,6 +767,9 @@ export default function App() {
           exclude_ot_id: ot.id
         })
       });
+      if (!res.ok) {
+        throw new Error(`Error del servidor (${res.status})`);
+      }
       const data = await res.json();
 
       if (data.available) {
@@ -525,7 +790,7 @@ export default function App() {
 
   const handleWeatherAnalysis = async (ot) => {
     if (!ot) return;
-    const geo = typeof ot.georef === 'string' ? JSON.parse(ot.georef) : ot.georef;
+    const geo = typeof ot.georef === 'string' ? safeJsonParse(ot.georef) : ot.georef;
     const lat = geo?.lat;
     const lng = geo?.lng;
 
@@ -806,17 +1071,24 @@ export default function App() {
       return;
     }
 
-    // Automatically resolve structure model matching Frente and Material
-    // Documentation Addendum: Control de Acceso y Gestión de Usuarios (RBAC)
-    // 1. Login: Glassmorphism UI, local storage persistence, standard accounts pre-defined.
-    // 2. Gestión: Tab exclusivo para SuperAdmin, CRUD completo con bloqueos de seguridad.
-    // 3. Formulario: Verificación de Arcos informativa (no bloqueante), resolución de modelo automática en background.
+    // Resolve structure model matching Frente and Material
+    let resolvedModelo = formModeloEst;
+    let targetAvailability = availabilityResults.find(r => r.modelo_estructura === formModeloEst);
 
-    const matchingStructure = structures.find(s =>
-      parseFloat(s.frente) === parseFloat(formFrente) &&
-      s.estructura_tipo.toLowerCase() === formTipoEst.toLowerCase()
-    );
-    const resolvedModelo = matchingStructure ? matchingStructure.modelo_estructura : (structures[0]?.modelo_estructura || 'C10-L1');
+    if (!resolvedModelo || !targetAvailability) {
+      // Find the first model that has enough arches
+      const bestAvailable = availabilityResults.find(r => r.suficiente || r.arcos_disponibles >= archesNeeded);
+      if (bestAvailable) {
+        resolvedModelo = bestAvailable.modelo_estructura;
+        targetAvailability = bestAvailable;
+      } else {
+        const matchingStructure = structures.find(s =>
+          parseFloat(s.frente) === parseFloat(formFrente) &&
+          s.estructura_tipo.toLowerCase() === formTipoEst.toLowerCase()
+        );
+        resolvedModelo = matchingStructure ? matchingStructure.modelo_estructura : (structures[0]?.modelo_estructura || 'C10-L1');
+      }
+    }
 
     // Integrity Check: sum of modules length must equal total length
     let sumModulesLength = 0;
@@ -826,19 +1098,12 @@ export default function App() {
       return;
     }
 
-    // Automatically resolve arches to reserve if available from stock check
-    let totalModules = 0;
-    formModConfig.modulos.forEach(m => totalModules += m.qty);
-    const archesNeeded = totalModules + 1;
-
+    // Resolve arches to reserve strictly from the chosen structure model
     let selectedArches = [];
-    let archesCollected = 0;
-    for (const res of availabilityResults) {
-      if (archesCollected >= archesNeeded) break;
-      const availableList = res.arcos_disponibles_list || [];
-      const toTake = availableList.slice(0, archesNeeded - archesCollected);
-      selectedArches = [...selectedArches, ...toTake];
-      archesCollected += toTake.length;
+    if (targetAvailability && Array.isArray(targetAvailability.arcos_disponibles_list) && targetAvailability.arcos_disponibles_list.length >= archesNeeded) {
+      selectedArches = targetAvailability.arcos_disponibles_list.slice(0, archesNeeded);
+    } else {
+      selectedArches = Array.from({ length: archesNeeded }, (_, i) => `${resolvedModelo}_A${i + 1}`);
     }
 
     // Trigger materials explosion to save checklist items
@@ -887,11 +1152,12 @@ export default function App() {
       expData.explosion.accesorios.forEach(i => {
         let sec = 'Pañol';
         if (i.categoria === 'lona') sec = 'Lonas';
-        else if (i.categoria === 'piso' || i.categoria === 'alfombra') sec = 'Pisos';
+        else if (i.categoria === 'piso') sec = 'Pisos';
+        else if (i.categoria === 'alfombra') sec = 'Alfombras';
         else if (i.categoria === 'tela') sec = 'Telas';
 
         const item = { producto: i.producto, qty: i.qty, sector: sec, checked: false };
-        if (sec === 'Lonas' || sec === 'Pisos' || sec === 'Planta') {
+        if (sec === 'Lonas' || sec === 'Pisos' || sec === 'Alfombras' || sec === 'Planta') {
           plantaItems.push(item);
         } else {
           panolItems.push(item);
@@ -904,6 +1170,7 @@ export default function App() {
         fecha_inicio: formFechaInicio,
         fecha_fin: formFechaFin,
         fecha_evento: formFechaEvento,
+        fecha_comienzo_desarmado: formFechaFin,
         observaciones: formObservaciones,
         modelo_estructura: resolvedModelo,
         estructura_tipo: formTipoEst,
@@ -912,6 +1179,12 @@ export default function App() {
         superficie: parseFloat(formFrente * formLargo),
         modulacion_config: formModConfig,
         adicionales: {
+          fechas_iniciales: {
+            fecha_inicio: formFechaInicio,
+            fecha_evento: formFechaEvento,
+            fecha_fin: formFechaFin,
+            fecha_comienzo_desarmado: formFechaFin
+          },
           pisos: { si: formPisos, tipo: formPisosTipo, obs: formPisosObs },
           alfombras: { si: formAlfombras, color: formAlfombrasColor, obs: formAlfombrasObs },
           lonas: { si: formLonas, color: formLonasColor, obs: formLonasObs },
@@ -965,10 +1238,10 @@ export default function App() {
 
   const datesOverlap = (start1, end1, start2, end2) => {
     if (!start1 || !end1 || !start2 || !end2) return false;
-    const s1 = start1.substring(0, 10);
-    const e1 = end1.substring(0, 10);
-    const s2 = start2.substring(0, 10);
-    const e2 = end2.substring(0, 10);
+    const s1 = safeDateString(start1).substring(0, 10);
+    const e1 = safeDateString(end1).substring(0, 10);
+    const s2 = safeDateString(start2).substring(0, 10);
+    const e2 = safeDateString(end2).substring(0, 10);
     return s1 <= e2 && e1 >= s2;
   };
 
@@ -983,7 +1256,7 @@ export default function App() {
       const overlap = datesOverlap(ot.fecha_inicio, ot.fecha_fin, currentOT.fecha_inicio, currentOT.fecha_fin);
       if (!overlap) return false;
 
-      const otAdicionales = typeof ot.adicionales === 'string' ? JSON.parse(ot.adicionales) : ot.adicionales || {};
+      const otAdicionales = typeof ot.adicionales === 'string' ? safeJsonParse(ot.adicionales) : ot.adicionales || {};
       const otPers = otAdicionales.personal_asignado || {};
       const isAssigned = Object.values(otPers).some(ids => Array.isArray(ids) && ids.includes(personId));
       return isAssigned;
@@ -1010,7 +1283,7 @@ export default function App() {
       const overlap = datesOverlap(ot.fecha_inicio, ot.fecha_fin, currentOT.fecha_inicio, currentOT.fecha_fin);
       if (!overlap) return false;
 
-      const otAdicionales = typeof ot.adicionales === 'string' ? JSON.parse(ot.adicionales) : ot.adicionales || {};
+      const otAdicionales = typeof ot.adicionales === 'string' ? safeJsonParse(ot.adicionales) : ot.adicionales || {};
       const otRecs = otAdicionales.recursos_asignados || {};
       const isAssigned = Object.values(otRecs).some(ids => Array.isArray(ids) && ids.includes(resourceId));
       return isAssigned;
@@ -1024,6 +1297,41 @@ export default function App() {
 
   // Arch status is loaded from backend (single source of truth for date conflicts)
   const [conformanceArchesStatus, setConformanceArchesStatus] = useState([]);
+
+  const getNeededArchesForOT = (ot) => {
+    if (!ot) return 0;
+    const is12m = ot.largo === 12;
+    const modConfig = typeof ot.modulacion_config === 'string' ? safeJsonParse(ot.modulacion_config) : ot.modulacion_config;
+    const isComp = modConfig?.tipo === 'compuesta' || is12m;
+    if (is12m) {
+      return 4; // two 5m and one 2m modules = 4 arches
+    } else if (isComp) {
+      let qty = 0;
+      modConfig?.modulos?.forEach(m => { qty += m.qty; });
+      return qty + 1;
+    } else {
+      const len = modConfig?.modulos?.[0]?.largo || 5;
+      return Math.ceil(ot.largo / len) + 1;
+    }
+  };
+
+  const getNeededModulesForOT = (ot) => {
+    if (!ot) return 0;
+    const is12m = ot.largo === 12;
+    const modConfig = typeof ot.modulacion_config === 'string' ? safeJsonParse(ot.modulacion_config) : ot.modulacion_config;
+    const isComp = modConfig?.tipo === 'compuesta' || is12m;
+    if (is12m) {
+      return 2; // two 5m modules
+    } else if (isComp) {
+      return modConfig?.modulos?.find(m => m.largo === 5)?.qty || 0;
+    } else {
+      const len = modConfig?.modulos?.[0]?.largo || 5;
+      if (len === 5) {
+        return Math.ceil(ot.largo / 5);
+      }
+      return 0;
+    }
+  };
 
   const loadArchesStatusForOT = async (ot) => {
     if (!ot?.modelo_estructura || !ot?.fecha_inicio || !ot?.fecha_fin) return;
@@ -1041,7 +1349,59 @@ export default function App() {
         })
       });
       const data = await res.json();
-      setConformanceArchesStatus(data.archStatus || []);
+      const statusList = data.archStatus || [];
+      setConformanceArchesStatus(statusList);
+
+      const adicionales = typeof ot.adicionales === 'string' ? safeJsonParse(ot.adicionales) : ot.adicionales || {};
+      const currentArcos = adicionales?.arcos_reservados || [];
+      
+      if (currentArcos.length === 0) {
+        const neededArches = getNeededArchesForOT(ot);
+        const availableDefaultArches = statusList
+          .filter(s => getModelFromArch(s.arco) === ot.modelo_estructura && s.disponible)
+          .map(s => s.arco);
+        if (availableDefaultArches.length >= neededArches) {
+          setConformanceSelectedArches(availableDefaultArches.slice(0, neededArches));
+        } else {
+          setConformanceSelectedArches(availableDefaultArches);
+        }
+      } else {
+        setConformanceSelectedArches(currentArcos);
+      }
+
+      const prevConformedList = adicionales?.conformed_modulos_list || [];
+      if (prevConformedList.length === 0) {
+        const neededModules = getNeededModulesForOT(ot);
+        if (neededModules > 0) {
+          const prefix = getStructurePrefix(ot.modelo_estructura);
+          const overlappingOTs = ots.filter(o =>
+            o.id !== ot.id &&
+            o.estado !== 'Cancelada' &&
+            o.estado !== 'Rechazada' &&
+            datesOverlap(o.fecha_inicio, o.fecha_fin, ot.fecha_inicio, ot.fecha_fin)
+          );
+          const reservedModules = new Set();
+          overlappingOTs.forEach(o => {
+            const ad = typeof o.adicionales === 'string' ? safeJsonParse(o.adicionales) : o.adicionales || {};
+            const list = ad.conformed_modulos_list || [];
+            list.forEach(m => {
+              if (m.largo === 5) reservedModules.add(m.modelo_estructura);
+            });
+          });
+
+          const kits = modulesCatalog
+            .filter(m => m.modulacion === 5 && m.modulo_val && m.modulo_val.startsWith(prefix) && getModelFromModule(m.modulo_val) === ot.modelo_estructura)
+            .map(m => m.modulo_val)
+            .filter(kit => !reservedModules.has(kit));
+          const uniqueKits = [...new Set(kits)].sort();
+
+          if (uniqueKits.length >= neededModules) {
+            setConformanceSelectedModulesList(uniqueKits.slice(0, neededModules));
+          } else {
+            setConformanceSelectedModulesList(uniqueKits);
+          }
+        }
+      }
     } catch (err) {
       console.error('Error loading arch status:', err);
       setConformanceArchesStatus([]);
@@ -1053,9 +1413,9 @@ export default function App() {
     if (!ot) return [];
     if (conformanceArchesStatus.length > 0) {
       return conformanceArchesStatus.map(s => ({
-        arco: s.arco,
-        available: s.disponible,
-        occupant: s.reservado_por ? {
+        arco: s?.arco,
+        available: s?.disponible,
+        occupant: s?.reservado_por ? {
           ot_numero: s.reservado_por.ot_numero,
           cliente_nombre: s.reservado_por.cliente,
           estado: s.reservado_por.estado
@@ -1063,12 +1423,12 @@ export default function App() {
       }));
     }
     // Fallback: show all arches as available if status not loaded yet
-    const matchingStructures = structures.filter(s =>
-      parseFloat(s.frente) === parseFloat(ot.frente) &&
-      s.estructura_tipo.toLowerCase() === ot.estructura_tipo.toLowerCase()
+    const matchingStructures = (structures || []).filter(s =>
+      parseFloat(s?.frente) === parseFloat(ot?.frente) &&
+      (s?.estructura_tipo || '').toLowerCase() === (ot?.estructura_tipo || '').toLowerCase()
     );
     const matchingModelNames = matchingStructures.map(s => s.modelo_estructura);
-    const allArches = archesCatalog.filter(a => matchingModelNames.includes(a.modelo_estructura));
+    const allArches = (archesCatalog || []).filter(a => matchingModelNames.includes(a.modelo_estructura));
     const uniqueArchNames = [...new Set(allArches.map(a => a.arco))];
     return uniqueArchNames.map(arco => ({ arco, available: true, occupant: null }));
   };
@@ -1090,7 +1450,7 @@ export default function App() {
   const getConformanceModulesNeeded = () => {
     if (!selectedOT) return 0;
     const modConfig = typeof selectedOT.modulacion_config === 'string'
-      ? JSON.parse(selectedOT.modulacion_config)
+      ? safeJsonParse(selectedOT.modulacion_config)
       : selectedOT.modulacion_config;
     if (conformanceModType === 'simple') {
       if (conformanceSimpleLen === 5) {
@@ -1122,7 +1482,7 @@ export default function App() {
 
     const reservedModules = new Set();
     overlappingOTs.forEach(ot => {
-      const adicionales = typeof ot.adicionales === 'string' ? JSON.parse(ot.adicionales) : ot.adicionales || {};
+      const adicionales = typeof ot.adicionales === 'string' ? safeJsonParse(ot.adicionales) : ot.adicionales || {};
       const conformedList = adicionales.conformed_modulos_list || [];
       conformedList.forEach(m => {
         if (m.largo === 5) {
@@ -1153,7 +1513,7 @@ export default function App() {
 
     const reservedFijos = new Set();
     overlappingOTs.forEach(ot => {
-      const adicionales = typeof ot.adicionales === 'string' ? JSON.parse(ot.adicionales) : ot.adicionales || {};
+      const adicionales = typeof ot.adicionales === 'string' ? safeJsonParse(ot.adicionales) : ot.adicionales || {};
       const reservedFijo = adicionales.fijo_modelo_estructura || ot.modelo_estructura;
       if (reservedFijo) {
         reservedFijos.add(reservedFijo);
@@ -1224,7 +1584,7 @@ export default function App() {
           frente: selectedOT.frente,
           largo: selectedOT.largo,
           modulacion_config: modConfig,
-          adicionales: typeof selectedOT.adicionales === 'string' ? JSON.parse(selectedOT.adicionales) : selectedOT.adicionales,
+          adicionales: typeof selectedOT.adicionales === 'string' ? safeJsonParse(selectedOT.adicionales) : selectedOT.adicionales,
           fijo_modelo_estructura: conformanceSelectedFijoModel || selectedOT.modelo_estructura,
           conformed_modulos_list: conformedList
         })
@@ -1294,7 +1654,7 @@ export default function App() {
           frente: selectedOT.frente,
           largo: selectedOT.largo,
           modulacion_config: modConfig,
-          adicionales: typeof selectedOT.adicionales === 'string' ? JSON.parse(selectedOT.adicionales) : selectedOT.adicionales,
+          adicionales: typeof selectedOT.adicionales === 'string' ? safeJsonParse(selectedOT.adicionales) : selectedOT.adicionales,
           fijo_modelo_estructura: fijoModel || selectedOT.modelo_estructura,
           conformed_modulos_list: conformedList
         })
@@ -1415,7 +1775,8 @@ export default function App() {
     });
     conformanceTelas.forEach(item => {
       if (item.nombre) {
-        panolItems.push({ producto: buildAccLabel(item), qty: Number(item.qty) || 1, sector: 'Telas', checked: false });
+        const qtyVal = isNaN(Number(item.qty)) ? (item.qty || '1') : (Number(item.qty) || 1);
+        panolItems.push({ producto: buildAccLabel(item), qty: qtyVal, sector: 'Telas', checked: false });
       }
     });
     // --- End Step 5 ---
@@ -1519,22 +1880,37 @@ export default function App() {
     loadArchesStatusForOT(ot);
 
     // Initialize logistics states
-    setLogisticaFechaFin(ot.fecha_fin ? ot.fecha_fin.substring(0, 10) : '');
-    setLogisticaFechaTraslado(ot.fecha_traslado ? ot.fecha_traslado.substring(0, 16) : '');
-    setLogisticaFechaComienzoArmado(ot.fecha_comienzo_armado ? ot.fecha_comienzo_armado.substring(0, 16) : '');
-    setLogisticaFechaComienzoDesarmado(ot.fecha_comienzo_desarmado ? ot.fecha_comienzo_desarmado.substring(0, 16) : '');
-    setLogisticaFechaRetorno(ot.fecha_retorno ? ot.fecha_retorno.substring(0, 16) : '');
+    setLogisticaFechaFin(ot.fecha_fin ? safeDateString(ot.fecha_fin).substring(0, 10) : '');
+    setLogisticaFechaTraslado(ot.fecha_traslado ? safeDateString(ot.fecha_traslado).substring(0, 16) : '');
+    setLogisticaFechaComienzoArmado(ot.fecha_comienzo_armado ? safeDateString(ot.fecha_comienzo_armado).substring(0, 16) : '');
+    setLogisticaFechaComienzoDesarmado(ot.fecha_comienzo_desarmado ? safeDateString(ot.fecha_comienzo_desarmado).substring(0, 16) : '');
+    setLogisticaFechaRetorno(ot.fecha_retorno ? safeDateString(ot.fecha_retorno).substring(0, 16) : '');
+    setLogisticaFechaInicio(ot.fecha_inicio ? safeDateString(ot.fecha_inicio).substring(0, 10) : '');
+    setLogisticaFechaEvento(ot.fecha_evento ? safeDateString(ot.fecha_evento).substring(0, 10) : '');
 
     // Initialize conformance states
     setConformanceStep(1);
+    setExpandedArchesModel(ot.modelo_estructura);
+    setExpandedModulesModel(ot.modelo_estructura);
+    setExpandedFijoModel(ot.modelo_estructura);
+    setLonaFilter('todos');
 
     const prefix = getStructurePrefix(ot.modelo_estructura);
-    const adicionales = typeof ot.adicionales === 'string' ? JSON.parse(ot.adicionales) : ot.adicionales || {};
+    const adicionales = typeof ot.adicionales === 'string' ? safeJsonParse(ot.adicionales) : ot.adicionales || {};
     const prevFijo = adicionales?.fijo_modelo_estructura;
 
     // Inicializar colores del modulo 3D basado en lo que Comercial cargó (o colores guardados)
-    if (adicionales.viewerColors) {
-      setViewerColors(adicionales.viewerColors);
+    if (adicionales.viewerColors && typeof adicionales.viewerColors === 'object') {
+      const mergedColors = {
+        modules: Array.isArray(adicionales.viewerColors.modules) ? adicionales.viewerColors.modules : [],
+        frontTriangle: adicionales.viewerColors.frontTriangle || '#ffffff',
+        backTriangle: adicionales.viewerColors.backTriangle || '#ffffff',
+        frontTapachata: adicionales.viewerColors.frontTapachata || '#ffffff',
+        backTapachata: adicionales.viewerColors.backTapachata || '#ffffff',
+        lateral: adicionales.viewerColors.lateral || '#ffffff',
+        laterals: Array.isArray(adicionales.viewerColors.laterals) ? adicionales.viewerColors.laterals : []
+      };
+      setViewerColors(mergedColors);
     } else {
       const baseColorName = adicionales?.lonas?.color || 'Blanco';
       let baseColorHex = '#ffffff';
@@ -1542,7 +1918,7 @@ export default function App() {
       else if (baseColorName === 'Cristal/Blanca') baseColorHex = 'Cristal/Blanca';
       else if (baseColorName === 'Cristal/Negra') baseColorHex = 'Cristal/Negra';
       
-      const modConfig = typeof ot.modulacion_config === 'string' ? JSON.parse(ot.modulacion_config) : (ot.modulacion_config || {});
+      const modConfig = typeof ot.modulacion_config === 'string' ? safeJsonParse(ot.modulacion_config) : (ot.modulacion_config || {});
       const numModules = modConfig?.modulos?.reduce((acc, m) => acc + m.qty, 0) || 0;
 
       setViewerColors({
@@ -1551,7 +1927,8 @@ export default function App() {
         backTriangle: baseColorHex,
         frontTapachata: baseColorHex,
         backTapachata: baseColorHex,
-        lateral: baseColorHex
+        lateral: baseColorHex,
+        laterals: Array(numModules).fill(baseColorHex)
       });
     }
 
@@ -1564,7 +1941,7 @@ export default function App() {
     );
     const reservedFijos = new Set();
     overlapping.forEach(o => {
-      const ad = typeof o.adicionales === 'string' ? JSON.parse(o.adicionales) : o.adicionales || {};
+      const ad = typeof o.adicionales === 'string' ? safeJsonParse(o.adicionales) : o.adicionales || {};
       const resFijo = ad.fijo_modelo_estructura || o.modelo_estructura;
       if (resFijo) reservedFijos.add(resFijo);
     });
@@ -1585,7 +1962,7 @@ export default function App() {
       }
     }
     setConformanceSelectedModuloModel(ot.modelo_estructura);
-    const modConfig = typeof ot.modulacion_config === 'string' ? JSON.parse(ot.modulacion_config) : ot.modulacion_config;
+    const modConfig = typeof ot.modulacion_config === 'string' ? safeJsonParse(ot.modulacion_config) : ot.modulacion_config;
 
     // For 12m OTs, the number of 5m modules in the pool will be 2
     const is12m = ot.largo === 12;
@@ -1623,7 +2000,7 @@ export default function App() {
       setConformanceCompoundModulos(getDefaultCompoundModulos(ot.largo));
     }
 
-    const adds = typeof ot.adicionales === 'string' ? JSON.parse(ot.adicionales) : ot.adicionales;
+    const adds = typeof ot.adicionales === 'string' ? safeJsonParse(ot.adicionales) : ot.adicionales;
     setConformanceSelectedArches(adds?.arcos_reservados || []);
     setConformanceExplosion(null);
 
@@ -1670,8 +2047,8 @@ export default function App() {
     if (!selectedOT) return;
     const ot = { ...selectedOT };
 
-    const panol = typeof ot.panol_status === 'string' ? JSON.parse(ot.panol_status) : ot.panol_status;
-    const planta = typeof ot.planta_status === 'string' ? JSON.parse(ot.planta_status) : ot.planta_status;
+    const panol = typeof ot.panol_status === 'string' ? safeJsonParse(ot.panol_status) : ot.panol_status;
+    const planta = typeof ot.planta_status === 'string' ? safeJsonParse(ot.planta_status) : ot.planta_status;
 
     const indicesArray = Array.isArray(itemIndices) ? itemIndices : [itemIndices];
     const targetList = sector === 'Pañol' ? panol : planta;
@@ -1707,8 +2084,8 @@ export default function App() {
     if (!selectedOT) return;
     const ot = { ...selectedOT };
 
-    const panol = typeof ot.panol_status === 'string' ? JSON.parse(ot.panol_status) : ot.panol_status;
-    const planta = typeof ot.planta_status === 'string' ? JSON.parse(ot.planta_status) : ot.planta_status;
+    const panol = typeof ot.panol_status === 'string' ? safeJsonParse(ot.panol_status) : ot.panol_status;
+    const planta = typeof ot.planta_status === 'string' ? safeJsonParse(ot.planta_status) : ot.planta_status;
 
     const indicesArray = Array.isArray(itemIndices) ? itemIndices : [itemIndices];
     if (sector === 'Pañol') {
@@ -1749,6 +2126,133 @@ export default function App() {
       fetchData();
     } catch (err) {
       console.error(err);
+    }
+  };
+
+  const handleConfirmTotalCarga = async () => {
+    if (!selectedOT) return;
+    const ot = { ...selectedOT };
+
+    const panol = typeof ot.panol_status === 'string' ? safeJsonParse(ot.panol_status) : ot.panol_status;
+    const planta = typeof ot.planta_status === 'string' ? safeJsonParse(ot.planta_status) : ot.planta_status;
+
+    const sectors = ['Pañol', 'Planta', 'Lonas', 'Pisos', 'Alfombras', 'Telas'];
+    const uncheckedSectors = [];
+    
+    const allItems = [
+      ...(panol?.items || []).map(i => ({ ...i, sourceList: 'Pañol' })),
+      ...(planta?.items || []).map(i => ({ ...i, sourceList: 'Planta' }))
+    ];
+
+    const getSector = (item) => {
+      if (item.sector) return item.sector;
+      const name = item.producto || '';
+      if (isLona(name)) return 'Lonas';
+      if (isPiso(name)) return 'Pisos';
+      if (isAlfombra(name)) return 'Alfombras';
+      if (isTela(name)) return 'Telas';
+      return item.sourceList;
+    };
+
+    sectors.forEach(sec => {
+      const secItems = allItems.filter(i => getSector(i) === sec);
+      if (secItems.length > 0) {
+        const allUnchecked = secItems.every(i => !i.checked);
+        if (allUnchecked) {
+          uncheckedSectors.push(sec);
+        }
+      }
+    });
+
+    if (uncheckedSectors.length > 0) {
+      const proceed = window.confirm(`Atención: Los sectores [${uncheckedSectors.join(', ')}] no tienen ningún elemento tildado. ¿Desea continuar de todos modos?`);
+      if (!proceed) return;
+    }
+
+    if (panol?.items) {
+      panol.items.forEach(i => i.checked = true);
+    }
+    if (planta?.items) {
+      planta.items.forEach(i => i.checked = true);
+    }
+
+    try {
+      const res = await fetch(`/api/ots/${ot.id}/checklist`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          panol_status: panol,
+          planta_status: planta,
+          usuario: currentUser?.nombre || userName,
+          rol: currentUser?.rol || userRole
+        })
+      });
+
+      if (res.ok) {
+        await handleUpdateOTStatus(ot.id, 'Completada');
+        confetti({ particleCount: 150, spread: 80 });
+        setSelectedOT(null);
+        fetchData();
+        alert("Carga confirmada por completo y OT finalizada.");
+      } else {
+        alert("Error al actualizar la lista de carga.");
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Error al guardar la carga total.");
+    }
+  };
+
+  const handleConfirmReturnStock = async (returnedItems) => {
+    if (!selectedOT) return;
+    const ot = { ...selectedOT };
+    const prevAdic = typeof ot.adicionales === 'string' ? safeJsonParse(ot.adicionales) : ot.adicionales || {};
+
+    const updatedAdicionales = {
+      ...prevAdic,
+      retorno_stock: {
+        fecha_retorno: new Date().toISOString(),
+        items: returnedItems
+      }
+    };
+
+    try {
+      const adicRes = await fetch(`/api/ots/${ot.id}/adicionales`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          adicionales: updatedAdicionales,
+          usuario: currentUser?.nombre || userName,
+          rol: currentUser?.rol || userRole
+        })
+      });
+
+      if (adicRes.ok) {
+        const statusRes = await fetch(`/api/ots/${ot.id}/status`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            estado: 'Retornada',
+            usuario: currentUser?.nombre || userName,
+            rol: currentUser?.rol || userRole
+          })
+        });
+
+        if (statusRes.ok) {
+          confetti({ particleCount: 150, spread: 80 });
+          setShowReturnModal(false);
+          setSelectedOT(null);
+          fetchData();
+          alert("Retorno de stock confirmado y OT cerrada como Retornada.");
+        } else {
+          alert("Error al actualizar el estado de la OT a Retornada.");
+        }
+      } else {
+        alert("Error al guardar el desglose de retorno de stock.");
+      }
+    } catch (e) {
+      console.error(e);
+      alert("Error de conexión al procesar el retorno.");
     }
   };
 
@@ -1813,6 +2317,8 @@ export default function App() {
           fecha_comienzo_armado: logisticaFechaComienzoArmado || null,
           fecha_comienzo_desarmado: logisticaFechaComienzoDesarmado || null,
           fecha_retorno: logisticaFechaRetorno || null,
+          fecha_inicio: logisticaFechaInicio || null,
+          fecha_evento: logisticaFechaEvento || null,
           usuario: currentUser?.nombre || userName,
           rol: currentUser?.rol || userRole
         })
@@ -1834,8 +2340,8 @@ export default function App() {
 
   const getDisassemblyItemsList = (ot) => {
     if (!ot) return [];
-    const panol = typeof ot.panol_status === 'string' ? JSON.parse(ot.panol_status) : ot.panol_status;
-    const planta = typeof ot.planta_status === 'string' ? JSON.parse(ot.planta_status) : ot.planta_status;
+    const panol = typeof ot.panol_status === 'string' ? safeJsonParse(ot.panol_status) : ot.panol_status;
+    const planta = typeof ot.planta_status === 'string' ? safeJsonParse(ot.planta_status) : ot.planta_status;
     const list = [];
     if (panol?.items) {
       panol.items.forEach(item => {
@@ -1978,30 +2484,43 @@ export default function App() {
     // Draw table box
     doc.setDrawColor(220, 220, 220);
     doc.setLineWidth(0.2);
-    const boxH = items.length * 6 + 7;
+    // Draw table box with complete columns
+    doc.setDrawColor(220, 220, 220);
+    doc.setLineWidth(0.2);
+    const boxH = items.length * 6 + 8;
     doc.rect(startX, y, 180, boxH);
 
     doc.setFont('Helvetica', 'bold');
-    doc.setFontSize(8);
-    doc.text("COMPONENTE", startX + 4, y + 5);
-    doc.text("CANTIDAD", startX + 100, y + 5);
-    doc.text("SECTOR", startX + 130, y + 5);
-    doc.text("ESTADO", startX + 160, y + 5);
+    doc.setFontSize(7);
+    doc.text("COMPONENTE / MATERIAL", startX + 2, y + 5);
+    doc.text("SECTOR", startX + 68, y + 5);
+    doc.text("CANT.", startX + 90, y + 5);
+    doc.text("PREP.", startX + 105, y + 5);
+    doc.text("ENV.", startX + 118, y + 5);
+    doc.text("EGRESAN", startX + 130, y + 5);
+    doc.text("REGRESAN", startX + 148, y + 5);
+    doc.text("OBS.", startX + 166, y + 5);
     doc.line(startX, y + 7, startX + 180, y + 7);
 
     let itemY = y + 11;
     doc.setFont('Helvetica', 'normal');
-    doc.setFontSize(7.5);
+    doc.setFontSize(6.5);
     items.forEach(item => {
-      doc.text(String(item.producto).toUpperCase(), startX + 4, itemY);
-      doc.text(String(item.qty), startX + 100, itemY);
-      doc.text(String(item.sector).toUpperCase(), startX + 130, itemY);
-      doc.text("[ OK / DEF ]", startX + 160, itemY);
+      const prodName = String(item.producto || '').substring(0, 36);
+      doc.text(prodName.toUpperCase(), startX + 2, itemY);
+      doc.text(String(item.sector || 'PAÑOL').toUpperCase(), startX + 68, itemY);
+      doc.text(String(item.qty || 1), startX + 92, itemY);
+      doc.text(item.preparado || item.checked ? '[X]' : '[ ]', startX + 107, itemY);
+      doc.text(item.enviado ? '[X]' : '[ ]', startX + 120, itemY);
+      doc.text(String(item.cant_egresan ?? item.qty ?? '-'), startX + 134, itemY);
+      doc.text(String(item.cant_regresan ?? '-'), startX + 152, itemY);
+      doc.text(String(item.observaciones || '').substring(0, 10), startX + 166, itemY);
       itemY += 6;
     });
 
     y += boxH + 15;
     doc.setFont('Helvetica', 'bold');
+    doc.setFontSize(8);
     doc.text("FIRMA RESPONSABLE CARGA / CHOFER", startX + 10, y + 15);
     doc.line(startX + 10, y + 13, startX + 70, y + 13);
 
@@ -2072,26 +2591,40 @@ export default function App() {
     // Draw table box
     doc.setDrawColor(220, 220, 220);
     doc.setLineWidth(0.2);
-    const boxH = remito.items.length * 6 + 7;
+    const boxH = remito.items.length * 6 + 8;
     doc.rect(startX, y, 180, boxH);
 
     doc.setFont('Helvetica', 'bold');
-    doc.setFontSize(8);
-    doc.text("PRODUCTO / COMPONENTE", startX + 4, y + 5);
-    doc.text("CANTIDAD DESPACHADA", startX + 120, y + 5);
+    doc.setFontSize(7);
+    doc.text("COMPONENTE / MATERIAL", startX + 2, y + 5);
+    doc.text("SECTOR", startX + 68, y + 5);
+    doc.text("CANT.", startX + 90, y + 5);
+    doc.text("PREP.", startX + 105, y + 5);
+    doc.text("ENV.", startX + 118, y + 5);
+    doc.text("EGRESAN", startX + 130, y + 5);
+    doc.text("REGRESAN", startX + 148, y + 5);
+    doc.text("OBS.", startX + 166, y + 5);
     doc.line(startX, y + 7, startX + 180, y + 7);
 
     let itemY = y + 11;
     doc.setFont('Helvetica', 'normal');
-    doc.setFontSize(7.5);
+    doc.setFontSize(6.5);
     remito.items.forEach(item => {
-      doc.text(String(item.producto).toUpperCase(), startX + 4, itemY);
-      doc.text(String(item.qty), startX + 120, itemY);
+      const prodName = String(item.producto || '').substring(0, 36);
+      doc.text(prodName.toUpperCase(), startX + 2, itemY);
+      doc.text(String(item.sector || 'PAÑOL').toUpperCase(), startX + 68, itemY);
+      doc.text(String(item.qty || 1), startX + 92, itemY);
+      doc.text(item.preparado || item.checked ? '[X]' : '[ ]', startX + 107, itemY);
+      doc.text(item.enviado ? '[X]' : '[ ]', startX + 120, itemY);
+      doc.text(String(item.cant_egresan ?? item.qty ?? '-'), startX + 134, itemY);
+      doc.text(String(item.cant_regresan ?? '-'), startX + 152, itemY);
+      doc.text(String(item.observaciones || '').substring(0, 10), startX + 166, itemY);
       itemY += 6;
     });
 
     y += boxH + 15;
     doc.setFont('Helvetica', 'bold');
+    doc.setFontSize(8);
     doc.text("FIRMA RESPONSABLE TRANSPORTE", startX + 10, y + 15);
     doc.line(startX + 10, y + 13, startX + 70, y + 13);
 
@@ -2128,8 +2661,8 @@ export default function App() {
 
   const getSuggestionForTransfer = (itemName, targetOT) => {
     if (!targetOT) return 0;
-    const panol = typeof targetOT.panol_status === 'string' ? JSON.parse(targetOT.panol_status) : targetOT.panol_status;
-    const planta = typeof targetOT.planta_status === 'string' ? JSON.parse(targetOT.planta_status) : targetOT.planta_status;
+    const panol = typeof targetOT.panol_status === 'string' ? safeJsonParse(targetOT.panol_status) : targetOT.panol_status;
+    const planta = typeof targetOT.planta_status === 'string' ? safeJsonParse(targetOT.planta_status) : targetOT.planta_status;
     
     const panolMatch = panol?.items?.find(i => i.producto.toLowerCase() === itemName.toLowerCase() && !i.checked);
     const plantaMatch = planta?.items?.find(i => i.producto.toLowerCase() === itemName.toLowerCase() && !i.checked);
@@ -2509,6 +3042,15 @@ export default function App() {
               Configuración
             </button>
           )}
+          {currentUser && (currentUser.rol === 'SuperAdmin' || currentUser.rol === 'Gerencia' || currentUser.rol === 'Operaciones') && (
+            <button
+              onClick={() => setCurrentTab('aprendizaje')}
+              className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all-300 cursor-pointer ${currentTab === 'aprendizaje' ? 'bg-blue-900 text-white shadow' : 'text-slate-650 hover:bg-slate-200/50'
+                }`}
+            >
+              Aprendizaje IA
+            </button>
+          )}
           {currentUser && (currentUser.rol === 'SuperAdmin' || currentUser.rol === 'Gerencia' || currentUser.rol === 'Operaciones' || userRole === 'SuperAdmin' || userRole === 'Gerencia' || userRole === 'Operaciones') && (
             <button
               onClick={() => setCurrentTab('personal_recursos')}
@@ -2541,22 +3083,48 @@ export default function App() {
           )}
         </div>
 
-        {/* User Session Info & Logout */}
-        {currentUser && (
-          <div className="flex items-center gap-4 bg-white/80 p-1.5 px-3 rounded-2xl border border-slate-200 shadow-xs">
-            <div className="text-right">
-              <p className="text-xs font-black text-blue-900 uppercase tracking-wide leading-none">{currentUser.nombre}</p>
-              <span className="text-[9px] text-slate-450 font-extrabold uppercase tracking-widest leading-none">{currentUser.rol}</span>
+        {/* User Session Info & Global Night Mode Toggle */}
+        <div className="flex items-center gap-3">
+          {/* Botón Global Modo Noche */}
+          <button
+            type="button"
+            onClick={toggleNightMode}
+            className={`flex items-center gap-2 px-3.5 py-2 rounded-2xl text-xs font-black uppercase tracking-wider transition-all duration-300 cursor-pointer shadow-xs ${
+              isNightMode
+                ? 'bg-sky-950 text-sky-200 border-2 border-sky-400/80 hover:bg-sky-900 shadow-sky-950/60 ring-2 ring-sky-400/30'
+                : 'bg-white/80 hover:bg-slate-100 text-slate-700 border border-slate-200'
+            }`}
+            title={isNightMode ? 'Desactivar Modo Noche (Volver a Modo Día)' : 'Activar Modo Noche en Todo el Sistema (Paleta Oceánica Anti-Fatiga)'}
+          >
+            {isNightMode ? (
+              <>
+                <Moon className="w-4 h-4 text-sky-300 fill-sky-300" />
+                <span className="hidden sm:inline">Modo Noche</span>
+              </>
+            ) : (
+              <>
+                <Sun className="w-4 h-4 text-amber-500" />
+                <span className="hidden sm:inline">Modo Noche</span>
+              </>
+            )}
+          </button>
+
+          {currentUser && (
+            <div className="flex items-center gap-4 bg-white/80 p-1.5 px-3 rounded-2xl border border-slate-200 shadow-xs">
+              <div className="text-right">
+                <p className="text-xs font-black text-blue-900 uppercase tracking-wide leading-none">{currentUser.nombre}</p>
+                <span className="text-[9px] text-slate-450 font-extrabold uppercase tracking-widest leading-none">{currentUser.rol}</span>
+              </div>
+              <button
+                onClick={handleLogout}
+                className="bg-blue-900 hover:bg-blue-955 text-white rounded-xl px-3 py-1.5 text-[10px] font-black uppercase tracking-wider transition-all-300 shadow-xs cursor-pointer flex items-center gap-1.5"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                <span>Salir</span>
+              </button>
             </div>
-            <button
-              onClick={handleLogout}
-              className="bg-blue-900 hover:bg-blue-955 text-white rounded-xl px-3 py-1.5 text-[10px] font-black uppercase tracking-wider transition-all-300 shadow-xs cursor-pointer flex items-center gap-1.5"
-            >
-              <LogOut className="w-3.5 h-3.5" />
-              <span>Salir</span>
-            </button>
-          </div>
-        )}
+          )}
+        </div>
       </header>
 
       {/* RENDER ACTIVE VIEW */}
@@ -2582,6 +3150,7 @@ export default function App() {
             onUpdateAdicionales={handleUpdateOTAdicionales}
             onOpenGerenciaDashboard={() => setCurrentTab('gerencia')}
             onWeatherAnalysis={handleWeatherAnalysis}
+            onOpenReturnStockModal={openReturnModal}
           />
         )}
 
@@ -2598,11 +3167,16 @@ export default function App() {
             userRole={currentUser?.rol || userRole}
             userName={currentUser?.nombre || userName}
             onSelectOT={handleSelectOT}
+            onRefreshData={fetchData}
           />
         )}
 
         {currentTab === 'maestro' && (currentUser?.rol === 'SuperAdmin' || currentUser?.rol === 'Gerencia') && (
           <MaestroDatos currentUser={currentUser} />
+        )}
+
+        {currentTab === 'aprendizaje' && (currentUser?.rol === 'SuperAdmin' || currentUser?.rol === 'Gerencia' || currentUser?.rol === 'Operaciones') && (
+          <AprendizajeIA currentUser={currentUser} />
         )}
 
         {currentTab === 'admin' && (currentUser?.rol === 'SuperAdmin' || currentUser?.rol === 'Gerencia') && (
@@ -2757,7 +3331,7 @@ export default function App() {
                           <div className="mt-1 flex flex-wrap gap-1">
                             {(() => {
                               try {
-                                const parsed = typeof u.modulos === 'string' ? JSON.parse(u.modulos) : u.modulos;
+                                const parsed = typeof u.modulos === 'string' ? safeJsonParse(u.modulos, []) : u.modulos;
                                 if (Array.isArray(parsed) && parsed.length > 0) {
                                   return parsed.map(m => (
                                     <span key={m} className="bg-slate-100 text-slate-650 text-[8px] font-extrabold px-1 rounded-sm border border-slate-200/50 uppercase">
@@ -2784,7 +3358,7 @@ export default function App() {
                                 setUserFormPassword(u.password);
                                 setUserFormRol(u.rol);
                                 try {
-                                  const parsed = typeof u.modulos === 'string' ? JSON.parse(u.modulos) : u.modulos;
+                                  const parsed = typeof u.modulos === 'string' ? safeJsonParse(u.modulos, []) : u.modulos;
                                   setUserFormModulos(Array.isArray(parsed) ? parsed : []);
                                 } catch (e) {
                                   setUserFormModulos([]);
@@ -3036,7 +3610,7 @@ export default function App() {
                   />
                 </div>
                 <div>
-                  <label className="text-[10px] uppercase tracking-widest font-black text-slate-400 block mb-1">Fecha Desarme (Fin) *</label>
+                  <label className="text-[10px] uppercase tracking-widest font-black text-slate-400 block mb-1">Comienzo de Desarmado *</label>
                   <input
                     type="date"
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all-300"
@@ -3132,34 +3706,68 @@ export default function App() {
 
                     {availabilityResults.length > 0 && (
                       <div className="border border-slate-200 rounded-xl bg-white p-3 space-y-3 shadow-inner">
-                        <h4 className="text-[10px] font-black uppercase text-slate-400 tracking-wider font-mono">
-                          Estructuras de {formFrente}m ({formTipoEst}) — Estado para estas Fechas:
-                        </h4>
-                        <div className="divide-y divide-slate-100 max-h-[220px] overflow-y-auto pr-1 space-y-0">
+                        <div className="flex justify-between items-center">
+                          <h4 className="text-[10px] font-black uppercase text-slate-400 tracking-wider font-mono">
+                            Estructuras de {formFrente}m ({formTipoEst}) — Estado para estas Fechas:
+                          </h4>
+                          <span className="text-[10px] font-bold text-blue-600">
+                            {formModeloEst ? `Asignando: ${formModeloEst}` : 'Haz clic para seleccionar'}
+                          </span>
+                        </div>
+                        <div className="divide-y divide-slate-100 max-h-[240px] overflow-y-auto pr-1 space-y-1">
                           {availabilityResults.map(res => {
                             const isAvailable = res.arcos_disponibles > 0;
+                            const isSuficiente = res.suficiente !== undefined ? res.suficiente : isAvailable;
+                            const isSelected = formModeloEst === res.modelo_estructura;
                             const hasConflicts = (res.reserved_arches_detail || []).length > 0;
+
                             return (
-                              <div key={res.modelo_estructura} className="py-2.5 space-y-1.5">
+                              <div
+                                key={res.modelo_estructura}
+                                onClick={() => {
+                                  if (isAvailable) setFormModeloEst(res.modelo_estructura);
+                                }}
+                                className={`p-2.5 rounded-xl transition-all cursor-pointer border ${isSelected
+                                  ? 'bg-blue-50/80 border-blue-400 shadow-sm ring-1 ring-blue-400'
+                                  : isAvailable
+                                    ? 'hover:bg-slate-50 border-transparent'
+                                    : 'opacity-70 bg-slate-50/50 border-slate-100'
+                                }`}
+                              >
                                 <div className="flex justify-between items-center">
                                   <div className="flex items-center gap-2">
+                                    <input
+                                      type="radio"
+                                      name="selectedStructureModel"
+                                      checked={isSelected}
+                                      disabled={!isAvailable}
+                                      onChange={() => setFormModeloEst(res.modelo_estructura)}
+                                      className="accent-blue-600 cursor-pointer"
+                                    />
                                     <span className="badge-carpa">{res.modelo_estructura}</span>
-                                    <span className="text-[10px] text-slate-500 font-semibold">
+                                    <span className="text-[11px] text-slate-600 font-bold">
                                       {res.arcos_disponibles}/{res.arcos_totales} arcos libres
                                     </span>
+                                    {isSelected && (
+                                      <span className="bg-blue-600 text-white text-[9px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider">
+                                        Seleccionada
+                                      </span>
+                                    )}
                                   </div>
                                   <span className={`px-2.5 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider ${res.status === 'Incompleta'
                                     ? 'bg-orange-50 text-orange-700 border border-orange-200'
-                                    : isAvailable
+                                    : isSuficiente
                                       ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                                      : 'bg-red-50 text-red-700 border border-red-200'
+                                      : isAvailable
+                                        ? 'bg-yellow-50 text-yellow-700 border border-yellow-200'
+                                        : 'bg-red-50 text-red-700 border border-red-200'
                                     }`}>
-                                    {res.status === 'Incompleta' ? 'Incompleta' : isAvailable ? '✓ Disponible' : '✗ Sin Stock'}
+                                    {res.status === 'Incompleta' ? 'Incompleta' : isSuficiente ? '✓ Disponible' : isAvailable ? '⚠ Stock Parcial' : '✗ Sin Stock'}
                                   </span>
                                 </div>
                                 {/* Blocked arches detail */}
                                 {hasConflicts && (
-                                  <div className="ml-1 space-y-1">
+                                  <div className="mt-2 ml-5 space-y-1">
                                     <p className="text-[9px] font-black uppercase tracking-wider text-red-500">Arcos bloqueados por conflicto de fechas:</p>
                                     {(res.reserved_arches_detail || []).map(d => (
                                       <div key={d.arco} className="flex items-center gap-2 bg-red-50 border border-red-100 rounded-lg px-2 py-1">
@@ -3324,7 +3932,7 @@ export default function App() {
                     <span>Análisis Climático</span>
                   </button>
                 )}
-                <PDFReplicator ot={selectedOT} explosion={otDetailsExplosion} />
+                <PDFReplicator ot={selectedOT} explosion={otDetailsExplosion} ots={ots} desarmeRecords={desarmeRecords} />
                 {selectedOT.estado === 'Desarmada' && (
                   <button
                     onClick={() => handleDownloadDesarmePDFs(selectedOT.id, selectedOT)}
@@ -3332,6 +3940,15 @@ export default function App() {
                   >
                     <Printer className="w-4 h-4" />
                     <span>Imprimir Remito Desarme</span>
+                  </button>
+                )}
+                {selectedOT.estado === 'Desarmada' && (
+                  <button
+                    onClick={() => openReturnModal(selectedOT)}
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl px-4 py-2.5 text-xs font-black uppercase tracking-wider shadow-sm transition-all-300 cursor-pointer flex items-center gap-1.5"
+                  >
+                    <Warehouse className="w-4 h-4" />
+                    <span>Retorno Stock</span>
                   </button>
                 )}
                 {!['Cancelada', 'Rechazada', 'Pendiente', 'Desarmada', 'Retornada'].includes(selectedOT.estado) && 
@@ -3353,7 +3970,9 @@ export default function App() {
 
             {(() => {
               if (['Cancelada', 'Rechazada', 'Pendiente', 'Desarmada', 'Retornada'].includes(selectedOT.estado)) return null;
-              const fechaDesarme = new Date(selectedOT.fecha_fin + 'T00:00:00');
+              const dateStr = selectedOT.fecha_comienzo_desarmado || selectedOT.fecha_fin;
+              if (!dateStr) return null;
+              const fechaDesarme = new Date(safeDateString(dateStr).substring(0, 10) + 'T00:00:00');
               const now = new Date();
               const diffTime = fechaDesarme - now;
               const diffHours = diffTime / (1000 * 60 * 60);
@@ -3367,7 +3986,7 @@ export default function App() {
                         <span>Alerta Crítica: Desarme Planificado</span>
                       </div>
                       <p className="text-xs font-semibold text-fuchsia-700 leading-relaxed">
-                        Esta orden de trabajo está programada para desarmar el {new Date(selectedOT.fecha_fin + 'T00:00:00').toLocaleDateString('es-ES')}. Por favor, genere la Orden de Desarme para procesar la logística inversa de materiales.
+                        Esta orden de trabajo está programada para desarmar el {fechaDesarme.toLocaleDateString('es-ES')}. Por favor, genere la Orden de Desarme para procesar la logística inversa de materiales.
                       </p>
                     </div>
                     <button
@@ -3421,7 +4040,7 @@ export default function App() {
                             });
                           }
                         } else {
-                          const modConfig = typeof selectedOT.modulacion_config === 'string' ? JSON.parse(selectedOT.modulacion_config) : selectedOT.modulacion_config;
+                          const modConfig = typeof selectedOT.modulacion_config === 'string' ? safeJsonParse(selectedOT.modulacion_config) : selectedOT.modulacion_config;
                           const items = modConfig?.modulos || [];
                           items.forEach(m => {
                             for (let i = 0; i < m.qty; i++) {
@@ -3431,7 +4050,7 @@ export default function App() {
                         }
                         const hasHighLeg = selectedOT.modelo_estructura.includes('-H') || selectedOT.modelo_estructura.includes(' H');
                         const resolvedLegHeight = hasHighLeg ? 4 : 3;
-                        const adicionales = typeof selectedOT.adicionales === 'string' ? JSON.parse(selectedOT.adicionales) : selectedOT.adicionales || {};
+                        const adicionales = typeof selectedOT.adicionales === 'string' ? safeJsonParse(selectedOT.adicionales) : selectedOT.adicionales || {};
                         const telasCortinas = adicionales.telas_cortinas || { si: false, color: 'Blanco' };
                         return (
                           <div className="relative h-full">
@@ -3560,7 +4179,7 @@ export default function App() {
                         </div>
                       )}
 
-                      {(userRole === 'Gerencia' || userRole === 'SuperAdmin') && (
+                      {['Gerencia', 'Operaciones', 'SuperAdmin'].includes(userRole) && (
                         <div className="flex gap-2 pt-2 border-t border-slate-100">
                           <button
                             onClick={async () => {
@@ -3603,6 +4222,32 @@ export default function App() {
                           Paso {conformanceStep} de 5
                         </span>
                       </div>
+
+                      {/* Fixed structure and size info for steps 2-5 */}
+                      {conformanceStep >= 2 && conformanceStep <= 5 && (
+                        <div className="bg-gradient-to-r from-blue-900 to-indigo-950 text-white rounded-xl p-4 mb-4 border border-blue-800 shadow-lg">
+                          <div className="flex justify-between items-center">
+                            <div>
+                              <span className="text-[9px] uppercase tracking-widest font-black text-blue-300 block mb-1">
+                                Conformación de Estructura (Guía de Selección)
+                              </span>
+                              <h3 className="text-sm font-bold tracking-tight">
+                                {Array.from(new Set(conformanceSelectedArches.map(arco => getModelFromArch(arco)).filter(Boolean))).length > 0
+                                  ? Array.from(new Set(conformanceSelectedArches.map(arco => getModelFromArch(arco)).filter(Boolean))).join(' + ')
+                                  : (selectedOT?.modelo_estructura || 'Sin Estructura')}
+                              </h3>
+                            </div>
+                            <div className="text-right">
+                              <span className="text-[9px] uppercase tracking-widest font-black text-blue-300 block mb-1">
+                                Medida de Carpa
+                              </span>
+                              <h3 className="text-sm font-bold tracking-tight font-mono">
+                                {selectedOT ? `${selectedOT.frente} x ${selectedOT.largo} m` : '-'}
+                              </h3>
+                            </div>
+                          </div>
+                        </div>
+                      )}
 
                       {/* Step 1: Modulación */}
                       {conformanceStep === 1 && (
@@ -3857,47 +4502,86 @@ export default function App() {
                               </span>
                             </div>
 
-                            <div className="grid grid-cols-2 gap-2 max-h-[220px] overflow-y-auto pr-1">
-                              {getArchesStatusForOT(selectedOT).map(({ arco, available, occupant }) => {
-                                const isSelected = conformanceSelectedArches.includes(arco);
-                                return (
-                                  <button
-                                    key={arco}
-                                    type="button"
-                                    disabled={!available}
-                                    onClick={() => {
-                                      if (isSelected) {
-                                        setConformanceSelectedArches(conformanceSelectedArches.filter(a => a !== arco));
-                                      } else {
-                                        if (conformanceSelectedArches.length < getConformanceArchesNeeded()) {
-                                          setConformanceSelectedArches([...conformanceSelectedArches, arco]);
-                                        } else {
-                                          alert(`Ya ha seleccionado la cantidad máxima de arcos necesarios (${getConformanceArchesNeeded()}).`);
-                                        }
-                                      }
-                                    }}
-                                    className={`p-2.5 rounded-xl border text-left flex flex-col justify-between h-[68px] transition-all-305 ${!available
-                                      ? 'bg-slate-50 border-slate-200 opacity-60 cursor-not-allowed'
-                                      : isSelected
-                                        ? 'bg-blue-50 border-blue-400 ring-2 ring-blue-100'
-                                        : 'bg-white border-slate-200 hover:border-slate-350 hover:bg-slate-50/50'
-                                      }`}
-                                  >
-                                    <span className="text-xs font-black text-slate-800">{arco}</span>
-                                    {occupant ? (
-                                      <span className="text-[8px] font-black uppercase text-red-650 tracking-wide line-clamp-2 leading-none">
-                                        ❌ Ocupado ({occupant.ot_numero})
-                                      </span>
-                                    ) : (
-                                      <span className={`text-[8px] font-black uppercase tracking-wide px-1.5 py-0.5 rounded leading-none w-max ${isSelected ? 'bg-blue-100 text-blue-800' : 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-                                        }`}>
-                                        {isSelected ? 'Seleccionado' : 'Disponible'}
-                                      </span>
-                                    )}
-                                  </button>
-                                );
-                              })}
-                            </div>
+                            {(() => {
+                              const archesByModel = {};
+                              getArchesStatusForOT(selectedOT).forEach(item => {
+                                const model = getModelFromArch(item.arco) || 'Sin Modelo';
+                                if (!archesByModel[model]) archesByModel[model] = [];
+                                archesByModel[model].push(item);
+                              });
+                              return (
+                                <div className="space-y-2.5 max-h-[260px] overflow-y-auto pr-1">
+                                  {Object.entries(archesByModel).sort().map(([model, list]) => {
+                                    const total = list.length;
+                                    const available = list.filter(a => a.available).length;
+                                    const isExpanded = expandedArchesModel === model;
+                                    return (
+                                      <div key={model} className="border border-slate-200 rounded-xl bg-white p-2.5 shadow-xs">
+                                        <div 
+                                          onClick={() => setExpandedArchesModel(isExpanded ? null : model)} 
+                                          className="flex justify-between items-center cursor-pointer select-none"
+                                        >
+                                          <div className="flex items-center gap-2">
+                                            <span className="text-xs font-black text-slate-800">{model}</span>
+                                            <span className="text-[10px] font-semibold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded-md border border-slate-200">
+                                              {available}/{total} libres
+                                            </span>
+                                          </div>
+                                          <span className="text-slate-400 text-xs transition-transform duration-200" style={{ transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)' }}>
+                                            ▼
+                                          </span>
+                                        </div>
+                                        {isExpanded && (
+                                          <div className="mt-2.5 border-t border-slate-100 pt-2.5">
+                                            <div className="grid grid-cols-2 gap-2 max-h-[150px] overflow-y-auto pr-0.5">
+                                              {list.map(({ arco, available, occupant }) => {
+                                                const isSelected = conformanceSelectedArches.includes(arco);
+                                                return (
+                                                  <button
+                                                    key={arco}
+                                                    type="button"
+                                                    disabled={!available}
+                                                    onClick={() => {
+                                                      if (isSelected) {
+                                                        setConformanceSelectedArches(conformanceSelectedArches.filter(a => a !== arco));
+                                                      } else {
+                                                        if (conformanceSelectedArches.length < getConformanceArchesNeeded()) {
+                                                          setConformanceSelectedArches([...conformanceSelectedArches, arco]);
+                                                        } else {
+                                                          alert(`Ya ha seleccionado la cantidad máxima de arcos necesarios (${getConformanceArchesNeeded()}).`);
+                                                        }
+                                                      }
+                                                    }}
+                                                    className={`p-2 rounded-xl border text-left flex flex-col justify-between h-[60px] transition-all duration-200 ${!available
+                                                      ? 'bg-slate-50 border-slate-200 opacity-60 cursor-not-allowed'
+                                                      : isSelected
+                                                        ? 'bg-blue-50 border-blue-450 ring-2 ring-blue-100'
+                                                        : 'bg-white border-slate-200 hover:border-slate-350 hover:bg-slate-50/50'
+                                                      }`}
+                                                  >
+                                                    <span className="text-xs font-black text-slate-800">{arco}</span>
+                                                    {occupant ? (
+                                                      <span className="text-[8px] font-black uppercase text-red-650 tracking-wide line-clamp-1 leading-none">
+                                                        ❌ Ocupado ({occupant.ot_numero})
+                                                      </span>
+                                                    ) : (
+                                                      <span className={`text-[8px] font-black uppercase tracking-wide px-1.5 py-0.5 rounded leading-none w-max ${isSelected ? 'bg-blue-100 text-blue-800' : 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                                                        }`}>
+                                                        {isSelected ? 'Seleccionado' : 'Disponible'}
+                                                      </span>
+                                                    )}
+                                                  </button>
+                                                );
+                                              })}
+                                            </div>
+                                          </div>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              );
+                            })()}
                           </div>
 
                           <div className="flex justify-between items-center pt-3 border-t border-slate-100">
@@ -3938,43 +4622,81 @@ export default function App() {
                           <div className="border border-slate-200 rounded-2xl bg-slate-50/40 p-3 max-h-[320px] overflow-y-auto space-y-3">
                             {/* 5m Modules Pool selections */}
                             {getConformanceModulesNeeded() > 0 && (
-                              <div className="flex flex-col gap-2 p-3 bg-white rounded-xl border border-slate-150 shadow-xs text-xs">
+                              <div className="flex flex-col gap-2.5">
                                 <div className="flex justify-between items-center mb-1">
                                   <span className="font-extrabold text-slate-500 uppercase tracking-wide text-[10px]">
                                     Módulos de 5m (Estándar)
                                   </span>
                                 </div>
-                                <div className="grid grid-cols-2 gap-2">
-                                  {getAvailableModuleKits().map((model) => {
-                                    const isSelected = conformanceSelectedModulesList.includes(model);
-                                    return (
-                                      <button
-                                        type="button"
-                                        key={model}
-                                        onClick={() => handleModuleCardClick(model)}
-                                        className={`p-2.5 rounded-xl border text-left flex flex-col justify-between h-[68px] transition-all-305 cursor-pointer w-full focus:outline-none ${isSelected
-                                          ? 'bg-blue-50 border-blue-450 ring-2 ring-blue-100'
-                                          : 'bg-white border-slate-200 hover:border-slate-350 hover:bg-slate-50/50'
-                                          }`}
-                                      >
-                                        <div className="flex justify-between items-start w-full">
-                                          <span className={`text-xs font-black ${isSelected ? 'text-blue-900' : 'text-slate-800'}`}>{model}</span>
-                                          {isSelected && (
-                                            <span className="text-[8px] font-black text-white bg-blue-900 px-1.5 py-0.5 rounded uppercase tracking-wider leading-none shadow-xs">
-                                              Seleccionado
-                                            </span>
-                                          )}
-                                        </div>
-                                        <div className="flex justify-between items-center w-full mt-1">
-                                          <span className={`text-[8px] font-black uppercase tracking-wide px-1.5 py-0.5 rounded leading-none ${isSelected ? 'bg-blue-100 text-blue-800' : 'bg-slate-50 text-slate-500 border border-slate-200'
-                                            }`}>
-                                            {isSelected ? 'Confirmado' : 'Disponible'}
-                                          </span>
-                                        </div>
-                                      </button>
-                                    );
-                                  })}
-                                </div>
+                                {(() => {
+                                  const modulesByModel = {};
+                                  getAvailableModuleKits().forEach(modelVal => {
+                                    const model = getModelFromModule(modelVal) || 'Sin Modelo';
+                                    if (!modulesByModel[model]) modulesByModel[model] = [];
+                                    modulesByModel[model].push(modelVal);
+                                  });
+                                  return (
+                                    <div className="space-y-2.5 max-h-[260px] overflow-y-auto pr-1">
+                                      {Object.entries(modulesByModel).sort().map(([model, list]) => {
+                                        const isExpanded = expandedModulesModel === model;
+                                        const total = list.length;
+                                        return (
+                                          <div key={model} className="border border-slate-200 rounded-xl bg-white p-2.5 shadow-xs">
+                                            <div 
+                                              onClick={() => setExpandedModulesModel(isExpanded ? null : model)} 
+                                              className="flex justify-between items-center cursor-pointer select-none"
+                                            >
+                                              <div className="flex items-center gap-2">
+                                                <span className="text-xs font-black text-slate-800">{model}</span>
+                                                <span className="text-[10px] font-semibold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded-md border border-slate-200">
+                                                  {total} módulos disponibles
+                                                </span>
+                                              </div>
+                                              <span className="text-slate-400 text-xs transition-transform duration-200" style={{ transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)' }}>
+                                                ▼
+                                              </span>
+                                            </div>
+                                            {isExpanded && (
+                                              <div className="mt-2.5 border-t border-slate-100 pt-2.5">
+                                                <div className="grid grid-cols-2 gap-2 max-h-[150px] overflow-y-auto pr-0.5">
+                                                  {list.map((modelVal) => {
+                                                    const isSelected = conformanceSelectedModulesList.includes(modelVal);
+                                                    return (
+                                                      <button
+                                                        type="button"
+                                                        key={modelVal}
+                                                        onClick={() => handleModuleCardClick(modelVal)}
+                                                        className={`p-2 rounded-xl border text-left flex flex-col justify-between h-[60px] transition-all duration-200 cursor-pointer w-full focus:outline-none ${isSelected
+                                                          ? 'bg-blue-50 border-blue-450 ring-2 ring-blue-100'
+                                                          : 'bg-white border-slate-200 hover:border-slate-350 hover:bg-slate-50/50'
+                                                          }`}
+                                                      >
+                                                        <div className="flex justify-between items-start w-full">
+                                                          <span className={`text-xs font-black ${isSelected ? 'text-blue-900' : 'text-slate-800'}`}>{modelVal}</span>
+                                                          {isSelected && (
+                                                            <span className="text-[8px] font-black text-white bg-blue-900 px-1.5 py-0.5 rounded uppercase tracking-wider leading-none shadow-xs">
+                                                              Seleccionado
+                                                            </span>
+                                                          )}
+                                                        </div>
+                                                        <div className="flex justify-between items-center w-full mt-1">
+                                                          <span className={`text-[8px] font-black uppercase tracking-wide px-1.5 py-0.5 rounded leading-none ${isSelected ? 'bg-blue-100 text-blue-800' : 'bg-slate-50 text-slate-500 border border-slate-200'
+                                                            }`}>
+                                                            {isSelected ? 'Confirmado' : 'Disponible'}
+                                                          </span>
+                                                        </div>
+                                                      </button>
+                                                    );
+                                                  })}
+                                                </div>
+                                              </div>
+                                            )}
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  );
+                                })()}
                               </div>
                             )}
 
@@ -4034,28 +4756,49 @@ export default function App() {
                                   Cant: 1
                                 </span>
                               </div>
-                              <div className="grid grid-cols-2 gap-2">
+                              <div className="space-y-2.5 max-h-[260px] overflow-y-auto pr-1">
                                 {getAvailableFijoKits().map((model) => {
                                   const isSelected = conformanceSelectedFijoModel === model;
+                                  const isExpanded = expandedFijoModel === model;
                                   return (
-                                    <button
-                                      key={model}
-                                      type="button"
-                                      onClick={() => {
-                                        setConformanceSelectedFijoModel(model);
-                                        recalculateExplosion(model, conformanceSelectedModulesList);
-                                      }}
-                                      className={`p-2.5 rounded-xl border text-left flex flex-col justify-between h-[54px] transition-all-305 ${isSelected
-                                        ? 'bg-indigo-50 border-indigo-400 ring-2 ring-indigo-100'
-                                        : 'bg-white border-slate-200 hover:border-slate-350 hover:bg-slate-50/50'
-                                        }`}
-                                    >
-                                      <span className="text-xs font-black text-slate-800">{model}-F</span>
-                                      <span className={`text-[8px] font-black uppercase tracking-wide px-1.5 py-0.5 rounded leading-none w-max ${isSelected ? 'bg-indigo-100 text-indigo-800' : 'bg-slate-50 text-slate-500 border border-slate-200'
-                                        }`}>
-                                        {isSelected ? 'Seleccionado' : 'Disponible'}
-                                      </span>
-                                    </button>
+                                    <div key={model} className="border border-slate-200 rounded-xl bg-white p-2.5 shadow-xs">
+                                      <div 
+                                        onClick={() => setExpandedFijoModel(isExpanded ? null : model)} 
+                                        className="flex justify-between items-center cursor-pointer select-none"
+                                      >
+                                        <div className="flex items-center gap-2">
+                                          <span className="text-xs font-black text-slate-800">{model}</span>
+                                          <span className="text-[10px] font-semibold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded-md border border-slate-200">
+                                            Kit Fijo disponible
+                                          </span>
+                                        </div>
+                                        <span className="text-slate-400 text-xs transition-transform duration-200" style={{ transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)' }}>
+                                          ▼
+                                        </span>
+                                      </div>
+                                      {isExpanded && (
+                                        <div className="mt-2.5 border-t border-slate-100 pt-2.5 flex flex-col gap-2">
+                                          <button
+                                            key={model}
+                                            type="button"
+                                            onClick={() => {
+                                              setConformanceSelectedFijoModel(model);
+                                              recalculateExplosion(model, conformanceSelectedModulesList);
+                                            }}
+                                            className={`p-2.5 rounded-xl border text-left flex flex-col justify-between h-[54px] transition-all duration-200 ${isSelected
+                                              ? 'bg-indigo-50 border-indigo-400 ring-2 ring-indigo-100'
+                                              : 'bg-white border-slate-200 hover:border-slate-350 hover:bg-slate-50/50'
+                                              }`}
+                                          >
+                                            <span className="text-xs font-black text-slate-800">{model}-F</span>
+                                            <span className={`text-[8px] font-black uppercase tracking-wide px-1.5 py-0.5 rounded leading-none w-max ${isSelected ? 'bg-indigo-100 text-indigo-800' : 'bg-slate-50 text-slate-500 border border-slate-200'
+                                              }`}>
+                                              {isSelected ? 'Seleccionado' : 'Disponible'}
+                                            </span>
+                                          </button>
+                                        </div>
+                                      )}
+                                    </div>
                                   );
                                 })}
                               </div>
@@ -4090,7 +4833,7 @@ export default function App() {
 
                           {/* Requisitos del Comercial (referencia) */}
                           {(() => {
-                            const adic = typeof selectedOT.adicionales === 'string' ? JSON.parse(selectedOT.adicionales) : selectedOT.adicionales || {};
+                            const adic = typeof selectedOT.adicionales === 'string' ? safeJsonParse(selectedOT.adicionales) : selectedOT.adicionales || {};
                             const refs = [];
                             if (adic.lonas?.si) refs.push({ label: 'Lonas', color: adic.lonas.color, obs: adic.lonas.obs });
                             if (adic.pisos?.si) refs.push({ label: 'Pisos', color: adic.pisos.tipo, obs: adic.pisos.obs });
@@ -4113,108 +4856,138 @@ export default function App() {
                           })()}
 
                           {/* Helper: builds an accessory row editor for a given category */}
-                          {[
-                            { label: 'Lonas', emoji: '🪟', sector: 'Lonas', items: conformanceLonas, setItems: setConformanceLonas, catalog: accessoriesCatalog.filter(a => (a.categoria || a.tipo || '').toLowerCase().includes('lona') || (a.tabla || '').toLowerCase() === 'lonas') },
-                            { label: 'Pisos', emoji: '🪵', sector: 'Pisos', items: conformancePisos, setItems: setConformancePisos, catalog: accessoriesCatalog.filter(a => (a.categoria || a.tipo || '').toLowerCase().includes('piso') || (a.tabla || '').toLowerCase() === 'pisos') },
-                            { label: 'Alfombras', emoji: '🟥', sector: 'Alfombras', items: conformanceAlfombras, setItems: setConformanceAlfombras, catalog: accessoriesCatalog.filter(a => (a.categoria || a.tipo || '').toLowerCase().includes('alfombra') || (a.tabla || '').toLowerCase() === 'alfombras') },
-                            { label: 'Telas', emoji: '🎀', sector: 'Telas', items: conformanceTelas, setItems: setConformanceTelas, catalog: accessoriesCatalog.filter(a => (a.categoria || a.tipo || '').toLowerCase().includes('tela') || (a.tabla || '').toLowerCase() === 'telas') },
-                          ].map(({ label, emoji, items, setItems, catalog }) => (
-                            <div key={label} className="border border-slate-200 rounded-2xl p-3 bg-slate-50/30 space-y-2">
-                              <div className="flex justify-between items-center">
-                                <span className="text-[10px] font-black uppercase text-slate-600 tracking-widest">{emoji} {label}</span>
-                                <button
-                                  type="button"
-                                  onClick={() => setItems([...items, { catalogId: '', nombre: '', color: '', qty: 1, panos: '', mts: '' }])}
-                                  className="text-[9px] font-black uppercase text-blue-900 bg-blue-50 border border-blue-200 rounded-lg px-2 py-1 hover:bg-blue-100 cursor-pointer transition-all"
-                                >
-                                  + Agregar
-                                </button>
-                              </div>
-                              {items.length === 0 && (
-                                <p className="text-[10px] text-slate-400 italic text-center py-1">Sin accesorios seleccionados para {label}.</p>
-                              )}
-                              {items.map((item, idx) => (
-                                <div key={idx} className="bg-white border border-slate-200 rounded-xl p-2.5 space-y-2">
-                                  <div className="grid grid-cols-2 gap-2">
-                                    <div className="col-span-2">
-                                      <label className="text-[9px] uppercase tracking-wider font-black text-slate-400 block mb-0.5">Ítem del catálogo</label>
-                                      <select
-                                        value={item.catalogId || ''}
-                                        onChange={e => {
-                                          const selected = catalog.find(c => String(c.id) === e.target.value);
-                                          const updated = [...items];
-                                          updated[idx] = {
-                                            ...updated[idx],
-                                            catalogId: e.target.value,
-                                            nombre: selected ? (selected.nombre || selected.color || selected.estructura || `${label} #${e.target.value}`) : '',
-                                            color: selected ? (selected.color || '') : ''
-                                          };
-                                          setItems(updated);
-                                        }}
-                                        className="w-full bg-slate-50 border border-slate-200 rounded-lg p-1.5 text-[10px] font-semibold focus:outline-none focus:border-blue-500"
-                                      >
-                                        <option value="">— Seleccionar del catálogo —</option>
-                                        {catalog.map(c => (
-                                          <option key={c.id} value={c.id}>
-                                            {c.nombre || c.color || c.estructura || `ID ${c.id}`}
-                                            {c.medida ? ` (${c.medida})` : ''}
-                                            {c.stock_total != null ? ` [Stock: ${c.stock_total}]` : ''}
-                                          </option>
-                                        ))}
-                                      </select>
-                                    </div>
-                                    <div>
-                                      <label className="text-[9px] uppercase tracking-wider font-black text-slate-400 block mb-0.5">Color</label>
-                                      <input
-                                        type="text"
-                                        placeholder="Ej: Blanco"
-                                        value={item.color}
-                                        onChange={e => { const u = [...items]; u[idx] = { ...u[idx], color: e.target.value }; setItems(u); }}
-                                        className="w-full bg-slate-50 border border-slate-200 rounded-lg p-1.5 text-[10px] font-semibold focus:outline-none focus:border-blue-500"
-                                      />
-                                    </div>
-                                    <div>
-                                      <label className="text-[9px] uppercase tracking-wider font-black text-slate-400 block mb-0.5">Cantidad</label>
-                                      <input
-                                        type="number"
-                                        min="1"
-                                        value={item.qty}
-                                        onChange={e => { const u = [...items]; u[idx] = { ...u[idx], qty: e.target.value }; setItems(u); }}
-                                        className="w-full bg-slate-50 border border-slate-200 rounded-lg p-1.5 text-[10px] font-semibold focus:outline-none focus:border-blue-500"
-                                      />
-                                    </div>
-                                    <div>
-                                      <label className="text-[9px] uppercase tracking-wider font-black text-slate-400 block mb-0.5">Paños</label>
-                                      <input
-                                        type="text"
-                                        placeholder="Ej: 3"
-                                        value={item.panos}
-                                        onChange={e => { const u = [...items]; u[idx] = { ...u[idx], panos: e.target.value }; setItems(u); }}
-                                        className="w-full bg-slate-50 border border-slate-200 rounded-lg p-1.5 text-[10px] font-semibold focus:outline-none focus:border-blue-500"
-                                      />
-                                    </div>
-                                    <div>
-                                      <label className="text-[9px] uppercase tracking-wider font-black text-slate-400 block mb-0.5">Metros</label>
-                                      <input
-                                        type="text"
-                                        placeholder="Ej: 15.5"
-                                        value={item.mts}
-                                        onChange={e => { const u = [...items]; u[idx] = { ...u[idx], mts: e.target.value }; setItems(u); }}
-                                        className="w-full bg-slate-50 border border-slate-200 rounded-lg p-1.5 text-[10px] font-semibold focus:outline-none focus:border-blue-500"
-                                      />
-                                    </div>
+                          {(() => {
+                            const adic = typeof selectedOT.adicionales === 'string' ? safeJsonParse(selectedOT.adicionales) : selectedOT.adicionales || {};
+                            const categories = [
+                              { label: 'Lonas', emoji: '🪟', sector: 'Lonas', items: conformanceLonas, setItems: setConformanceLonas, catalog: accessoriesCatalog.filter(a => (a.categoria || a.tipo || '').toLowerCase().includes('lona') || (a.tabla || '').toLowerCase() === 'lonas'), show: true, obs: adic.lonas?.obs },
+                              { label: 'Pisos', emoji: '🪵', sector: 'Pisos', items: conformancePisos, setItems: setConformancePisos, catalog: accessoriesCatalog.filter(a => (a.categoria || a.tipo || '').toLowerCase().includes('piso') || (a.tabla || '').toLowerCase() === 'pisos'), show: !!adic.pisos?.si, obs: adic.pisos?.obs },
+                              { label: 'Alfombras', emoji: '🟥', sector: 'Alfombras', items: conformanceAlfombras, setItems: setConformanceAlfombras, catalog: accessoriesCatalog.filter(a => (a.categoria || a.tipo || '').toLowerCase().includes('alfombra') || (a.tabla || '').toLowerCase() === 'alfombras'), show: !!adic.alfombras?.si, obs: adic.alfombras?.obs },
+                              { label: 'Telas', emoji: '🎀', sector: 'Telas', items: conformanceTelas, setItems: setConformanceTelas, catalog: accessoriesCatalog.filter(a => (a.categoria || a.tipo || '').toLowerCase().includes('tela') || (a.tabla || '').toLowerCase() === 'telas'), show: !!(adic.telas_cielorraso?.si || adic.telas_cortinas?.si), obs: [adic.telas_cielorraso?.obs, adic.telas_cortinas?.obs].filter(Boolean).join(' | ') },
+                            ].filter(c => c.show);
+
+                            return categories.map(({ label, emoji, items, setItems, catalog, obs }) => (
+                              <div key={label} className="border border-slate-200 rounded-2xl p-3 bg-slate-50/30 space-y-2">
+                                <div className="flex justify-between items-center">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-[10px] font-black uppercase text-slate-600 tracking-widest">{emoji} {label}</span>
+                                    {obs && <span className="text-[9px] text-slate-500 italic">Obs: {obs}</span>}
                                   </div>
                                   <button
                                     type="button"
-                                    onClick={() => { const u = [...items]; u.splice(idx, 1); setItems(u); }}
-                                    className="text-[9px] font-black text-red-500 hover:text-red-700 uppercase tracking-wider cursor-pointer"
+                                    onClick={() => setItems([...items, { catalogId: '', nombre: '', color: '', qty: 1, panos: '', mts: '' }])}
+                                    className="text-[9px] font-black uppercase text-blue-900 bg-blue-50 border border-blue-200 rounded-lg px-2 py-1 hover:bg-blue-100 cursor-pointer transition-all"
                                   >
-                                    ✕ Eliminar
+                                    + Agregar
                                   </button>
                                 </div>
-                              ))}
-                            </div>
-                          ))}
+
+                                {label === 'Lonas' && (
+                                  <div className="flex gap-1 mb-2 bg-slate-100 p-1 rounded-xl">
+                                    {['todos', 'techo', 'triangulo', 'laterales'].map((filterVal) => (
+                                      <button
+                                        key={filterVal}
+                                        type="button"
+                                        onClick={() => setLonaFilter(filterVal)}
+                                        className={`flex-1 text-[9px] uppercase tracking-wider font-black py-1.5 px-2 rounded-lg cursor-pointer transition-all ${
+                                          lonaFilter === filterVal
+                                            ? 'bg-blue-900 text-white shadow-xs'
+                                            : 'text-slate-600 hover:bg-slate-200'
+                                        }`}
+                                      >
+                                        {filterVal === 'triangulo' ? 'Triángulo' : filterVal === 'todos' ? 'Todos' : filterVal === 'techo' ? 'Techo' : 'Laterales'}
+                                      </button>
+                                    ))}
+                                  </div>
+                                )}
+
+                                {items.length === 0 && (
+                                  <p className="text-[10px] text-slate-400 italic text-center py-1">Sin accesorios seleccionados para {label}.</p>
+                                )}
+                                {items.map((item, idx) => (
+                                  <div key={idx} className="bg-white border border-slate-200 rounded-xl p-2.5 space-y-2">
+                                    <div className="grid grid-cols-2 gap-2">
+                                      <div className="col-span-2">
+                                        <label className="text-[9px] uppercase tracking-wider font-black text-slate-400 block mb-0.5">Ítem del catálogo</label>
+                                        <select
+                                          value={item.catalogId || ''}
+                                          onChange={e => {
+                                            const selected = catalog.find(c => String(c.id) === e.target.value);
+                                            const updated = [...items];
+                                            updated[idx] = {
+                                              ...updated[idx],
+                                              catalogId: e.target.value,
+                                              nombre: selected ? (selected.nombre || selected.color || selected.estructura || `${label} #${e.target.value}`) : '',
+                                              color: selected ? (selected.color || '') : ''
+                                            };
+                                            setItems(updated);
+                                          }}
+                                          className="w-full bg-slate-50 border border-slate-200 rounded-lg p-1.5 text-[10px] font-semibold focus:outline-none focus:border-blue-500"
+                                        >
+                                          <option value="">— Seleccionar del catálogo —</option>
+                                          {getFilteredCatalog(label, catalog).map(c => {
+                                            const displayName = formatLonaName(c.nombre || c.color || c.estructura || `ID ${c.id}`);
+                                            return (
+                                              <option key={c.id} value={c.id}>
+                                                {displayName}
+                                                {c.medida ? ` (${c.medida})` : ''}
+                                                {c.stock_total != null ? ` [Stock: ${c.stock_total}]` : ''}
+                                              </option>
+                                            );
+                                          })}
+                                        </select>
+                                      </div>
+
+                                      {label === 'Lonas' && (
+                                        <div>
+                                          <label className="text-[9px] uppercase tracking-wider font-black text-slate-400 block mb-0.5">Color</label>
+                                          <select
+                                            value={item.color || ''}
+                                            onChange={e => { const u = [...items]; u[idx] = { ...u[idx], color: e.target.value }; setItems(u); }}
+                                            className="w-full bg-slate-50 border border-slate-200 rounded-lg p-1.5 text-[10px] font-semibold focus:outline-none focus:border-blue-500"
+                                          >
+                                            <option value="">— Seleccionar Color —</option>
+                                            {getAvailableColorsForAccessory(item.catalogId).map(col => (
+                                              <option key={col} value={col}>{col}</option>
+                                            ))}
+                                          </select>
+                                        </div>
+                                      )}
+
+                                      <div className={label === 'Lonas' ? '' : 'col-span-2'}>
+                                        <label className="text-[9px] uppercase tracking-wider font-black text-slate-400 block mb-0.5">
+                                          {label === 'Alfombras' ? 'Metros Cuadrados' : label === 'Telas' ? 'Medidas' : 'Cantidad'}
+                                        </label>
+                                        {label === 'Telas' ? (
+                                          <input
+                                            type="text"
+                                            placeholder="Ej: 10 x 15"
+                                            value={item.qty || ''}
+                                            onChange={e => { const u = [...items]; u[idx] = { ...u[idx], qty: e.target.value }; setItems(u); }}
+                                            className="w-full bg-slate-50 border border-slate-200 rounded-lg p-1.5 text-[10px] font-semibold focus:outline-none focus:border-blue-500"
+                                          />
+                                        ) : (
+                                          <input
+                                            type="number"
+                                            min="1"
+                                            value={item.qty || 1}
+                                            onChange={e => { const u = [...items]; u[idx] = { ...u[idx], qty: e.target.value }; setItems(u); }}
+                                            className="w-full bg-slate-50 border border-slate-200 rounded-lg p-1.5 text-[10px] font-semibold focus:outline-none focus:border-blue-500"
+                                          />
+                                        )}
+                                      </div>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => { const u = [...items]; u.splice(idx, 1); setItems(u); }}
+                                      className="text-[9px] font-black text-red-500 hover:text-red-700 uppercase tracking-wider cursor-pointer mt-1 block"
+                                    >
+                                      ✕ Eliminar
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            ));
+                          })()}
 
                           <div className="flex justify-between items-center pt-3 border-t border-slate-100">
                             <button
@@ -4250,8 +5023,8 @@ export default function App() {
                     </div>
 
                     {(() => {
-                      const panol = typeof selectedOT.panol_status === 'string' ? JSON.parse(selectedOT.panol_status) : selectedOT.panol_status;
-                      const planta = typeof selectedOT.planta_status === 'string' ? JSON.parse(selectedOT.planta_status) : selectedOT.planta_status;
+                      const panol = typeof selectedOT.panol_status === 'string' ? safeJsonParse(selectedOT.panol_status) : selectedOT.panol_status;
+                      const planta = typeof selectedOT.planta_status === 'string' ? safeJsonParse(selectedOT.planta_status) : selectedOT.planta_status;
 
                       const aggregateOperarioItems = (items) => {
                         const aggregated = {};
@@ -4282,25 +5055,6 @@ export default function App() {
                         });
                       };
 
-                      const isLona = (name) => {
-                        const n = name.toLowerCase();
-                        return n.includes('lona') || n.includes('techo') || n.includes('lateral') || n.includes('triangulo') || n.includes('tapachata') || n.includes('puerta');
-                      };
-
-                      const isPiso = (name) => {
-                        const n = name.toLowerCase();
-                        return n.includes('piso') || n.includes('placa') || n.includes('fenolico') || n.includes('caño');
-                      };
-
-                      const isAlfombra = (name) => {
-                        const n = name.toLowerCase();
-                        return n.includes('alfombra');
-                      };
-
-                      const isTela = (name) => {
-                        const n = name.toLowerCase();
-                        return n.includes('tela') || n.includes('cortina') || n.includes('cielorraso');
-                      };
 
                       const getSector = (item) => {
                         if (item.sector) return item.sector;
@@ -4329,7 +5083,8 @@ export default function App() {
                         computedSector: getSector(item)
                       }));
 
-                      const isAdmin = userRole === 'Gerencia' || userRole === 'Operaciones' || userRole === 'SuperAdmin';
+                      const actualRole = currentUser?.rol || userRole;
+                      const isAdmin = ['Gerencia', 'Operaciones', 'SuperAdmin', 'Jefe de Planta'].includes(actualRole);
 
                       if (isAdmin) {
                         const sectorsDef = [
@@ -4365,9 +5120,13 @@ export default function App() {
                                                   {item.producto}
                                                 </div>
                                                 <div className="flex items-center gap-1 bg-white border border-slate-200 rounded px-1 ml-2">
-                                                  <button onClick={() => handleUpdateChecklistQty(item.indices, item.sourceList, -1)} className="text-slate-400 hover:text-red-500 font-bold px-1.5" disabled={item.qty <= 0}>-</button>
+                                                  {!isNaN(Number(item.qty)) && (
+                                                    <button onClick={() => handleUpdateChecklistQty(item.indices, item.sourceList, -1)} className="text-slate-400 hover:text-red-500 font-bold px-1.5" disabled={item.qty <= 0}>-</button>
+                                                  )}
                                                   <span className={`${sector.color} font-black text-[11px] min-w-[20px] text-center`}>x{item.qty}</span>
-                                                  <button onClick={() => handleUpdateChecklistQty(item.indices, item.sourceList, 1)} className="text-slate-400 hover:text-green-500 font-bold px-1.5">+</button>
+                                                  {!isNaN(Number(item.qty)) && (
+                                                    <button onClick={() => handleUpdateChecklistQty(item.indices, item.sourceList, 1)} className="text-slate-400 hover:text-green-500 font-bold px-1.5">+</button>
+                                                  )}
                                                 </div>
                                               </div>
                                             </div>
@@ -4390,11 +5149,18 @@ export default function App() {
                                 Confirmar Carga / Despachar (Planta)
                               </button>
                             )}
+                            {(actualRole === 'Jefe de Planta' && ['Aprobada', 'Bulto Completo'].includes(selectedOT.estado)) && (
+                              <button
+                                onClick={handleConfirmTotalCarga}
+                                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg py-2 text-[10px] font-black uppercase tracking-wider shadow-md hover:-translate-y-0.5 transition-all cursor-pointer mt-2"
+                              >
+                                ⚡ Confirmación Total de la Carga
+                              </button>
+                            )}
                           </div>
                         );
                       }
 
-                      const actualRole = currentUser?.rol || userRole;
                       const isOperario = actualRole === 'Operario';
 
                       if (isOperario) {
@@ -4602,7 +5368,7 @@ export default function App() {
                         <span className="text-[9px] uppercase tracking-widest font-black text-slate-400 block mb-0.5">Geolocalización / Dirección</span>
                         <span className="text-xs font-extrabold text-slate-800">
                           {(() => {
-                            const geo = typeof selectedOT.georef === 'string' ? JSON.parse(selectedOT.georef) : selectedOT.georef;
+                            const geo = typeof selectedOT.georef === 'string' ? safeJsonParse(selectedOT.georef) : selectedOT.georef;
                             return geo?.direccion || 'No especificada';
                           })()}
                         </span>
@@ -4615,8 +5381,86 @@ export default function App() {
                       </div>
                     </div>
 
+                    {/* Comparison Table / Original Dates (if exists) */}
+                    {(() => {
+                      const adic = typeof selectedOT.adicionales === 'string' ? safeJsonParse(selectedOT.adicionales) : selectedOT.adicionales || {};
+                      const orig = adic.fechas_iniciales;
+                      if (!orig) return null;
+                      
+                      const showInicioChanged = orig.fecha_inicio !== selectedOT.fecha_inicio;
+                      const showEventoChanged = orig.fecha_evento !== selectedOT.fecha_evento;
+                      const showFinChanged = orig.fecha_fin !== selectedOT.fecha_fin;
+                      
+                      const hasChanges = showInicioChanged || showEventoChanged || showFinChanged;
+                      if (!hasChanges) return null;
+
+                      const formatDateStr = (d) => d ? new Date(d + 'T00:00:00').toLocaleDateString('es-ES') : '—';
+
+                      return (
+                        <div className="bg-amber-50 border border-amber-250 rounded-2xl p-3.5 space-y-2 text-xs">
+                          <div className="flex items-center gap-1.5 font-black text-amber-800 text-[10px] uppercase tracking-wider">
+                            <span>📅 Fechas Iniciales vs. Actuales</span>
+                          </div>
+                          <div className="overflow-x-auto mt-1">
+                            <table className="w-full text-left border-collapse">
+                              <thead>
+                                <tr className="border-b border-amber-200 text-[9px] uppercase tracking-wider font-black text-amber-600">
+                                  <th className="py-1">Hito</th>
+                                  <th className="py-1">Original Comercial</th>
+                                  <th className="py-1">Actual Operaciones</th>
+                                </tr>
+                              </thead>
+                              <tbody className="font-semibold text-slate-800">
+                                <tr className="border-b border-amber-100/50">
+                                  <td className="py-1.5 text-slate-500 font-bold">Inicio Montaje</td>
+                                  <td className="py-1.5">{formatDateStr(orig.fecha_inicio)}</td>
+                                  <td className={`py-1.5 font-bold ${showInicioChanged ? 'text-amber-700' : ''}`}>
+                                    {formatDateStr(selectedOT.fecha_inicio)}
+                                  </td>
+                                </tr>
+                                <tr className="border-b border-amber-100/50">
+                                  <td className="py-1.5 text-slate-500 font-bold">Evento</td>
+                                  <td className="py-1.5">{formatDateStr(orig.fecha_evento)}</td>
+                                  <td className={`py-1.5 font-bold ${showEventoChanged ? 'text-amber-700' : ''}`}>
+                                    {formatDateStr(selectedOT.fecha_evento)}
+                                  </td>
+                                </tr>
+                                <tr>
+                                  <td className="py-1.5 text-slate-500 font-bold">Desarme (Fin)</td>
+                                  <td className="py-1.5">{formatDateStr(orig.fecha_fin)}</td>
+                                  <td className={`py-1.5 font-bold ${showFinChanged ? 'text-amber-700' : ''}`}>
+                                    {formatDateStr(selectedOT.fecha_fin)}
+                                  </td>
+                                </tr>
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      );
+                    })()}
+
                     {/* Hitos Editables */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-[9px] uppercase tracking-widest font-black text-slate-400 block mb-1">Fecha Inicio Montaje *</label>
+                        <input
+                          type="date"
+                          disabled={!['Operaciones', 'Gerencia', 'SuperAdmin'].includes(userRole)}
+                          className="w-full bg-white border border-slate-200 rounded-xl p-2.5 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all-300 disabled:opacity-60"
+                          value={logisticaFechaInicio}
+                          onChange={(e) => setLogisticaFechaInicio(e.target.value)}
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[9px] uppercase tracking-widest font-black text-slate-400 block mb-1">Fecha de Evento</label>
+                        <input
+                          type="date"
+                          disabled={!['Operaciones', 'Gerencia', 'SuperAdmin'].includes(userRole)}
+                          className="w-full bg-white border border-slate-200 rounded-xl p-2.5 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all-300 disabled:opacity-60"
+                          value={logisticaFechaEvento}
+                          onChange={(e) => setLogisticaFechaEvento(e.target.value)}
+                        />
+                      </div>
                       <div>
                         <label className="text-[9px] uppercase tracking-widest font-black text-slate-400 block mb-1">Fecha de Desarme (Fin) *</label>
                         <input
@@ -4628,7 +5472,7 @@ export default function App() {
                         />
                       </div>
                       <div>
-                        <label className="text-[9px] uppercase tracking-widest font-black text-slate-400 block mb-1">Fecha de Traslado</label>
+                        <label className="text-[9px] uppercase tracking-widest font-black text-slate-400 block mb-1">Fecha de Salida de Planta</label>
                         <input
                           type="datetime-local"
                           disabled={!['Operaciones', 'Gerencia', 'SuperAdmin'].includes(userRole)}
@@ -4698,7 +5542,7 @@ export default function App() {
                     <div className="grid grid-cols-5 gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200">
                       {[
                         { id: 'picking', label: 'Picking / Carga' },
-                        { id: 'traslado', label: 'Traslado' },
+                        { id: 'traslado', label: 'Salida de Planta' },
                         { id: 'armado', label: 'Armado' },
                         { id: 'desarme', label: 'Desarme' },
                         { id: 'retorno', label: 'Retorno' }
@@ -4718,7 +5562,7 @@ export default function App() {
 
                     {/* Inteligencia Logística: Enlaces de Transferencia */}
                     {(() => {
-                      const adObj = typeof selectedOT.adicionales === 'string' ? JSON.parse(selectedOT.adicionales) : selectedOT.adicionales || {};
+                      const adObj = typeof selectedOT.adicionales === 'string' ? safeJsonParse(selectedOT.adicionales) : selectedOT.adicionales || {};
                       const persAsig = adObj.personal_asignado || {};
                       const recAsig = adObj.recursos_asignados || {};
 
@@ -4739,7 +5583,7 @@ export default function App() {
                         if (record) {
                           transferOrigin = ots.find(o => o.id === record.ot_origen_id);
                           if (transferOrigin) {
-                            const originAd = typeof transferOrigin.adicionales === 'string' ? JSON.parse(transferOrigin.adicionales) : transferOrigin.adicionales || {};
+                            const originAd = typeof transferOrigin.adicionales === 'string' ? safeJsonParse(transferOrigin.adicionales) : transferOrigin.adicionales || {};
                             originPers = originAd.personal_asignado?.desarme || [];
                             originRecs = originAd.recursos_asignados?.desarme || [];
                             reason = `desde la orden de desarme de ${transferOrigin.ot_numero} (${transferOrigin.cliente_nombre})`;
@@ -4747,11 +5591,11 @@ export default function App() {
                         } else {
                           // Search in planned transfers
                           transferOrigin = ots.find(o => {
-                            const oAd = typeof o.adicionales === 'string' ? JSON.parse(o.adicionales) : o.adicionales || {};
+                            const oAd = typeof o.adicionales === 'string' ? safeJsonParse(o.adicionales) : o.adicionales || {};
                             return oAd.transfer_dest_ot_id === selectedOT.id;
                           });
                           if (transferOrigin) {
-                            const originAd = typeof transferOrigin.adicionales === 'string' ? JSON.parse(transferOrigin.adicionales) : transferOrigin.adicionales || {};
+                            const originAd = typeof transferOrigin.adicionales === 'string' ? safeJsonParse(transferOrigin.adicionales) : transferOrigin.adicionales || {};
                             originPers = originAd.personal_asignado?.retorno || originAd.personal_asignado?.desarme || [];
                             originRecs = originAd.recursos_asignados?.retorno || originAd.recursos_asignados?.desarme || [];
                             reason = `planificada desde la OT ${transferOrigin.ot_numero} (${transferOrigin.cliente_nombre})`;
@@ -4816,7 +5660,7 @@ export default function App() {
                             const targetOT = ots.find(o => o.id === dest.ot_id || o.ot_numero === dest.ot_numero);
                             if (!targetOT) return null;
 
-                            const targetAd = typeof targetOT.adicionales === 'string' ? JSON.parse(targetOT.adicionales) : targetOT.adicionales || {};
+                            const targetAd = typeof targetOT.adicionales === 'string' ? safeJsonParse(targetOT.adicionales) : targetOT.adicionales || {};
                             const targetPers = targetAd.personal_asignado?.traslado || [];
                             const targetRecs = targetAd.recursos_asignados?.traslado || [];
 
@@ -4919,7 +5763,7 @@ export default function App() {
 
                     {/* Render active stage assignments */}
                     {(() => {
-                      const adObj = typeof selectedOT.adicionales === 'string' ? JSON.parse(selectedOT.adicionales) : selectedOT.adicionales || {};
+                      const adObj = typeof selectedOT.adicionales === 'string' ? safeJsonParse(selectedOT.adicionales) : selectedOT.adicionales || {};
                       const persAsig = adObj.personal_asignado || {};
                       const recAsig = adObj.recursos_asignados || {};
 
@@ -5986,6 +6830,114 @@ export default function App() {
                 className="bg-slate-800 hover:bg-slate-900 text-white rounded-xl px-5 py-2.5 text-xs font-black uppercase tracking-wider shadow-sm transition-all cursor-pointer"
               >
                 Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* -------------------- RETURN STOCK MODAL -------------------- */}
+      {showReturnModal && selectedOT && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
+          <div className="bg-white border border-slate-200 rounded-[2rem] w-full max-w-4xl p-6 md:p-8 max-h-[90vh] overflow-y-auto shadow-2xl relative space-y-6">
+            <button onClick={() => setShowReturnModal(false)} className="absolute right-6 top-6 p-1 rounded-full hover:bg-slate-100 transition-all-300">
+              <X className="w-5 h-5 text-slate-500" />
+            </button>
+
+            <div className="border-b border-slate-150 pb-3">
+              <span className="bg-emerald-100 text-emerald-800 text-[10px] font-black px-2.5 py-1 rounded-full uppercase border border-emerald-250 tracking-wider">
+                Logística Inversa (Cierre de OT)
+              </span>
+              <h2 className="text-xl font-black uppercase text-slate-800 tracking-wider Poppins mt-2">
+                Ingreso de Retorno de Stock
+              </h2>
+              <p className="text-xs font-semibold text-slate-500 mt-1">
+                Cliente: <span className="font-extrabold text-blue-900">{selectedOT.cliente_nombre}</span> | Nro OT: <span className="font-extrabold text-blue-900">{selectedOT.ot_numero}</span>
+              </p>
+            </div>
+
+            <div className="space-y-4">
+              <div className="text-[10px] text-slate-500 font-semibold leading-relaxed bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5">
+                📋 Confirme la cantidad de materiales retornados a stock y agregue observaciones si presentan fallas o daños.
+              </div>
+
+              <div className="border border-slate-200 rounded-2xl overflow-hidden max-h-[350px] overflow-y-auto">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="bg-slate-50 border-b border-slate-200 text-slate-400 font-black uppercase tracking-wider text-[9px]">
+                      <th className="p-3">Sector</th>
+                      <th className="p-3">Producto</th>
+                      <th className="p-3 text-center">Despachado</th>
+                      <th className="p-3 text-center min-w-[100px]">Retornado</th>
+                      <th className="p-3">Observación del Estado</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-150">
+                    {returnItemsState.map((item, idx) => (
+                      <tr key={idx} className="hover:bg-slate-50/50">
+                        <td className="p-3 font-semibold text-slate-500 font-mono text-[10px] uppercase">{item.sector}</td>
+                        <td className="p-3 font-bold text-slate-700">{item.producto}</td>
+                        <td className="p-3 text-center font-extrabold text-slate-650">x{item.qty}</td>
+                        <td className="p-3 text-center">
+                          {isNaN(Number(item.qty)) ? (
+                            <input
+                              type="text"
+                              value={item.qty_retornada}
+                              onChange={e => {
+                                const next = [...returnItemsState];
+                                next[idx].qty_retornada = e.target.value;
+                                setReturnItemsState(next);
+                              }}
+                              className="w-16 text-center bg-slate-50 border border-slate-200 rounded-md p-1 font-bold text-[10px] focus:outline-none focus:border-blue-500"
+                            />
+                          ) : (
+                            <input
+                              type="number"
+                              min="0"
+                              max={Number(item.qty)}
+                              value={item.qty_retornada}
+                              onChange={e => {
+                                const next = [...returnItemsState];
+                                next[idx].qty_retornada = Math.max(0, Math.min(Number(item.qty), Number(e.target.value)));
+                                setReturnItemsState(next);
+                              }}
+                              className="w-16 text-center bg-slate-50 border border-slate-200 rounded-md p-1 font-bold text-[10px] focus:outline-none focus:border-blue-500"
+                            />
+                          )}
+                        </td>
+                        <td className="p-3">
+                          <input
+                            type="text"
+                            value={item.obs}
+                            onChange={e => {
+                              const next = [...returnItemsState];
+                              next[idx].obs = e.target.value;
+                              setReturnItemsState(next);
+                            }}
+                            placeholder="Ej: Excelente, Roto, Faltante"
+                            className="w-full bg-slate-50 border border-slate-200 rounded-md p-1 text-[10px] focus:outline-none focus:border-blue-500"
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setShowReturnModal(false)}
+                className="bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-700 rounded-xl px-5 py-2.5 text-xs font-black uppercase tracking-wider transition"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => handleConfirmReturnStock(returnItemsState)}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl px-5 py-2.5 text-xs font-black uppercase tracking-wider shadow-sm transition"
+              >
+                Confirmar Ingreso y Cerrar OT
               </button>
             </div>
           </div>

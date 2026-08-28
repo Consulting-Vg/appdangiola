@@ -464,7 +464,7 @@ function TentStructure({
   const modulesWithOffsets = modules.map((m, index) => {
     const zStart = currentZ;
     currentZ += m.largo;
-    return { ...m, zStart, zEnd: currentZ, color: colors.modules[index] || colors.modules[0] || '#ffffff' };
+    return { ...m, zStart, zEnd: currentZ, color: colors?.modules?.[index] || colors?.modules?.[0] || '#ffffff' };
   });
   const totalLength = currentZ;
   const lateralColor = colors.lateral || '#ffffff';
@@ -917,7 +917,7 @@ export default function ThreeViewer({
     }
   };
 
-  const handleModuleColor         = (i, c) => { const n = [...colors.modules]; n[i] = c; setColors({ ...colors, modules: n }); };
+  const handleModuleColor         = (i, c) => { const n = [...(colors?.modules || [])]; n[i] = c; setColors({ ...colors, modules: n }); };
   const handleFrontColor          = (c) => setColors({ ...colors, frontTriangle: c });
   const handleBackColor           = (c) => setColors({ ...colors, backTriangle: c });
   const handleFrontTapachataColor = (c) => setColors({ ...colors, frontTapachata: c });
@@ -1290,7 +1290,7 @@ export default function ThreeViewer({
                 {modules.map((m, idx) => (
                   <div key={idx} className="p-2 bg-white rounded-xl border border-slate-100 shadow-sm space-y-1.5">
                     <span className="text-xs font-bold text-slate-700">Módulo {idx + 1} ({m.largo}m)</span>
-                    <ColorSwatches selected={colors.modules[idx] || '#ffffff'} onChange={(c) => handleModuleColor(idx, c)} />
+                    <ColorSwatches selected={colors?.modules?.[idx] || '#ffffff'} onChange={(c) => handleModuleColor(idx, c)} />
                   </div>
                 ))}
               </div>

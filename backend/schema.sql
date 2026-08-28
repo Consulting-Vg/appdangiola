@@ -1,22 +1,19 @@
 -- Database Schema for Carpas D'Angiola ERP
+-- SAFE VERSION: Uses CREATE TABLE IF NOT EXISTS — never drops existing tables or data.
 
--- Drop tables if they exist (for clean migration/reset)
-DROP TABLE IF EXISTS chat_mensajes CASCADE;
-DROP TABLE IF EXISTS ordenes_desarme CASCADE;
-DROP TABLE IF EXISTS ordenes_trabajo CASCADE;
-DROP TABLE IF EXISTS inventario_accesorios CASCADE;
-DROP TABLE IF EXISTS base_fijo CASCADE;
-DROP TABLE IF EXISTS base_modulo CASCADE;
-DROP TABLE IF EXISTS base_arco CASCADE;
-DROP TABLE IF EXISTS estructuras_maestras CASCADE;
-DROP TABLE IF EXISTS clientes CASCADE;
-DROP TABLE IF EXISTS usuarios CASCADE;
-DROP TABLE IF EXISTS personal CASCADE;
-DROP TABLE IF EXISTS recursos CASCADE;
-DROP TABLE IF EXISTS vendedores CASCADE;
+-- Grant permissions to dangiola_user only if the role exists (safe for fresh installs)
+DO $$
+BEGIN
+  IF EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'dangiola_user') THEN
+    GRANT ALL ON SCHEMA public TO dangiola_user;
+    ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO dangiola_user;
+    ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO dangiola_user;
+  END IF;
+END
+$$;
 
 -- 0. Usuarios
-CREATE TABLE usuarios (
+CREATE TABLE IF NOT EXISTS usuarios (
     id SERIAL PRIMARY KEY,
     username VARCHAR(100) UNIQUE NOT NULL,
     nombre VARCHAR(255) NOT NULL,
@@ -27,7 +24,7 @@ CREATE TABLE usuarios (
 );
 
 -- 1. Clientes
-CREATE TABLE clientes (
+CREATE TABLE IF NOT EXISTS clientes (
     id SERIAL PRIMARY KEY,
     cuenta VARCHAR(50) UNIQUE NOT NULL,
     nombre VARCHAR(255) NOT NULL,
@@ -49,7 +46,7 @@ CREATE TABLE clientes (
 );
 
 -- 2. Estructuras Maestras
-CREATE TABLE estructuras_maestras (
+CREATE TABLE IF NOT EXISTS estructuras_maestras (
     id SERIAL PRIMARY KEY,
     modelo_estructura VARCHAR(100) UNIQUE NOT NULL,
     arcos_totales INT NOT NULL DEFAULT 0,
@@ -60,7 +57,7 @@ CREATE TABLE estructuras_maestras (
 );
 
 -- 3. Base Arco (Componentes por pórtico/arco)
-CREATE TABLE base_arco (
+CREATE TABLE IF NOT EXISTS base_arco (
     id SERIAL PRIMARY KEY,
     producto VARCHAR(255) NOT NULL,
     arco VARCHAR(100) NOT NULL, -- e.g. 'C10-L1_A1'
@@ -70,7 +67,7 @@ CREATE TABLE base_arco (
 );
 
 -- 4. Base Modulo (Componentes por módulo de extensión)
-CREATE TABLE base_modulo (
+CREATE TABLE IF NOT EXISTS base_modulo (
     id SERIAL PRIMARY KEY,
     producto VARCHAR(255) NOT NULL,
     modelo_estructura VARCHAR(100) NOT NULL REFERENCES estructuras_maestras(modelo_estructura) ON DELETE CASCADE,
@@ -81,7 +78,7 @@ CREATE TABLE base_modulo (
 );
 
 -- 5. Base Fijo (Componentes fijos por carpa)
-CREATE TABLE base_fijo (
+CREATE TABLE IF NOT EXISTS base_fijo (
     id SERIAL PRIMARY KEY,
     producto VARCHAR(255) NOT NULL,
     modelo_estructura VARCHAR(100) NOT NULL REFERENCES estructuras_maestras(modelo_estructura) ON DELETE CASCADE,
@@ -90,7 +87,7 @@ CREATE TABLE base_fijo (
 );
 
 -- 6. Inventario Accesorios (Pisos, Lonas, Telas, Alfombras, etc.)
-CREATE TABLE inventario_accesorios (
+CREATE TABLE IF NOT EXISTS inventario_accesorios (
     id SERIAL PRIMARY KEY,
     categoria VARCHAR(50) NOT NULL, -- 'piso', 'alfombra', 'tela', 'lona'
     nombre VARCHAR(255) NOT NULL,
@@ -102,7 +99,7 @@ CREATE TABLE inventario_accesorios (
 );
 
 -- 7. Ordenes de Trabajo (OTs)
-CREATE TABLE ordenes_trabajo (
+CREATE TABLE IF NOT EXISTS ordenes_trabajo (
     id SERIAL PRIMARY KEY,
     ot_numero VARCHAR(50) UNIQUE NOT NULL,
     cliente_id INT NOT NULL REFERENCES clientes(id) ON DELETE RESTRICT,
@@ -130,7 +127,7 @@ CREATE TABLE ordenes_trabajo (
 );
 
 -- 7b. Ordenes de Desarme (Logística Inversa)
-CREATE TABLE ordenes_desarme (
+CREATE TABLE IF NOT EXISTS ordenes_desarme (
     id SERIAL PRIMARY KEY,
     ot_origen_id INT NOT NULL REFERENCES ordenes_trabajo(id) ON DELETE CASCADE,
     retorno_completo BOOLEAN NOT NULL,
@@ -141,11 +138,11 @@ CREATE TABLE ordenes_desarme (
 );
 
 -- Indices para optimización de consultas de stock en el tiempo
-CREATE INDEX idx_ot_fechas ON ordenes_trabajo(fecha_inicio, fecha_fin);
-CREATE INDEX idx_ot_estado ON ordenes_trabajo(estado);
+CREATE INDEX IF NOT EXISTS idx_ot_fechas ON ordenes_trabajo(fecha_inicio, fecha_fin);
+CREATE INDEX IF NOT EXISTS idx_ot_estado ON ordenes_trabajo(estado);
 
 -- 8. Chat Mensajes
-CREATE TABLE chat_mensajes (
+CREATE TABLE IF NOT EXISTS chat_mensajes (
     id SERIAL PRIMARY KEY,
     ot_id INT NOT NULL REFERENCES ordenes_trabajo(id) ON DELETE CASCADE,
     usuario VARCHAR(100) NOT NULL,
@@ -154,10 +151,10 @@ CREATE TABLE chat_mensajes (
     fecha_envio TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_chat_ot ON chat_mensajes(ot_id);
+CREATE INDEX IF NOT EXISTS idx_chat_ot ON chat_mensajes(ot_id);
 
 -- 9. Transacciones Log
-CREATE TABLE log_transacciones (
+CREATE TABLE IF NOT EXISTS log_transacciones (
     id SERIAL PRIMARY KEY,
     ot_id INT NOT NULL REFERENCES ordenes_trabajo(id) ON DELETE CASCADE,
     ot_numero VARCHAR(50) NOT NULL,
@@ -168,7 +165,7 @@ CREATE TABLE log_transacciones (
     fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_log_ot ON log_transacciones(ot_id);
+CREATE INDEX IF NOT EXISTS idx_log_ot ON log_transacciones(ot_id);
 
 -- 10. Ventas Históricas (Dashboard de Gerencia BI)
 -- Esta tabla recibe los datos del sistema anterior (importación CSV)
@@ -212,6 +209,11 @@ CREATE TABLE IF NOT EXISTS personal (
     cuit VARCHAR(20),
     telefono VARCHAR(50),
     rol_funcion VARCHAR(100) NOT NULL,
+    tipo VARCHAR(50) DEFAULT 'Fijo', -- 'Fijo', 'Eventual'
+    subtipo_chofer VARCHAR(100), -- 'Camión Pesado', 'Camioneta', 'Semi', 'Autoelevador'
+    roles_secundarios TEXT, -- tags o roles adicionales: 'Encargado, Alfombras, Telas'
+    examen_medico_vencimiento DATE,
+    licencia_conducir_vencimiento DATE,
     activo BOOLEAN DEFAULT TRUE,
     usuario_id INTEGER REFERENCES usuarios(id) ON DELETE SET NULL,
     fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -222,7 +224,10 @@ CREATE TABLE IF NOT EXISTS recursos (
     id SERIAL PRIMARY KEY,
     nombre VARCHAR(150) NOT NULL,
     tipo VARCHAR(100) NOT NULL, -- 'Vehículo / Camión', 'Maquinaria', 'Herramienta', 'Otro'
+    subtipo VARCHAR(100), -- 'Camión Chasis', 'Camioneta', 'Furgón', 'Semi'
     patente_identificador VARCHAR(50),
+    vtv_vencimiento DATE,
+    seguro_vencimiento DATE,
     descripcion TEXT,
     activo BOOLEAN DEFAULT TRUE,
     fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -233,5 +238,63 @@ CREATE TABLE IF NOT EXISTS vendedores (
     id SERIAL PRIMARY KEY,
     nombre VARCHAR(255) UNIQUE NOT NULL,
     activo BOOLEAN DEFAULT TRUE,
+    fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 14. Planificación Diaria Operativa (Cronograma Drag & Drop)
+CREATE TABLE IF NOT EXISTS planificacion_diaria (
+    id SERIAL PRIMARY KEY,
+    fecha DATE UNIQUE NOT NULL,
+    asignaciones JSONB NOT NULL DEFAULT '{"ots": {}, "sectores": {}, "novedades": {}}',
+    publicado BOOLEAN DEFAULT FALSE,
+    publicado_por VARCHAR(100),
+    fecha_publicacion TIMESTAMP,
+    fecha_modificacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_planif_fecha ON planificacion_diaria(fecha);
+
+-- 15. Planificación de Planta (Proyección Taller/Mantenimiento)
+CREATE TABLE IF NOT EXISTS planificacion_planta (
+    id SERIAL PRIMARY KEY,
+    fecha DATE UNIQUE NOT NULL,
+    tareas JSONB NOT NULL DEFAULT '[]',
+    fecha_modificacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_planif_planta_fecha ON planificacion_planta(fecha);
+
+-- 16. Recordatorios Operativos (Alertas vinculadas a personal o flota)
+CREATE TABLE IF NOT EXISTS recordatorios_operativos (
+    id SERIAL PRIMARY KEY,
+    fecha DATE NOT NULL,
+    titulo VARCHAR(255) NOT NULL,
+    tipo VARCHAR(50) NOT NULL, -- 'Personal', 'Vehículo', 'General', 'VTV', 'Médico'
+    entidad_id INT,
+    entidad_tipo VARCHAR(50),
+    descripcion TEXT,
+    completado BOOLEAN DEFAULT FALSE,
+    fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_recordatorios_fecha ON recordatorios_operativos(fecha);
+
+-- ============================================================
+-- MÓDULO APRENDIZAJE IA
+-- ============================================================
+
+-- 17. Base de Conocimiento (RAG)
+CREATE TABLE IF NOT EXISTS base_conocimiento (
+    id SERIAL PRIMARY KEY,
+    titulo TEXT NOT NULL,
+    tipo TEXT DEFAULT 'general',
+    contenido TEXT NOT NULL,
+    fecha_carga TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 18. Skills / Habilidades Auto-aprendidas del Agente
+CREATE TABLE IF NOT EXISTS skills_agente (
+    id SERIAL PRIMARY KEY,
+    nombre TEXT UNIQUE NOT NULL,
+    descripcion TEXT,
+    trigger_keywords TEXT,
+    instrucciones TEXT NOT NULL,
     fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

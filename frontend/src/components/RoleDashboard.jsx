@@ -9,6 +9,24 @@ import {
 } from 'lucide-react';
 import PDFReplicator from './PDFReplicator';
 
+const safeJsonParse = (val, fallback = {}) => {
+  if (!val) return fallback;
+  if (typeof val === 'object') return val;
+  try {
+    return JSON.parse(val);
+  } catch (e) {
+    console.error("Error parsing JSON:", e, val);
+    return fallback;
+  }
+};
+
+const safeDateString = (dateStr) => {
+  if (!dateStr) return '';
+  if (typeof dateStr === 'string') return dateStr;
+  if (dateStr instanceof Date) return dateStr.toISOString();
+  return String(dateStr);
+};
+
 export default function RoleDashboard({
   currentUser,
   userRole,
@@ -28,7 +46,8 @@ export default function RoleDashboard({
   clients = [],
   onUpdateAdicionales,
   onOpenGerenciaDashboard,
-  onWeatherAnalysis
+  onWeatherAnalysis,
+  onOpenReturnStockModal
 }) {
   const getModulesForUser = () => {
     // 1. Determine default modules by role
@@ -38,7 +57,7 @@ export default function RoleDashboard({
       if (role === 'Gerencia') return ['Gerencia', 'Comercial', 'Operaciones', 'Almacen', 'Chofer'];
       if (role === 'Operaciones') return ['Operaciones', 'Chofer'];
       if (role === 'Chofer') return ['Chofer'];
-      if (['Planta', 'Pañol', 'Lonas', 'Pisos', 'Telas', 'Operario'].includes(role)) return ['Almacen'];
+      if (['Planta', 'Pañol', 'Lonas', 'Pisos', 'Telas', 'Operario', 'Jefe de Planta'].includes(role)) return ['Almacen'];
       if (role === 'SuperAdmin') return ['Gerencia', 'Comercial', 'Operaciones', 'Almacen', 'Chofer'];
       return [];
     })();
@@ -47,7 +66,7 @@ export default function RoleDashboard({
     if (currentUser) {
       try {
         const parsed = typeof currentUser.modulos === 'string'
-          ? JSON.parse(currentUser.modulos)
+          ? safeJsonParse(currentUser.modulos, [])
           : currentUser.modulos;
         if (Array.isArray(parsed) && parsed.length > 0) {
           const merged = Array.from(new Set([...parsed, ...defaultModulesByRole]));
@@ -164,7 +183,7 @@ export default function RoleDashboard({
 
   const filterMaterials = (mats, role) => {
     if (!role) return mats;
-    if (['Gerencia', 'Operaciones', 'SuperAdmin', 'Comercial'].includes(role)) {
+    if (['Gerencia', 'Operaciones', 'SuperAdmin', 'Comercial', 'Jefe de Planta'].includes(role)) {
       return mats;
     }
     if (role === 'Operario') {
@@ -217,7 +236,7 @@ export default function RoleDashboard({
     if (role === 'Gerencia') return 'Gerencia';
     if (role === 'Operaciones') return 'Operaciones';
     if (role === 'Chofer') return 'Chofer';
-    if (['Planta', 'Pañol', 'Lonas', 'Pisos', 'Telas', 'Operario'].includes(role)) return 'Almacen';
+    if (['Planta', 'Pañol', 'Lonas', 'Pisos', 'Telas', 'Operario', 'Jefe de Planta'].includes(role)) return 'Almacen';
     if (role === 'SuperAdmin') return 'Gerencia';
     return null;
   };
@@ -248,6 +267,182 @@ export default function RoleDashboard({
   const [loading, setLoading] = useState(false);
   const [desarmeRecords, setDesarmeRecords] = useState([]);
 
+  const [inventarioDesde, setInventarioDesde] = useState('');
+  const [inventarioHasta, setInventarioHasta] = useState('');
+  const [inventarioFrente, setInventarioFrente] = useState('todos');
+  const [expandedStructures, setExpandedStructures] = useState({});
+  const [localStock, setLocalStock] = useState(structuresStock || []);
+
+  useEffect(() => {
+    if (structuresStock) {
+      setLocalStock(structuresStock);
+    }
+  }, [structuresStock]);
+
+  const fetchFilteredStock = async (desde, hasta) => {
+    setLoading(true);
+    try {
+      let url = '/api/inventario/estructuras';
+      if (desde && hasta) {
+        url += `?desde=${desde}&hasta=${hasta}`;
+      }
+      const res = await fetch(url);
+      if (res.ok) {
+        const data = await res.json();
+        setLocalStock(data);
+      }
+    } catch (err) {
+      console.error("Error al filtrar inventario:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (inventarioDesde && inventarioHasta) {
+      fetchFilteredStock(inventarioDesde, inventarioHasta);
+    } else {
+      fetchFilteredStock('', '');
+    }
+  }, [inventarioDesde, inventarioHasta]);
+
+  const getFrenteOptions = () => {
+    const frentes = new Set();
+    (localStock || []).forEach(est => {
+      if (est.frente) frentes.add(est.frente);
+    });
+    return Array.from(frentes).sort((a, b) => Number(a) - Number(b));
+  };
+
+  const calculateMaxLargo = (est) => {
+    let maxModules = Infinity;
+    let hasComponents = false;
+
+    (est.materiales || []).forEach(item => {
+      const qty = Number(item.qty_fija || 0);
+      if (qty <= 0) return;
+
+      hasComponents = true;
+      const avail = Number(item.available || 0);
+      let limit = Infinity;
+
+      if (item.component_type === 'fijo') {
+        if (avail < qty) {
+          limit = 0;
+        }
+      } else if (item.component_type === 'arco') {
+        limit = Math.floor(avail / qty) - 1;
+      } else if (item.component_type === 'modulo') {
+        limit = Math.floor(avail / qty);
+      }
+
+      if (limit < maxModules) {
+        maxModules = limit;
+      }
+    });
+
+    if (!hasComponents || maxModules === Infinity || maxModules < 0) {
+      return 0;
+    }
+    return maxModules * 5;
+  };
+
+  const getTodayStrLocal = () => {
+    const d = new Date();
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  const getTodayTasks = () => {
+    const tasks = [];
+    const todayStr = getTodayStrLocal();
+
+    (ots || []).forEach(ot => {
+      if (['Cancelada', 'Rechazada', 'Pendiente'].includes(ot.estado)) return;
+
+      const ad = typeof ot.adicionales === 'string' ? safeJsonParse(ot.adicionales) : ot.adicionales || {};
+
+      const startStr = ot.fecha_inicio ? ot.fecha_inicio.substring(0, 10) : '';
+      if (startStr === todayStr && !ad.armado_completed && !['Completada', 'Desarmando', 'Desarmada', 'Retornada'].includes(ot.estado)) {
+        tasks.push({
+          ot,
+          type: 'armado',
+          label: 'Armado',
+          isReplicated: false
+        });
+      }
+
+      const endStr = ot.fecha_fin ? ot.fecha_fin.substring(0, 10) : '';
+      if (endStr === todayStr && !ad.desarmado_completed && !['Desarmada', 'Retornada'].includes(ot.estado)) {
+        tasks.push({
+          ot,
+          type: 'desarmado',
+          label: 'Desarmado',
+          isReplicated: false
+        });
+      }
+
+      const replicated = ad.replicated_tasks || [];
+      replicated.forEach((rep, repIdx) => {
+        if (rep.date === todayStr && !rep.completed) {
+          tasks.push({
+            ot,
+            type: rep.type,
+            label: `${rep.type === 'armado' ? 'Armado' : 'Desarmado'} (Replicado)`,
+            isReplicated: true,
+            replicatedIndex: repIdx
+          });
+        }
+      });
+    });
+
+    return tasks;
+  };
+
+  const handleFinalizeTask = async (task) => {
+    const ot = task.ot;
+    const ad = typeof ot.adicionales === 'string' ? safeJsonParse(ot.adicionales) : ot.adicionales || {};
+    const updatedAd = { ...ad };
+
+    if (task.isReplicated) {
+      const reps = [...(updatedAd.replicated_tasks || [])];
+      if (reps[task.replicatedIndex]) {
+        reps[task.replicatedIndex].completed = true;
+      }
+      updatedAd.replicated_tasks = reps;
+    } else {
+      if (task.type === 'armado') {
+        updatedAd.armado_completed = true;
+      } else {
+        updatedAd.desarmado_completed = true;
+      }
+    }
+
+    try {
+      const res = await fetch(`/api/ots/${ot.id}/adicionales`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          adicionales: updatedAd,
+          usuario: currentUser?.nombre || userName,
+          rol: currentUser?.rol || userRole
+        })
+      });
+      if (res.ok) {
+        alert(`Tarea de ${task.type === 'armado' ? 'Armado' : 'Desarmado'} completada.`);
+        if (onUpdateAdicionales) {
+          onUpdateAdicionales(ot.id, updatedAd);
+        } else {
+          window.location.reload();
+        }
+      }
+    } catch (err) {
+      console.error("Error al finalizar tarea:", err);
+    }
+  };
+
   useEffect(() => {
     const fetchDesarmes = async () => {
       try {
@@ -267,7 +462,9 @@ export default function RoleDashboard({
     const now = new Date();
     return (ots || []).filter(ot => {
       if (['Cancelada', 'Rechazada', 'Pendiente', 'Desarmada', 'Retornada'].includes(ot.estado)) return false;
-      const fechaDesarme = new Date(ot.fecha_fin + 'T00:00:00');
+      const dateStr = ot.fecha_comienzo_desarmado || ot.fecha_fin;
+      if (!dateStr) return false;
+      const fechaDesarme = new Date(safeDateString(dateStr).substring(0, 10) + 'T00:00:00');
       const diffTime = fechaDesarme - now;
       const diffHours = diffTime / (1000 * 60 * 60);
       return diffHours <= 48; // within 48 hours or overdue
@@ -305,7 +502,7 @@ export default function RoleDashboard({
     if (!checked) return;
     const ot = ots.find(o => o.id === otId);
     if (!ot) return;
-    const adObj = typeof ot.adicionales === 'string' ? JSON.parse(ot.adicionales) : ot.adicionales || {};
+    const adObj = typeof ot.adicionales === 'string' ? safeJsonParse(ot.adicionales) : ot.adicionales || {};
     const retornoLlegadas = adObj.chofer_retorno_llegadas || {};
 
     const saveGPSInfo = async (coordsStr) => {
@@ -428,7 +625,7 @@ export default function RoleDashboard({
 
     let y = 60;
     const startX = 15;
-    
+
     // Client info
     doc.setDrawColor(220, 220, 220);
     doc.rect(startX, y, 180, 20);
@@ -469,8 +666,8 @@ export default function RoleDashboard({
     y += 7;
 
     const list = [];
-    const panol = typeof ot.panol_status === 'string' ? JSON.parse(ot.panol_status) : ot.panol_status;
-    const planta = typeof ot.planta_status === 'string' ? JSON.parse(ot.planta_status) : ot.planta_status;
+    const panol = typeof ot.panol_status === 'string' ? safeJsonParse(ot.panol_status) : ot.panol_status;
+    const planta = typeof ot.planta_status === 'string' ? safeJsonParse(ot.planta_status) : ot.planta_status;
     if (panol?.items) {
       panol.items.forEach(item => {
         list.push({ producto: item.producto, qty: item.qty, sector: item.sector || 'Pañol' });
@@ -481,9 +678,9 @@ export default function RoleDashboard({
         list.push({ producto: item.producto, qty: item.qty, sector: item.sector || 'Planta' });
       });
     }
-    
+
     const aggregatedList = aggregateProducts(list);
-    
+
     const isLona = (name) => {
       const n = name.toLowerCase();
       return n.includes('lona') || n.includes('techo') || n.includes('lateral') || n.includes('triangulo') || n.includes('tapachata') || n.includes('puerta');
@@ -735,15 +932,20 @@ export default function RoleDashboard({
       doc.setDrawColor(220, 220, 220);
       doc.rect(startX, y, 180, boxH);
       doc.setFont('Helvetica', 'bold');
-      doc.setFontSize(7.5);
+      doc.setFontSize(7);
       doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
-      doc.text("PRODUCTO / COMPONENTE", startX + 4, y + 5);
-      doc.text("CANTIDAD DESPACHADA", startX + 120, y + 5);
+      doc.text("COMPONENTE / MATERIAL", startX + 2, y + 5);
+      doc.text("CANT.", startX + 75, y + 5);
+      doc.text("PREP.", startX + 90, y + 5);
+      doc.text("ENV.", startX + 105, y + 5);
+      doc.text("EGRESAN", startX + 120, y + 5);
+      doc.text("REGRESAN", startX + 140, y + 5);
+      doc.text("OBS.", startX + 160, y + 5);
       doc.line(startX, y + 7, startX + 180, y + 7);
 
       let itemY = y + 11;
       doc.setFont('Helvetica', 'normal');
-      doc.setFontSize(7.5);
+      doc.setFontSize(6.5);
       doc.setTextColor(0, 0, 0);
 
       items.forEach((item, idx) => {
@@ -751,8 +953,14 @@ export default function RoleDashboard({
           doc.setFillColor(248, 250, 252);
           doc.rect(startX + 0.5, itemY - 3.5, 179.5, 5.5, 'F');
         }
-        doc.text(String(item.producto).toUpperCase(), startX + 4, itemY);
-        doc.text(String(item.qty), startX + 120, itemY);
+        const prodName = String(item.producto || '').substring(0, 42);
+        doc.text(prodName.toUpperCase(), startX + 2, itemY);
+        doc.text(String(item.qty || 1), startX + 76, itemY);
+        doc.text(item.preparado || item.checked ? '[X]' : '[ ]', startX + 92, itemY);
+        doc.text(item.enviado ? '[X]' : '[ ]', startX + 107, itemY);
+        doc.text(String(item.cant_egresan ?? item.qty ?? '-'), startX + 124, itemY);
+        doc.text(String(item.cant_regresan ?? '-'), startX + 144, itemY);
+        doc.text(String(item.observaciones || '').substring(0, 12), startX + 160, itemY);
         itemY += 6;
       });
 
@@ -797,9 +1005,9 @@ export default function RoleDashboard({
       logoImg.onerror = resolve;
     });
 
-    const panol = typeof ot.panol_status === 'string' ? JSON.parse(ot.panol_status) : ot.panol_status;
-    const planta = typeof ot.planta_status === 'string' ? JSON.parse(ot.planta_status) : ot.planta_status;
-    
+    const panol = typeof ot.panol_status === 'string' ? safeJsonParse(ot.panol_status) : ot.panol_status;
+    const planta = typeof ot.planta_status === 'string' ? safeJsonParse(ot.planta_status) : ot.planta_status;
+
     let checklistItems = [];
     if (panol?.items) {
       panol.items.forEach(i => checklistItems.push({ ...i, sector: i.sector || 'Pañol' }));
@@ -856,7 +1064,7 @@ export default function RoleDashboard({
       }
     });
 
-    const geo = typeof ot.georef === 'string' ? JSON.parse(ot.georef) : ot.georef;
+    const geo = typeof ot.georef === 'string' ? safeJsonParse(ot.georef) : ot.georef;
     const direccion = geo?.direccion || 'No especificada';
     const lat = geo?.lat;
     const lng = geo?.lng;
@@ -949,7 +1157,7 @@ export default function RoleDashboard({
       doc.setFontSize(8);
       doc.setTextColor(0, 0, 0);
       doc.text(`Cliente: ${ot.cliente_nombre}`, 18, 71);
-      
+
       let currentY = 76;
       splitDireccion.forEach((lineText) => {
         doc.text(lineText, 18, currentY);
@@ -1025,16 +1233,20 @@ export default function RoleDashboard({
       doc.setDrawColor(220, 220, 220);
       doc.rect(startX, y, 180, boxH);
       doc.setFont('Helvetica', 'bold');
-      doc.setFontSize(7.5);
+      doc.setFontSize(7);
       doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
-      doc.text("CANTIDAD", startX + 4, y + 5);
-      doc.text("DETALLE / PRODUCTO ENVIADO", startX + 30, y + 5);
-      doc.text("SECTOR ORIGEN", startX + 145, y + 5);
+      doc.text("COMPONENTE / MATERIAL", startX + 2, y + 5);
+      doc.text("CANT.", startX + 75, y + 5);
+      doc.text("PREP.", startX + 90, y + 5);
+      doc.text("ENV.", startX + 105, y + 5);
+      doc.text("EGRESAN", startX + 120, y + 5);
+      doc.text("REGRESAN", startX + 140, y + 5);
+      doc.text("OBS.", startX + 160, y + 5);
       doc.line(startX, y + 7, startX + 180, y + 7);
 
       let itemY = y + 11;
       doc.setFont('Helvetica', 'normal');
-      doc.setFontSize(7.5);
+      doc.setFontSize(6.5);
       doc.setTextColor(0, 0, 0);
 
       items.forEach((item, idx) => {
@@ -1042,21 +1254,14 @@ export default function RoleDashboard({
           doc.setFillColor(248, 250, 252);
           doc.rect(startX + 0.5, itemY - 3.5, 179.5, 5.5, 'F');
         }
-        doc.setFont('Helvetica', 'bold');
-        doc.text(String(item.qty), startX + 6, itemY);
-        doc.setFont('Helvetica', 'normal');
-
-        const prodText = item.producto || 'Componente';
-        const textWidth = doc.getTextWidth(prodText);
-        let displayName = prodText;
-        if (textWidth > 110) {
-          displayName = doc.splitTextToSize(prodText, 110)[0] + '...';
-        }
-        doc.text(displayName, startX + 30, itemY);
-
-        const secLabel = item.sector || item.computedSector || title.split(' ')[1] || 'OT';
-        doc.text(String(secLabel).toUpperCase(), startX + 145, itemY);
-
+        const prodName = String(item.producto || '').substring(0, 42);
+        doc.text(prodName.toUpperCase(), startX + 2, itemY);
+        doc.text(String(item.qty || 1), startX + 76, itemY);
+        doc.text(item.preparado || item.checked ? '[X]' : '[ ]', startX + 92, itemY);
+        doc.text(item.enviado ? '[X]' : '[ ]', startX + 107, itemY);
+        doc.text(String(item.cant_egresan ?? item.qty ?? '-'), startX + 124, itemY);
+        doc.text(String(item.cant_regresan ?? '-'), startX + 144, itemY);
+        doc.text(String(item.observaciones || '').substring(0, 12), startX + 160, itemY);
         itemY += 6;
       });
 
@@ -1375,13 +1580,23 @@ export default function RoleDashboard({
   };
 
   const renderStockInventory = () => {
-    if (!structuresStock || structuresStock.length === 0) {
+    if (!localStock || localStock.length === 0) {
       return (
         <div className="glass-panel rounded-[2rem] p-8 text-center text-slate-400 font-semibold italic">
           Cargando información del inventario de estructuras...
         </div>
       );
     }
+
+    const activeRole = currentUser?.rol || userRole;
+    const isAuthorizedForFilters = ['Gerencia', 'Operaciones', 'SuperAdmin'].includes(activeRole);
+
+    const filteredStock = (localStock || []).filter(est => {
+      if (isAuthorizedForFilters && inventarioFrente !== 'todos') {
+        return String(est.frente) === String(inventarioFrente);
+      }
+      return true;
+    });
 
     return (
       <div className="space-y-6">
@@ -1407,96 +1622,154 @@ export default function RoleDashboard({
           </div>
         </div>
 
+        {/* Date Range and Frente Filters (Authorized Roles Only) */}
+        {isAuthorizedForFilters && (
+          <div className="bg-white/80 p-5 rounded-[2rem] border border-slate-200 shadow-sm space-y-3">
+            <h4 className="text-xs uppercase tracking-widest font-black text-slate-400 Poppins">Planificación de Stock y Disponibilidad</h4>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] font-black uppercase text-slate-500 tracking-wider">Fecha Desde</label>
+                <input
+                  type="date"
+                  value={inventarioDesde}
+                  onChange={(e) => setInventarioDesde(e.target.value)}
+                  className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-900"
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] font-black uppercase text-slate-500 tracking-wider">Fecha Hasta</label>
+                <input
+                  type="date"
+                  value={inventarioHasta}
+                  onChange={(e) => setInventarioHasta(e.target.value)}
+                  className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-900"
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] font-black uppercase text-slate-500 tracking-wider">Filtrar por Frente</label>
+                <select
+                  value={inventarioFrente}
+                  onChange={(e) => setInventarioFrente(e.target.value)}
+                  className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-900 cursor-pointer"
+                >
+                  <option value="todos">Todos los Frentes</option>
+                  {getFrenteOptions().map(f => (
+                    <option key={f} value={f}>{f} Metros</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="space-y-8">
-          {structuresStock.map((est) => {
-            const activeRole = currentUser?.rol || userRole;
+          {filteredStock.map((est) => {
             const filteredMats = filterMaterials(est.materiales || [], activeRole);
             const aggregatedMats = aggregateProducts(filteredMats);
             if (aggregatedMats.length === 0) return null;
+
+            const maxLargo = calculateMaxLargo(est);
+            const isExpanded = !!expandedStructures[est.modelo_estructura];
+
             return (
               <div key={est.modelo_estructura} className="glass-panel rounded-[2rem] p-6 space-y-4">
-                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-slate-100 pb-3">
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-100 pb-3">
                   <div>
                     <h3 className="text-sm font-black uppercase text-blue-900 tracking-wider Poppins flex items-center gap-2">
                       <span className="badge-carpa">{est.modelo_estructura}</span>
                       <span>{est.estructura_tipo} — Frente {est.frente} Mts</span>
                     </h3>
-                    <p className="text-[10px] text-slate-450 font-semibold">Largo Máximo Configurable: {est.largo_maximo} Mts</p>
+                    <div className="flex flex-wrap gap-2 items-center mt-1">
+                      <span className="text-[10px] text-slate-450 font-semibold">Largo Máximo Configurable: {est.largo_maximo} Mts</span>
+                      <span className="text-slate-300 font-bold">•</span>
+                      <span className="text-[10px] text-emerald-700 font-extrabold bg-emerald-50 border border-emerald-250/70 px-2 py-0.5 rounded-md">
+                        Largo Máximo Construible Hoy: {maxLargo} Mts
+                      </span>
+                    </div>
                   </div>
+                  <button
+                    onClick={() => setExpandedStructures(prev => ({ ...prev, [est.modelo_estructura]: !prev[est.modelo_estructura] }))}
+                    className="bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-black uppercase text-slate-700 tracking-wider transition-all-300 flex items-center gap-1 cursor-pointer align-self-end sm:align-self-auto"
+                  >
+                    <span>{isExpanded ? 'Ocultar Componentes' : 'Ver Componentes'}</span>
+                    <ChevronRight className={`w-3.5 h-3.5 text-slate-500 transition-transform duration-300 ${isExpanded ? 'rotate-90' : ''}`} />
+                  </button>
                 </div>
 
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse text-xs">
-                    <thead>
-                      <tr className="border-b border-slate-200/80 text-slate-455 font-black uppercase tracking-widest">
-                        <th className="pb-3 w-1/3">Componente / Producto</th>
-                        <th className="pb-3 text-center">Sector</th>
-                        <th className="pb-3 text-center">Total</th>
-                        <th className="pb-3 text-center">Reservado (En Planta)</th>
-                        <th className="pb-3 text-center">En Uso (Fuera)</th>
-                        <th className="pb-3 text-center">Disponible</th>
-                        <th className="pb-3 w-1/4 text-center">Ocupación / Uso</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {aggregatedMats.map((item) => {
-                        const totalOccupied = item.reserved + item.inUse;
-                        const occupancyPct = item.total > 0 ? (totalOccupied / item.total) * 100 : 0;
+                {isExpanded && (
+                  <div className="overflow-x-auto pt-2 transition-all duration-350">
+                    <table className="w-full text-left border-collapse text-xs">
+                      <thead>
+                        <tr className="border-b border-slate-200/80 text-slate-455 font-black uppercase tracking-widest">
+                          <th className="pb-3 w-1/3">Componente / Producto</th>
+                          <th className="pb-3 text-center">Sector</th>
+                          <th className="pb-3 text-center">Total</th>
+                          <th className="pb-3 text-center">Reservado (En Planta)</th>
+                          <th className="pb-3 text-center">En Uso (Fuera)</th>
+                          <th className="pb-3 text-center">Disponible</th>
+                          <th className="pb-3 w-1/4 text-center">Ocupación / Uso</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {aggregatedMats.map((item) => {
+                          const totalOccupied = item.reserved + item.inUse;
+                          const occupancyPct = item.total > 0 ? (totalOccupied / item.total) * 100 : 0;
 
-                        return (
-                          <tr key={item.producto} className="hover:bg-slate-50/50 transition-all-300">
-                            <td className="py-3 font-extrabold text-slate-800 uppercase tracking-wide">{item.producto}</td>
-                            <td className="py-3 text-center">
-                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${item.sector === 'Planta' ? 'bg-orange-50 text-orange-700 border border-orange-100' : 'bg-blue-50 text-blue-700 border border-blue-100'
-                                }`}>
-                                {item.sector}
-                              </span>
-                            </td>
-                            <td className="py-3 text-center font-bold text-slate-700">{item.total}</td>
-                            <td className="py-3 text-center">
-                              {item.reserved > 0 ? (
-                                <span className="bg-amber-100 text-amber-800 text-[10px] font-black px-2.5 py-0.5 rounded-full border border-amber-205">
-                                  {item.reserved}
+                          return (
+                            <tr key={item.producto} className="hover:bg-slate-50/50 transition-all-300">
+                              <td className="py-3 font-extrabold text-slate-800 uppercase tracking-wide">{item.producto}</td>
+                              <td className="py-3 text-center">
+                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${item.sector === 'Planta' ? 'bg-orange-50 text-orange-700 border border-orange-100' : 'bg-blue-50 text-blue-700 border border-blue-100'
+                                  }`}>
+                                  {item.sector}
                                 </span>
-                              ) : (
-                                <span className="text-slate-350 font-bold">-</span>
-                              )}
-                            </td>
-                            <td className="py-3 text-center">
-                              {item.inUse > 0 ? (
-                                <span className="bg-indigo-105 text-indigo-800 text-[10px] font-black px-2.5 py-0.5 rounded-full border border-indigo-200">
-                                  {item.inUse}
+                              </td>
+                              <td className="py-3 text-center font-bold text-slate-700">{item.total}</td>
+                              <td className="py-3 text-center">
+                                {item.reserved > 0 ? (
+                                  <span className="bg-amber-100 text-amber-800 text-[10px] font-black px-2.5 py-0.5 rounded-full border border-amber-205">
+                                    {item.reserved}
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-350 font-bold">-</span>
+                                )}
+                              </td>
+                              <td className="py-3 text-center">
+                                {item.inUse > 0 ? (
+                                  <span className="bg-indigo-105 text-indigo-800 text-[10px] font-black px-2.5 py-0.5 rounded-full border border-indigo-200">
+                                    {item.inUse}
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-350 font-bold">-</span>
+                                )}
+                              </td>
+                              <td className="py-3 text-center">
+                                <span className={`px-2.5 py-1 rounded-xl text-xs font-black ${item.available > 0
+                                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-250'
+                                  : 'bg-red-50 text-red-700 border border-red-200'
+                                  }`}>
+                                  {item.available}
                                 </span>
-                              ) : (
-                                <span className="text-slate-350 font-bold">-</span>
-                              )}
-                            </td>
-                            <td className="py-3 text-center">
-                              <span className={`px-2.5 py-1 rounded-xl text-xs font-black ${item.available > 0
-                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-250'
-                                : 'bg-red-50 text-red-700 border border-red-200'
-                                }`}>
-                                {item.available}
-                              </span>
-                            </td>
-                            <td className="py-3">
-                              <div className="flex items-center gap-2 justify-center">
-                                <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden border border-slate-200">
-                                  <div
-                                    className={`h-full rounded-full transition-all duration-500 ${occupancyPct >= 90 ? 'bg-red-500' : occupancyPct >= 50 ? 'bg-amber-500' : 'bg-blue-600'
-                                      }`}
-                                    style={{ width: `${Math.min(100, occupancyPct)}%` }}
-                                  ></div>
+                              </td>
+                              <td className="py-3">
+                                <div className="flex items-center gap-2 justify-center">
+                                  <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden border border-slate-200">
+                                    <div
+                                      className={`h-full rounded-full transition-all duration-500 ${occupancyPct >= 90 ? 'bg-red-500' : occupancyPct >= 50 ? 'bg-amber-500' : 'bg-blue-600'
+                                        }`}
+                                      style={{ width: `${Math.min(100, occupancyPct)}%` }}
+                                    ></div>
+                                  </div>
+                                  <span className="text-[10px] font-black text-slate-500 font-mono w-10 text-right">{occupancyPct.toFixed(0)}%</span>
                                 </div>
-                                <span className="text-[10px] font-black text-slate-500 font-mono w-10 text-right">{occupancyPct.toFixed(0)}%</span>
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
             );
           })}
@@ -1536,8 +1809,65 @@ export default function RoleDashboard({
     }
   };
 
+  const renderTaskReminders = () => {
+    const tasks = getTodayTasks();
+    if (tasks.length === 0) return null;
+
+    return (
+      <div className="bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-150 rounded-[2rem] p-5 shadow-sm space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2 text-emerald-900">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-600"></span>
+            </span>
+            <h4 className="text-xs font-black uppercase tracking-wider Poppins flex items-center gap-1.5">
+              <CheckCircle2 className="w-4 h-4 text-emerald-700" />
+              Recordatorios de Tareas del Día ({tasks.length})
+            </h4>
+          </div>
+        </div>
+        <div className="flex gap-4 overflow-x-auto pb-2 scrollbar-thin">
+          {tasks.map((task, idx) => (
+            <div key={idx} className="min-w-[280px] max-w-[320px] bg-white border border-emerald-100 rounded-2xl p-4 shadow-xs flex flex-col justify-between gap-3 hover:border-emerald-250 transition-all-300">
+              <div>
+                <div className="flex justify-between items-center mb-1">
+                  <span className="font-mono text-xs font-black text-slate-400">OT-{task.ot.ot_numero}</span>
+                  <span className={`text-[9px] font-black px-2 py-0.5 rounded-full ${task.type === 'armado' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200'
+                    }`}>
+                    {task.label.toUpperCase()}
+                  </span>
+                </div>
+                <h5 className="text-xs font-extrabold text-slate-800 uppercase truncate">{task.ot.cliente_nombre}</h5>
+                <p className="text-[10px] text-slate-500 font-semibold mt-1">
+                  Estructura: {task.ot.modelo_estructura} ({task.ot.frente}x{task.ot.largo}m)
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => onSelectOT(task.ot)}
+                  className="flex-1 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-700 rounded-xl py-2 text-[10px] font-black uppercase tracking-wider transition-all-300 cursor-pointer"
+                >
+                  Ver Detalle
+                </button>
+                <button
+                  onClick={() => handleFinalizeTask(task)}
+                  className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl py-2 text-[10px] font-black uppercase tracking-wider transition-all-300 cursor-pointer"
+                >
+                  Finalizar
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-6">
+      {/* Task Reminders Deck */}
+      {renderTaskReminders()}
 
       {/* Module Selector for users with multiple modules (like SuperAdmin or custom assigned) */}
       {allowedModules.length > 1 && (
@@ -1778,7 +2108,7 @@ export default function RoleDashboard({
                         Estructura: {ot.modelo_estructura} ({ot.frente}x{ot.largo}m)
                       </div>
                       <div className="text-[10px] text-fuchsia-700 font-extrabold mt-1">
-                        Desarme original: {new Date(ot.fecha_fin + 'T00:00:00').toLocaleDateString('es-ES')}
+                        Comienzo Desarme: {new Date((ot.fecha_comienzo_desarmado || ot.fecha_fin) + 'T00:00:00').toLocaleDateString('es-ES')}
                       </div>
                     </div>
                     <button
@@ -1819,8 +2149,8 @@ export default function RoleDashboard({
             renderStockInventory()
           ) : (
             <>
-              {/* Section A: Pending Commercial Approvals (Only visible to Gerencia or SuperAdmin) */}
-              {(userRole === 'Gerencia' || userRole === 'SuperAdmin') && (
+              {/* Section A: Pending Commercial Approvals (Visible to Gerencia, SuperAdmin or Operaciones) */}
+              {(userRole === 'Gerencia' || userRole === 'SuperAdmin' || userRole === 'Operaciones') && (
                 <div className="glass-panel rounded-[2rem] p-6">
                   <h3 className="text-xs uppercase tracking-widest font-black text-slate-400 mb-4 Poppins">Contratos Pendientes de Aprobación Comercial (Gerencia) ({pendingOTs.length})</h3>
                   <div className="space-y-4">
@@ -1836,7 +2166,7 @@ export default function RoleDashboard({
                             <div><span className="text-slate-400">Estructura:</span> {ot.modelo_estructura} ({ot.frente}x{ot.largo}m)</div>
                             <div><span className="text-slate-400">Superficie:</span> {ot.superficie} m²</div>
                             <div><span className="text-slate-400">Montaje:</span> {new Date(ot.fecha_inicio).toLocaleDateString()}</div>
-                            <div><span className="text-slate-400">Desarme:</span> {new Date(ot.fecha_fin).toLocaleDateString()}</div>
+                            <div><span className="text-slate-400">Comienzo Desarme:</span> {new Date(ot.fecha_comienzo_desarmado || ot.fecha_fin).toLocaleDateString()}</div>
                           </div>
                           <div className="text-[10px] text-slate-400 font-medium flex items-center gap-0.5 line-clamp-1">
                             <MapPin className="w-3.5 h-3.5" />
@@ -1900,7 +2230,7 @@ export default function RoleDashboard({
                           <div><span className="text-slate-400">Estructura:</span> {ot.modelo_estructura} ({ot.frente}x{ot.largo}m)</div>
                           <div><span className="text-slate-400">Superficie:</span> {ot.superficie} m²</div>
                           <div><span className="text-slate-400">Montaje:</span> {new Date(ot.fecha_inicio).toLocaleDateString()}</div>
-                          <div><span className="text-slate-400">Desarme:</span> {new Date(ot.fecha_fin).toLocaleDateString()}</div>
+                          <div><span className="text-slate-400">Comienzo Desarme:</span> {new Date(ot.fecha_comienzo_desarmado || ot.fecha_fin).toLocaleDateString()}</div>
                         </div>
                         <div className="text-[10px] text-slate-400 font-medium flex items-center gap-0.5 line-clamp-1">
                           <MapPin className="w-3.5 h-3.5" />
@@ -2261,12 +2591,12 @@ export default function RoleDashboard({
 
                 <div className="space-y-4 max-h-[600px] overflow-y-auto pr-1">
                   {dispatchesPending.map((ot) => {
-                    const geo = typeof ot.georef === 'string' ? JSON.parse(ot.georef) : ot.georef;
+                    const geo = typeof ot.georef === 'string' ? safeJsonParse(ot.georef) : ot.georef;
                     const lat = geo?.lat;
                     const lng = geo?.lng;
                     const address = geo?.direccion || 'No especificada';
                     const kms = calculateKms(lat, lng);
-                    const adObj = typeof ot.adicionales === 'string' ? JSON.parse(ot.adicionales) : ot.adicionales || {};
+                    const adObj = typeof ot.adicionales === 'string' ? safeJsonParse(ot.adicionales) : ot.adicionales || {};
                     const gpsLink = (lat && lng)
                       ? `https://www.google.com/maps/dir/?api=1&origin=-34.83473863535278,-58.42446638785623&destination=${lat},${lng}&travelmode=driving`
                       : null;
@@ -2402,7 +2732,7 @@ export default function RoleDashboard({
                             </button>
                           )}
 
-                           <button
+                          <button
                             type="button"
                             onClick={() => onWeatherAnalysis && onWeatherAnalysis(ot)}
                             className="flex-1 min-w-[120px] bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-250 rounded-xl py-2 px-3 text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-sm transition-all-300 cursor-pointer"
@@ -2459,12 +2789,12 @@ export default function RoleDashboard({
 
                 <div className="space-y-4 max-h-[600px] overflow-y-auto pr-1">
                   {dispatchesCompleted.map((ot) => {
-                    const geo = typeof ot.georef === 'string' ? JSON.parse(ot.georef) : ot.georef;
+                    const geo = typeof ot.georef === 'string' ? safeJsonParse(ot.georef) : ot.georef;
                     const lat = geo?.lat;
                     const lng = geo?.lng;
                     const address = geo?.direccion || 'No especificada';
                     const kms = calculateKms(lat, lng);
-                    const adObj = typeof ot.adicionales === 'string' ? JSON.parse(ot.adicionales) : ot.adicionales || {};
+                    const adObj = typeof ot.adicionales === 'string' ? safeJsonParse(ot.adicionales) : ot.adicionales || {};
                     const gpsLink = (lat && lng)
                       ? `https://www.google.com/maps/dir/?api=1&origin=-34.83473863535278,-58.42446638785623&destination=${lat},${lng}&travelmode=driving`
                       : null;
@@ -2630,15 +2960,15 @@ export default function RoleDashboard({
 
                 <div className="space-y-4 max-h-[600px] overflow-y-auto pr-1">
                   {disassemblies.map((ot) => {
-                    const geo = typeof ot.georef === 'string' ? JSON.parse(ot.georef) : ot.georef;
+                    const geo = typeof ot.georef === 'string' ? safeJsonParse(ot.georef) : ot.georef;
                     const latOrigin = geo?.lat;
                     const lngOrigin = geo?.lng;
                     const addressOrigin = geo?.direccion || 'No especificada';
-                    
+
                     // Find the disassembly record for this OT if it's Desarmada
                     const record = desarmeRecords.find(d => d.ot_origen_id === ot.id);
-                    const adObj = typeof ot.adicionales === 'string' ? JSON.parse(ot.adicionales) : ot.adicionales || {};
-                    
+                    const adObj = typeof ot.adicionales === 'string' ? safeJsonParse(ot.adicionales) : ot.adicionales || {};
+
                     return (
                       <div
                         key={ot.id}
@@ -2648,11 +2978,10 @@ export default function RoleDashboard({
                           <div className="space-y-1">
                             <div className="flex items-center gap-2">
                               <span className="font-mono font-black text-fuchsia-900 text-xs block">{ot.ot_numero}</span>
-                              <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded uppercase border ${
-                                ot.estado === 'Desarmada'
+                              <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded uppercase border ${ot.estado === 'Desarmada'
                                   ? 'bg-fuchsia-50 text-fuchsia-700 border-fuchsia-250'
                                   : 'bg-emerald-50 text-emerald-700 border-emerald-250'
-                              }`}>
+                                }`}>
                                 {ot.estado === 'Desarmada' ? 'Desarmada' : 'En Cliente / Pendiente Desarme'}
                               </span>
                             </div>
@@ -2670,9 +2999,12 @@ export default function RoleDashboard({
                             <span className="font-semibold text-slate-700">{addressOrigin}</span>
                           </div>
                           <div>
-                            <strong className="text-slate-400 font-bold uppercase tracking-wider text-[8px] mr-1">Fecha Desarme:</strong>
+                            <strong className="text-slate-400 font-bold uppercase tracking-wider text-[8px] mr-1">Comienzo Desarme:</strong>
                             <span className="font-bold text-slate-750">
-                              {ot.fecha_fin ? new Date(ot.fecha_fin + 'T00:00:00').toLocaleDateString('es-ES') : 'No especificada'}
+                              {(() => {
+                                const dateStr = ot.fecha_comienzo_desarmado || ot.fecha_fin;
+                                return dateStr ? new Date(safeDateString(dateStr).substring(0, 10) + 'T00:00:00').toLocaleDateString('es-ES') : 'No especificada';
+                              })()}
                             </span>
                           </div>
                         </div>
@@ -2680,7 +3012,7 @@ export default function RoleDashboard({
                         {/* Destinations & Distances Block */}
                         <div className="space-y-3">
                           <h4 className="text-[9px] font-black uppercase tracking-wider text-slate-450">Ruta y Destinos de Carga</h4>
-                          
+
                           {/* If not disassembled yet (Completada state) */}
                           {ot.estado === 'Completada' && (() => {
                             const distVal = calculateDistanceBetween(latOrigin, lngOrigin, -34.83473863535278, -58.42446638785623);
@@ -2753,7 +3085,7 @@ export default function RoleDashboard({
                             let destLat = null;
                             let destLng = null;
                             let icon = <Warehouse className="w-3.5 h-3.5 text-blue-900" />;
-                            
+
                             if (dest.type === 'deposito' || dest.destino === 'deposito') {
                               destTitle = "Retorno a Depósito Central (Dangiola)";
                               destAddress = "Juan XXIII 2980, Parque Industrial Burzaco";
@@ -2765,7 +3097,7 @@ export default function RoleDashboard({
                               destTitle = `Transferencia Directa a ${dest.ot_numero || 'OT-' + dest.ot_id}`;
                               icon = <Truck className="w-3.5 h-3.5 text-fuchsia-600" />;
                               if (targetOt) {
-                                const targetGeo = typeof targetOt.georef === 'string' ? JSON.parse(targetOt.georef) : targetOt.georef;
+                                const targetGeo = typeof targetOt.georef === 'string' ? safeJsonParse(targetOt.georef) : targetOt.georef;
                                 destAddress = targetGeo?.direccion || 'Obra destino';
                                 destLat = targetGeo?.lat;
                                 destLng = targetGeo?.lng;
@@ -2774,11 +3106,11 @@ export default function RoleDashboard({
                                 destAddress = "Obra destino";
                               }
                             }
-                            
+
                             const distVal = (latOrigin && lngOrigin && destLat && destLng)
                               ? calculateDistanceBetween(latOrigin, lngOrigin, destLat, destLng)
                               : "0.0";
-                              
+
                             const routeGpsLink = (latOrigin && lngOrigin && destLat && destLng)
                               ? `https://www.google.com/maps/dir/?api=1&origin=${latOrigin},${lngOrigin}&destination=${destLat},${destLng}&travelmode=driving`
                               : null;
@@ -2928,15 +3260,16 @@ export default function RoleDashboard({
                           {/* Confirmar Recepcion (Finalizar Viaje) */}
                           {ot.estado === 'Desarmada' && (
                             <button
-                              onClick={async () => {
-                                if (confirm(`¿Confirmar recepción de retorno y finalizar viaje para la OT ${ot.ot_numero}? Esto cambiará su estado a Retornada.`)) {
-                                  await onUpdateOTStatus(ot.id, 'Retornada');
+                              onClick={() => {
+                                onSelectOT(ot);
+                                if (onOpenReturnStockModal) {
+                                  onOpenReturnStockModal(ot);
                                 }
                               }}
-                              className="w-full bg-slate-900 hover:bg-black text-white rounded-xl py-2.5 px-3 text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-sm transition-all-300 cursor-pointer mt-1"
+                              className="w-full bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl py-2.5 px-3 text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-sm transition-all-300 cursor-pointer mt-1"
                             >
-                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                              Confirmar Recepción de Retorno (Finalizar Viaje)
+                              <Warehouse className="w-3.5 h-3.5" />
+                              Confirmar Recepción (Registrar Retorno Stock)
                             </button>
                           )}
                         </div>
@@ -2975,7 +3308,7 @@ export default function RoleDashboard({
                   <BarChart3 className="w-5 h-5" />
                   Tablero de Gerencia
                 </h2>
-                <p className="text-xs text-indigo-600 font-semibold">Vista 360° del Carpas D'Angiola.</p>
+                <p className="text-xs text-indigo-600 font-semibold">Vista 360° de Carpas D'Angiola.</p>
               </div>
             </div>
 
@@ -3033,7 +3366,7 @@ export default function RoleDashboard({
                               Estructura: {ot.modelo_estructura} ({ot.frente}x{ot.largo}m)
                             </div>
                             <div className="text-[10px] text-fuchsia-700 font-extrabold mt-1">
-                              Desarme original: {new Date(ot.fecha_fin + 'T00:00:00').toLocaleDateString('es-ES')}
+                              Comienzo Desarme: {new Date((ot.fecha_comienzo_desarmado || ot.fecha_fin) + 'T00:00:00').toLocaleDateString('es-ES')}
                             </div>
                           </div>
                           <button
@@ -3094,7 +3427,7 @@ export default function RoleDashboard({
                     <div className="text-3xl font-black text-indigo-700">
                       {(() => {
                         const arrivedCount = ots.filter(o => {
-                          const ad = typeof o.adicionales === 'string' ? JSON.parse(o.adicionales) : o.adicionales || {};
+                          const ad = typeof o.adicionales === 'string' ? safeJsonParse(o.adicionales) : o.adicionales || {};
                           return ad.chofer_llegada === true;
                         }).length;
                         return arrivedCount;
@@ -3104,7 +3437,7 @@ export default function RoleDashboard({
                       {(() => {
                         const dispatchesInTransit = ots.filter(o => o.estado === 'Bulto Completo');
                         const arrivedAtDestination = dispatchesInTransit.filter(o => {
-                          const ad = typeof o.adicionales === 'string' ? JSON.parse(o.adicionales) : o.adicionales || {};
+                          const ad = typeof o.adicionales === 'string' ? safeJsonParse(o.adicionales) : o.adicionales || {};
                           return ad.chofer_llegada === true;
                         });
                         return `Chofer: ${arrivedAtDestination.length}/${dispatchesInTransit.length} en destino`;
@@ -3140,7 +3473,7 @@ export default function RoleDashboard({
                             <div><span className="text-slate-400">Estructura:</span> {ot.modelo_estructura} ({ot.frente}x{ot.largo}m)</div>
                             <div><span className="text-slate-400">Superficie:</span> {ot.superficie} m²</div>
                             <div><span className="text-slate-400">Montaje:</span> {new Date(ot.fecha_inicio).toLocaleDateString()}</div>
-                            <div><span className="text-slate-400">Desarme:</span> {new Date(ot.fecha_fin).toLocaleDateString()}</div>
+                            <div><span className="text-slate-400">Comienzo Desarme:</span> {new Date(ot.fecha_comienzo_desarmado || ot.fecha_fin).toLocaleDateString()}</div>
                           </div>
                         </div>
                         <div className="flex items-center gap-2 w-full md:w-auto shrink-0 justify-end">
@@ -3175,7 +3508,7 @@ export default function RoleDashboard({
                             <div><span className="text-slate-400">Estructura:</span> {ot.modelo_estructura} ({ot.frente}x{ot.largo}m)</div>
                             <div><span className="text-slate-400">Superficie:</span> {ot.superficie} m²</div>
                             <div><span className="text-slate-400">Montaje:</span> {new Date(ot.fecha_inicio).toLocaleDateString()}</div>
-                            <div><span className="text-slate-400">Desarme:</span> {new Date(ot.fecha_fin).toLocaleDateString()}</div>
+                            <div><span className="text-slate-400">Comienzo Desarme:</span> {new Date(ot.fecha_comienzo_desarmado || ot.fecha_fin).toLocaleDateString()}</div>
                           </div>
                         </div>
                         <button
@@ -3226,7 +3559,7 @@ export default function RoleDashboard({
                                 <div className="flex flex-col gap-1">
                                   {getStatusBadge(ot.estado)}
                                   {(() => {
-                                    const ad = typeof ot.adicionales === 'string' ? JSON.parse(ot.adicionales) : ot.adicionales || {};
+                                    const ad = typeof ot.adicionales === 'string' ? safeJsonParse(ot.adicionales) : ot.adicionales || {};
                                     if (ad.chofer_llegada === true) {
                                       return (
                                         <span className="bg-indigo-100 text-indigo-800 text-[9px] font-black px-1.5 py-0.5 rounded border border-indigo-250 uppercase w-max">

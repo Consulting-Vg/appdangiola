@@ -10,17 +10,17 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@react-three/drei": "^9.105.16",
+    "@react-three/fiber": "^8.16.6",
     "canvas-confetti": "^1.9.3",
     "jspdf": "^2.5.1",
     "leaflet": "^1.9.4",
-    "lucide-react": "^0.479.0",
+    "lucide-react": "^1.31.0",
     "papaparse": "^5.4.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-leaflet": "^4.2.1",
-    "three": "^0.164.1",
-    "@react-three/fiber": "^8.16.6",
-    "@react-three/drei": "^9.105.16"
+    "three": "^0.164.1"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.0.0",

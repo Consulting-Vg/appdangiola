@@ -2,16 +2,86 @@ import pg from 'pg';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import dotenv from 'dotenv';
+
+dotenv.config();
+
+// Ensure PostgreSQL DATE (1082) is returned as a plain string 'YYYY-MM-DD' without UTC timezone offset
+if (pg && pg.types) {
+  pg.types.setTypeParser(1082, (val) => val);
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const jsonDbPath = path.join(__dirname, 'data', 'db.json');
 
+// Universal Date Normalizer (handles ISO YYYY-MM-DD, DD/MM/YYYY, Excel serial numbers, Date objects, nulls)
+export const normalizeDate = (val) => {
+  if (val === null || val === undefined) return null;
+  if (typeof val === 'string') {
+    const trimmed = val.trim();
+    if (!trimmed || trimmed.toLowerCase() === 'null' || trimmed.toLowerCase() === 'undefined' || trimmed === '-' || trimmed === '─') {
+      return null;
+    }
+    // If format is YYYY-MM-DD or starts with YYYY-MM-DD
+    const isoMatch = trimmed.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    if (isoMatch) {
+      const y = isoMatch[1];
+      const m = isoMatch[2].padStart(2, '0');
+      const d = isoMatch[3].padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
+    // If format is DD/MM/YYYY or DD-MM-YYYY
+    const dmyMatch = trimmed.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
+    if (dmyMatch) {
+      const d = dmyMatch[1].padStart(2, '0');
+      const m = dmyMatch[2].padStart(2, '0');
+      let y = dmyMatch[3];
+      if (y.length === 2) y = `20${y}`;
+      return `${y}-${m}-${d}`;
+    }
+    const d = new Date(trimmed);
+    if (!isNaN(d.getTime())) {
+      return d.toISOString().split('T')[0];
+    }
+    return null;
+  }
+  if (typeof val === 'number') {
+    // Excel serial date (e.g. 45000 -> 2023...)
+    if (val > 10000 && val < 100000) {
+      const excelEpoch = new Date(Date.UTC(1899, 11, 30));
+      const targetDate = new Date(excelEpoch.getTime() + val * 86400000);
+      if (!isNaN(targetDate.getTime())) {
+        return targetDate.toISOString().split('T')[0];
+      }
+    }
+  }
+  if (val instanceof Date) {
+    if (!isNaN(val.getTime())) {
+      return val.toISOString().split('T')[0];
+    }
+  }
+  return null;
+};
+
 // Configuration
+const safeJsonParse = (val, fallback = {}) => {
+  if (!val) return fallback;
+  if (typeof val === 'object') return val;
+  try {
+    return JSON.parse(val);
+  } catch (e) {
+    console.error("Error parsing JSON in backend/db.js:", e, val);
+    return fallback;
+  }
+};
+
 const connectionString = process.env.DATABASE_URL;
 let pool = null;
 let usePostgreSQL = false;
 let jsonDb = null;
+let dbInitError = null; // Stores startup error for health endpoint
+
 
 // Load JSON db helper
 const loadJsonDb = () => {
@@ -72,24 +142,308 @@ const saveJsonDb = () => {
     }
   }
 };
+
+// Seed helper for PostgreSQL
+const seedPostgresData = async (data, skipTruncate = false) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    
+    if (!skipTruncate) {
+      console.log('Truncating tables prior to seeding PostgreSQL...');
+      await client.query('TRUNCATE chat_mensajes, ordenes_desarme, ordenes_trabajo, inventario_accesorios, base_fijo, base_modulo, base_arco, estructuras_maestras, clientes, usuarios, log_transacciones, personal, recursos, vendedores RESTART IDENTITY CASCADE');
+    }
+
+    console.log('Seeding estructuras_maestras...');
+    for (const est of data.estructuras_maestras) {
+      await client.query(
+        `INSERT INTO estructuras_maestras (id, modelo_estructura, arcos_totales, estructura_tipo, frente, largo_maximo, arcos_disponibles)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [est.id, est.modelo_estructura, est.arcos_totales, est.estructura_tipo, est.frente, est.largo_maximo, est.arcos_disponibles]
+      );
+    }
+
+    console.log('Seeding clientes...');
+    for (const cl of data.clientes) {
+      await client.query(
+        `INSERT INTO clientes (id, cuenta, nombre, actividad, estado, observacion, domicilio, localidad, provincia, pais, telefono, email, cuit, vendedores, responsables, latitud, longitud)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
+        [cl.id, cl.cuenta, cl.nombre, cl.actividad, cl.estado, cl.observacion, cl.domicilio, cl.localidad, cl.provincia, cl.pais, cl.telefono, cl.email, cl.cuit, cl.vendedores, cl.responsables, cl.latitud, cl.longitud]
+      );
+    }
+
+    console.log('Seeding base_arco...');
+    for (const arc of data.base_arco) {
+      await client.query(
+        `INSERT INTO base_arco (id, producto, arco, modelo_estructura, sector, qty_fija_arco)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [arc.id, arc.producto, arc.arco, arc.modelo_estructura, arc.sector, arc.qty_fija_arco]
+      );
+    }
+
+    console.log('Seeding base_modulo...');
+    for (const mod of data.base_modulo) {
+      await client.query(
+        `INSERT INTO base_modulo (id, producto, modelo_estructura, sector, modulacion, stock_inicial, modulo_val)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [mod.id, mod.producto, mod.modelo_estructura, mod.sector, mod.modulacion, mod.stock_inicial, mod.modulo_val || null]
+      );
+    }
+
+    console.log('Seeding base_fijo...');
+    for (const fj of data.base_fijo) {
+      await client.query(
+        `INSERT INTO base_fijo (id, producto, modelo_estructura, sector, qty_fija_carpa)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [fj.id, fj.producto, fj.modelo_estructura, fj.sector, fj.qty_fija_carpa]
+      );
+    }
+
+    console.log('Seeding inventario_accesorios...');
+    for (const acc of data.inventario_accesorios) {
+      await client.query(
+        `INSERT INTO inventario_accesorios (id, categoria, nombre, color, tipo, medida, estado, stock_total)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [acc.id, acc.categoria, acc.nombre, acc.color, acc.tipo, acc.medida, acc.estado, acc.stock_total]
+      );
+    }
+
+    console.log('Seeding default users...');
+    if (data.usuarios && data.usuarios.length > 0) {
+      for (const user of data.usuarios) {
+        await client.query(
+          `INSERT INTO usuarios (id, username, nombre, password, rol, modulos)
+           VALUES ($1, $2, $3, $4, $5, $6)`,
+          [user.id, user.username, user.nombre, user.password, user.rol, user.modulos || '[]']
+        );
+      }
+    }
+
+    if (data.personal && data.personal.length > 0) {
+      console.log('Seeding personal...');
+      for (const p of data.personal) {
+        await client.query(
+          `INSERT INTO personal (id, nombre, cuit, telefono, rol_funcion, tipo, subtipo_chofer, roles_secundarios, activo, usuario_id, examen_medico_vencimiento, licencia_conducir_vencimiento)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+           ON CONFLICT (id) DO UPDATE
+           SET nombre = EXCLUDED.nombre, cuit = EXCLUDED.cuit, telefono = EXCLUDED.telefono, rol_funcion = EXCLUDED.rol_funcion,
+               tipo = EXCLUDED.tipo, subtipo_chofer = EXCLUDED.subtipo_chofer, roles_secundarios = EXCLUDED.roles_secundarios,
+               activo = EXCLUDED.activo, usuario_id = EXCLUDED.usuario_id, examen_medico_vencimiento = EXCLUDED.examen_medico_vencimiento,
+               licencia_conducir_vencimiento = EXCLUDED.licencia_conducir_vencimiento`,
+          [
+            p.id,
+            p.nombre,
+            p.cuit || null,
+            p.telefono || null,
+            p.rol_funcion || 'Operario',
+            p.tipo || 'Fijo',
+            p.subtipo_chofer || null,
+            p.roles_secundarios || null,
+            p.activo !== false,
+            p.usuario_id || null,
+            normalizeDate(p.examen_medico_vencimiento),
+            normalizeDate(p.licencia_conducir_vencimiento)
+          ]
+        );
+      }
+    }
+
+    if (data.recursos && data.recursos.length > 0) {
+      console.log('Seeding recursos...');
+      for (const r of data.recursos) {
+        await client.query(
+          `INSERT INTO recursos (id, nombre, tipo, subtipo, patente_identificador, vtv_vencimiento, seguro_vencimiento, descripcion, activo)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+           ON CONFLICT (id) DO UPDATE
+           SET nombre = EXCLUDED.nombre, tipo = EXCLUDED.tipo, subtipo = EXCLUDED.subtipo,
+               patente_identificador = EXCLUDED.patente_identificador, vtv_vencimiento = EXCLUDED.vtv_vencimiento,
+               seguro_vencimiento = EXCLUDED.seguro_vencimiento, descripcion = EXCLUDED.descripcion, activo = EXCLUDED.activo`,
+          [
+            r.id,
+            r.nombre,
+            r.tipo || 'Vehículo / Camión',
+            r.subtipo || null,
+            r.patente_identificador || r.patente || null,
+            normalizeDate(r.vtv_vencimiento || r.vtv),
+            normalizeDate(r.seguro_vencimiento || r.seguro),
+            r.descripcion || null,
+            r.activo !== false
+          ]
+        );
+      }
+    }
+
+    if (data.vendedores && data.vendedores.length > 0) {
+      console.log('Seeding vendedores...');
+      for (const v of data.vendedores) {
+        await client.query(
+          `INSERT INTO vendedores (id, nombre, activo)
+           VALUES ($1, $2, $3)
+           ON CONFLICT (id) DO UPDATE SET nombre = EXCLUDED.nombre, activo = EXCLUDED.activo`,
+          [v.id, v.nombre, v.activo !== false]
+        );
+      }
+    }
+
+    await client.query('COMMIT');
+    console.log("PostgreSQL database seeding complete.");
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error("PostgreSQL database seeding failed, rolling back:", err);
+    throw err;
+  } finally {
+    client.release();
+  }
+};
  
-// Initialize connection
+// Helper: sleep for ms milliseconds
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Initialize connection — with exponential backoff retries
 const initDb = async () => {
-  if (connectionString) {
+  const connStr = process.env.DATABASE_URL;
+  const isProduction = process.env.NODE_ENV === 'production';
+  const MAX_RETRIES = 5;
+
+  if (connStr) {
+    let lastError = null;
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        console.log(`[DB] Intento ${attempt}/${MAX_RETRIES} de conexión a PostgreSQL...`);
+        pool = new pg.Pool({
+          connectionString: connStr,
+          ssl: connStr.includes('render.com') || connStr.includes('supabase')
+            ? { rejectUnauthorized: false }
+            : false,
+          connectionTimeoutMillis: 10000,
+          idleTimeoutMillis: 30000,
+        });
+        // Test connection
+        await pool.query('SELECT NOW()');
+        usePostgreSQL = true;
+        console.log('[DB] Conexión a PostgreSQL establecida correctamente.');
+        lastError = null;
+        break; // success — exit retry loop
+      } catch (err) {
+        lastError = err;
+        console.warn(`[DB] Intento ${attempt} fallido: ${err.message}`);
+        if (pool) {
+          try { await pool.end(); } catch (_) {}
+          pool = null;
+        }
+        if (attempt < MAX_RETRIES) {
+          const waitMs = Math.pow(2, attempt) * 1000; // 2s, 4s, 8s, 16s...
+          console.log(`[DB] Reintentando en ${waitMs / 1000}s...`);
+          await sleep(waitMs);
+        }
+      }
+    }
+
+    if (!usePostgreSQL) {
+      // All retries exhausted
+      if (isProduction) {
+        // In production, never fall back to ephemeral JSON — data would be lost on every restart
+        console.error('[DB] FATAL: No se pudo conectar a PostgreSQL en producción después de', MAX_RETRIES, 'intentos.');
+        console.error('[DB] Error:', lastError?.message);
+        console.error('[DB] El servidor NO puede iniciar sin base de datos persistente en producción.');
+        dbInitError = lastError?.message || 'No se pudo conectar a PostgreSQL';
+        // Do NOT exit — let the server start so /health can report the error.
+        // API middleware in server.js will return 503 until DB is available.
+        return;
+      } else {
+        console.warn('[DB] Fallback a base de datos JSON local (solo para desarrollo).');
+        loadJsonDb();
+        return;
+      }
+    }
+
+    // --- PostgreSQL connected: initialize schema and migrations ---
     try {
-      pool = new pg.Pool({
-        connectionString,
-        ssl: connectionString.includes('render.com') || connectionString.includes('supabase')
-          ? { rejectUnauthorized: false }
-          : false
-      });
-      // Test connection
-      await pool.query('SELECT NOW()');
-      usePostgreSQL = true;
-      console.log('Connected to PostgreSQL successfully.');
-      // Auto migration to add usuario_id column
+      // Check if schema is initialized by verifying if "usuarios" table exists
+      const tableCheck = await pool.query(`
+        SELECT EXISTS (
+          SELECT FROM information_schema.tables 
+          WHERE table_schema = 'public' 
+          AND table_name = 'usuarios'
+        )
+      `);
+      const schemaExists = tableCheck.rows[0].exists;
+
+      if (!schemaExists) {
+        console.log('[DB] Base de datos vacía. Inicializando schema desde schema.sql...');
+        const schemaPath = path.join(__dirname, 'schema.sql');
+        if (fs.existsSync(schemaPath)) {
+          const schemaSql = fs.readFileSync(schemaPath, 'utf8');
+          await pool.query(schemaSql);
+          console.log('[DB] Schema inicializado correctamente.');
+        } else {
+          console.warn('[DB] schema.sql no encontrado en', schemaPath);
+        }
+      }
+
+      // Safe seeding: only seed if ALL key tables are completely empty
+      // This prevents accidental overwrite of real production data
+      const counts = await pool.query(`
+        SELECT
+          (SELECT COUNT(*) FROM usuarios) AS usuarios,
+          (SELECT COUNT(*) FROM clientes) AS clientes,
+          (SELECT COUNT(*) FROM ordenes_trabajo) AS ordenes_trabajo
+      `);
+      const row = counts.rows[0];
+      const totalRows = parseInt(row.usuarios) + parseInt(row.clientes) + parseInt(row.ordenes_trabajo);
+
+      if (totalRows === 0) {
+        console.log('[DB] Base de datos completamente vacía. Realizando seed inicial desde db.json...');
+        const seedData = loadJsonDb();
+        await seedPostgresData(seedData, true);
+        console.log('[DB] Seed inicial completado.');
+      } else {
+        console.log(`[DB] Base de datos con datos existentes (${row.usuarios} usuarios, ${row.clientes} clientes, ${row.ordenes_trabajo} OTs). Omitiendo seed.`);
+      }
+
+      // Execute migrations/updates safely
+      console.log('[DB] Ejecutando migraciones automáticas...');
       await pool.query('ALTER TABLE personal ADD COLUMN IF NOT EXISTS usuario_id INTEGER REFERENCES usuarios(id) ON DELETE SET NULL');
-      // Create vendedores table
+      await pool.query('ALTER TABLE personal ADD COLUMN IF NOT EXISTS tipo VARCHAR(50) DEFAULT \'Fijo\'');
+      await pool.query('ALTER TABLE personal ADD COLUMN IF NOT EXISTS subtipo_chofer VARCHAR(100)');
+      await pool.query('ALTER TABLE personal ADD COLUMN IF NOT EXISTS roles_secundarios TEXT');
+      await pool.query('ALTER TABLE personal ADD COLUMN IF NOT EXISTS examen_medico_vencimiento DATE');
+      await pool.query('ALTER TABLE personal ADD COLUMN IF NOT EXISTS licencia_conducir_vencimiento DATE');
+      await pool.query('ALTER TABLE recursos ADD COLUMN IF NOT EXISTS subtipo VARCHAR(100)');
+      await pool.query('ALTER TABLE recursos ADD COLUMN IF NOT EXISTS vtv_vencimiento DATE');
+      await pool.query('ALTER TABLE recursos ADD COLUMN IF NOT EXISTS seguro_vencimiento DATE');
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS planificacion_diaria (
+          id SERIAL PRIMARY KEY,
+          fecha DATE UNIQUE NOT NULL,
+          asignaciones JSONB NOT NULL DEFAULT '{"ots": {}, "sectores": {}, "novedades": {}}',
+          publicado BOOLEAN DEFAULT FALSE,
+          publicado_por VARCHAR(100),
+          fecha_publicacion TIMESTAMP,
+          fecha_modificacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS planificacion_planta (
+          id SERIAL PRIMARY KEY,
+          fecha DATE UNIQUE NOT NULL,
+          tareas JSONB NOT NULL DEFAULT '[]',
+          fecha_modificacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS recordatorios_operativos (
+          id SERIAL PRIMARY KEY,
+          fecha DATE NOT NULL,
+          titulo VARCHAR(255) NOT NULL,
+          tipo VARCHAR(50) NOT NULL,
+          entidad_id INT,
+          entidad_tipo VARCHAR(50),
+          descripcion TEXT,
+          completado BOOLEAN DEFAULT FALSE,
+          fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
       await pool.query(`
         CREATE TABLE IF NOT EXISTS vendedores (
           id SERIAL PRIMARY KEY,
@@ -98,17 +452,47 @@ const initDb = async () => {
           fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
       `);
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS base_conocimiento (
+          id SERIAL PRIMARY KEY,
+          titulo TEXT NOT NULL,
+          tipo TEXT DEFAULT 'general',
+          contenido TEXT NOT NULL,
+          fecha_carga TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS skills_agente (
+          id SERIAL PRIMARY KEY,
+          nombre TEXT UNIQUE NOT NULL,
+          descripcion TEXT,
+          trigger_keywords TEXT,
+          instrucciones TEXT NOT NULL,
+          fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      console.log('[DB] Migraciones completadas.');
     } catch (err) {
-      console.warn('PostgreSQL connection failed. Falling back to local JSON database.', err.message);
-      usePostgreSQL = false;
-      loadJsonDb();
+      console.error('[DB] Error durante inicialización del schema/migraciones:', err.message);
+      dbInitError = err.message;
+      if (isProduction) {
+        // Don't exit — let health endpoint surface the error
+      }
     }
   } else {
-    console.log('DATABASE_URL not set. Running in local JSON database mode.');
-    usePostgreSQL = false;
+    if (process.env.NODE_ENV === 'production') {
+      const msg = '[DB] FATAL: DATABASE_URL no está configurada en producción.';
+      console.error(msg);
+      dbInitError = 'DATABASE_URL no está configurada';
+      return;
+    }
+    console.log('[DB] DATABASE_URL no configurada. Modo JSON local (solo desarrollo).');
     loadJsonDb();
   }
 };
+
+// Expose database init error (for /health endpoint in server.js)
+export const getDbInitError = () => dbInitError;
 
 // Run initialization immediately
 initDb();
@@ -120,87 +504,7 @@ export const db = {
   // Reset database (used by Admin Dashboard)
   resetDatabase: async (data) => {
     if (usePostgreSQL) {
-      // Re-run schema or truncate tables and re-insert
-      const client = await pool.connect();
-      try {
-        await client.query('BEGIN');
-        
-        await client.query('TRUNCATE chat_mensajes, ordenes_desarme, ordenes_trabajo, inventario_accesorios, base_fijo, base_modulo, base_arco, estructuras_maestras, clientes, usuarios, log_transacciones, personal, recursos, vendedores RESTART IDENTITY CASCADE');
-
-        // Seed structures
-        for (const est of data.estructuras_maestras) {
-          await client.query(
-            `INSERT INTO estructuras_maestras (id, modelo_estructura, arcos_totales, estructura_tipo, frente, largo_maximo, arcos_disponibles)
-             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-            [est.id, est.modelo_estructura, est.arcos_totales, est.estructura_tipo, est.frente, est.largo_maximo, est.arcos_disponibles]
-          );
-        }
-
-        // Seed clients
-        for (const cl of data.clientes) {
-          await client.query(
-            `INSERT INTO clientes (id, cuenta, nombre, actividad, estado, observacion, domicilio, localidad, provincia, pais, telefono, email, cuit, vendedores, responsables, latitud, longitud)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
-            [cl.id, cl.cuenta, cl.nombre, cl.actividad, cl.estado, cl.observacion, cl.domicilio, cl.localidad, cl.provincia, cl.pais, cl.telefono, cl.email, cl.cuit, cl.vendedores, cl.responsables, cl.latitud, cl.longitud]
-          );
-        }
-
-        // Seed base_arco
-        for (const arc of data.base_arco) {
-          await client.query(
-            `INSERT INTO base_arco (id, producto, arco, modelo_estructura, sector, qty_fija_arco)
-             VALUES ($1, $2, $3, $4, $5, $6)`,
-            [arc.id, arc.producto, arc.arco, arc.modelo_estructura, arc.sector, arc.qty_fija_arco]
-          );
-        }
-
-        // Seed base_modulo
-        for (const mod of data.base_modulo) {
-          await client.query(
-            `INSERT INTO base_modulo (id, producto, modelo_estructura, sector, modulacion, stock_inicial, modulo_val)
-             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-            [mod.id, mod.producto, mod.modelo_estructura, mod.sector, mod.modulacion, mod.stock_inicial, mod.modulo_val || null]
-          );
-        }
-
-        // Seed base_fijo
-        for (const fj of data.base_fijo) {
-          await client.query(
-            `INSERT INTO base_fijo (id, producto, modelo_estructura, sector, qty_fija_carpa)
-             VALUES ($1, $2, $3, $4, $5)`,
-            [fj.id, fj.producto, fj.modelo_estructura, fj.sector, fj.qty_fija_carpa]
-          );
-        }
-
-        // Seed accessories
-        for (const acc of data.inventario_accesorios) {
-          await client.query(
-            `INSERT INTO inventario_accesorios (id, categoria, nombre, color, tipo, medida, estado, stock_total)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-            [acc.id, acc.categoria, acc.nombre, acc.color, acc.tipo, acc.medida, acc.estado, acc.stock_total]
-          );
-        }
-
-        // Seed default users
-        if (data.usuarios && data.usuarios.length > 0) {
-          for (const user of data.usuarios) {
-            await client.query(
-              `INSERT INTO usuarios (id, username, nombre, password, rol, modulos)
-               VALUES ($1, $2, $3, $4, $5, $6)`,
-              [user.id, user.username, user.nombre, user.password, user.rol, user.modulos || '[]']
-            );
-          }
-        }
-
-        await client.query('COMMIT');
-        console.log("PostgreSQL database reset complete.");
-      } catch (err) {
-        await client.query('ROLLBACK');
-        console.error("PostgreSQL database reset failed, rolling back:", err);
-        throw err;
-      } finally {
-        client.release();
-      }
+      await seedPostgresData(data, false);
     } else {
       jsonDb = {
         clientes: data.clientes || [],
@@ -834,15 +1138,15 @@ export const db = {
           ot_numero, cliente_id, fecha_inicio, fecha_fin, modelo_estructura, 
           estructura_tipo, frente, largo, superficie, modulacion_config, 
           adicionales, georef, estado, panol_status, planta_status, creado_por,
-          fecha_evento, observaciones
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+          fecha_evento, observaciones, fecha_comienzo_desarmado
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
          RETURNING *`,
         [
           ot.ot_numero, ot.cliente_id, ot.fecha_inicio, ot.fecha_fin, ot.modelo_estructura,
           ot.estructura_tipo, ot.frente, ot.largo, ot.superficie, JSON.stringify(ot.modulacion_config),
           JSON.stringify(ot.adicionales), JSON.stringify(ot.georef), ot.estado || 'Pendiente',
           JSON.stringify(ot.panol_status), JSON.stringify(ot.planta_status), ot.creado_por,
-          ot.fecha_evento || null, ot.observaciones || null
+          ot.fecha_evento || null, ot.observaciones || null, ot.fecha_comienzo_desarmado || null
         ]
       );
       return res.rows[0];
@@ -866,7 +1170,7 @@ export const db = {
       let currentAdicionales = {};
       if (getRes.rows[0]) {
         currentAdicionales = typeof getRes.rows[0].adicionales === 'string'
-          ? JSON.parse(getRes.rows[0].adicionales)
+          ? safeJsonParse(getRes.rows[0].adicionales)
           : getRes.rows[0].adicionales || {};
       }
       if (status === 'Aprobada por Gerencia') {
@@ -885,7 +1189,7 @@ export const db = {
       const ot = db.ordenes_trabajo.find(o => o.id === id);
       if (ot) {
         let currentAdicionales = typeof ot.adicionales === 'string'
-          ? JSON.parse(ot.adicionales)
+          ? safeJsonParse(ot.adicionales)
           : ot.adicionales || {};
         if (status === 'Aprobada por Gerencia') {
           currentAdicionales.aprobado_por = usuario || 'Sistema';
@@ -908,7 +1212,7 @@ export const db = {
       let currentAdicionales = {};
       if (getRes.rows[0]) {
         currentAdicionales = typeof getRes.rows[0].adicionales === 'string'
-          ? JSON.parse(getRes.rows[0].adicionales)
+          ? safeJsonParse(getRes.rows[0].adicionales)
           : getRes.rows[0].adicionales || {};
       }
       if (rol) {
@@ -924,7 +1228,7 @@ export const db = {
       const ot = db.ordenes_trabajo.find(o => o.id === id);
       if (ot) {
         let currentAdicionales = typeof ot.adicionales === 'string'
-          ? JSON.parse(ot.adicionales)
+          ? safeJsonParse(ot.adicionales)
           : ot.adicionales || {};
         if (rol) {
           currentAdicionales[`cargado_${rol.toLowerCase()}_por`] = usuario || 'Sistema';
@@ -947,7 +1251,7 @@ export const db = {
       if (getRes.rows[0]) {
         ot_numero = getRes.rows[0].ot_numero;
         currentAdicionales = typeof getRes.rows[0].adicionales === 'string'
-          ? JSON.parse(getRes.rows[0].adicionales)
+          ? safeJsonParse(getRes.rows[0].adicionales)
           : getRes.rows[0].adicionales || {};
       }
       
@@ -982,7 +1286,7 @@ export const db = {
       const ot = db.ordenes_trabajo.find(o => o.id === id);
       if (ot) {
         let currentAdicionales = typeof ot.adicionales === 'string'
-          ? JSON.parse(ot.adicionales)
+          ? safeJsonParse(ot.adicionales)
           : ot.adicionales || {};
         
         // Prevent modification if already confirmed
@@ -1028,7 +1332,7 @@ export const db = {
       let currentAdicionales = {};
       if (getRes.rows[0]) {
         currentAdicionales = typeof getRes.rows[0].adicionales === 'string'
-          ? JSON.parse(getRes.rows[0].adicionales)
+          ? safeJsonParse(getRes.rows[0].adicionales)
           : getRes.rows[0].adicionales || {};
       }
       currentAdicionales.arcos_reservados = arcos_reservados;
@@ -1080,7 +1384,7 @@ export const db = {
       const ot = db.ordenes_trabajo.find(o => o.id === id);
       if (ot) {
         let currentAdicionales = typeof ot.adicionales === 'string'
-          ? JSON.parse(ot.adicionales)
+          ? safeJsonParse(ot.adicionales)
           : ot.adicionales || {};
         currentAdicionales.arcos_reservados = arcos_reservados;
         if (fijo_modelo_estructura) {
@@ -1322,14 +1626,18 @@ export const db = {
     if (usePostgreSQL) {
       const res = await pool.query(
         `UPDATE ordenes_trabajo 
-         SET fecha_fin = $1, fecha_traslado = $2, fecha_comienzo_armado = $3, fecha_comienzo_desarmado = $4, fecha_retorno = $5
-         WHERE id = $6 RETURNING *`,
+         SET fecha_fin = $1, fecha_traslado = $2, fecha_comienzo_armado = $3, 
+             fecha_comienzo_desarmado = $4, fecha_retorno = $5,
+             fecha_inicio = $6, fecha_evento = $7
+         WHERE id = $8 RETURNING *`,
         [
           data.fecha_fin,
           data.fecha_traslado || null,
           data.fecha_comienzo_armado || null,
           data.fecha_comienzo_desarmado || null,
           data.fecha_retorno || null,
+          data.fecha_inicio,
+          data.fecha_evento || null,
           id
         ]
       );
@@ -1343,6 +1651,8 @@ export const db = {
         ot.fecha_comienzo_armado = data.fecha_comienzo_armado || null;
         ot.fecha_comienzo_desarmado = data.fecha_comienzo_desarmado || null;
         ot.fecha_retorno = data.fecha_retorno || null;
+        ot.fecha_inicio = data.fecha_inicio;
+        ot.fecha_evento = data.fecha_evento || null;
         saveJsonDb();
         return ot;
       }
@@ -1550,12 +1860,36 @@ export const db = {
   },
 
   savePersonal: async (persona) => {
+    const nombre = (persona.nombre || '').trim();
+    const cuit = (persona.cuit || '').trim() || null;
+    const telefono = (persona.telefono || '').trim() || null;
+    const rol_funcion = persona.rol_funcion || 'Operario';
+    const tipo = persona.tipo || 'Fijo';
+    const subtipo_chofer = (persona.subtipo_chofer || '').trim() || null;
+    const roles_secundarios = persona.roles_secundarios || null;
+    const activo = persona.activo !== false;
+    const usuario_id = persona.usuario_id || null;
+    const examen_medico_vencimiento = normalizeDate(persona.examen_medico_vencimiento || persona.examen_medico || persona.Examen_Medico_Vencimiento);
+    const licencia_conducir_vencimiento = normalizeDate(persona.licencia_conducir_vencimiento || persona.licencia_conducir || persona.Licencia_Conducir_Vencimiento);
+
     if (usePostgreSQL) {
       const res = await pool.query(
-        `INSERT INTO personal (nombre, cuit, telefono, rol_funcion, activo, usuario_id)
-         VALUES ($1, $2, $3, $4, $5, $6)
+        `INSERT INTO personal (nombre, cuit, telefono, rol_funcion, tipo, subtipo_chofer, roles_secundarios, activo, usuario_id, examen_medico_vencimiento, licencia_conducir_vencimiento)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
          RETURNING *`,
-        [persona.nombre, persona.cuit || null, persona.telefono || null, persona.rol_funcion, persona.activo !== false, persona.usuario_id || null]
+        [
+          nombre,
+          cuit,
+          telefono,
+          rol_funcion,
+          tipo,
+          subtipo_chofer,
+          roles_secundarios,
+          activo,
+          usuario_id,
+          examen_medico_vencimiento,
+          licencia_conducir_vencimiento
+        ]
       );
       return res.rows[0];
     } else {
@@ -1564,12 +1898,17 @@ export const db = {
       const nextId = db.personal.length > 0 ? Math.max(...db.personal.map(p => p.id)) + 1 : 1;
       const newPersona = {
         id: nextId,
-        nombre: persona.nombre,
-        cuit: persona.cuit || null,
-        telefono: persona.telefono || null,
-        rol_funcion: persona.rol_funcion,
-        activo: persona.activo !== false,
-        usuario_id: persona.usuario_id || null,
+        nombre,
+        cuit,
+        telefono,
+        rol_funcion,
+        tipo,
+        subtipo_chofer,
+        roles_secundarios,
+        activo,
+        usuario_id,
+        examen_medico_vencimiento,
+        licencia_conducir_vencimiento,
         fecha_creacion: new Date().toISOString()
       };
       db.personal.push(newPersona);
@@ -1579,13 +1918,39 @@ export const db = {
   },
 
   updatePersonal: async (id, persona) => {
+    const nombre = (persona.nombre || '').trim();
+    const cuit = persona.cuit !== undefined ? ((persona.cuit || '').trim() || null) : undefined;
+    const telefono = persona.telefono !== undefined ? ((persona.telefono || '').trim() || null) : undefined;
+    const rol_funcion = persona.rol_funcion;
+    const tipo = persona.tipo || 'Fijo';
+    const subtipo_chofer = persona.subtipo_chofer !== undefined ? ((persona.subtipo_chofer || '').trim() || null) : null;
+    const roles_secundarios = persona.roles_secundarios || null;
+    const activo = persona.activo !== false;
+    const usuario_id = persona.usuario_id || null;
+    const examen_medico_vencimiento = normalizeDate(persona.examen_medico_vencimiento !== undefined ? persona.examen_medico_vencimiento : (persona.examen_medico || persona.Examen_Medico_Vencimiento));
+    const licencia_conducir_vencimiento = normalizeDate(persona.licencia_conducir_vencimiento !== undefined ? persona.licencia_conducir_vencimiento : (persona.licencia_conducir || persona.Licencia_Conducir_Vencimiento));
+
     if (usePostgreSQL) {
       const res = await pool.query(
         `UPDATE personal
-         SET nombre = $1, cuit = $2, telefono = $3, rol_funcion = $4, activo = $5, usuario_id = $6
-         WHERE id = $7
+         SET nombre = $1, cuit = $2, telefono = $3, rol_funcion = $4, tipo = $5, subtipo_chofer = $6, roles_secundarios = $7, activo = $8, usuario_id = $9,
+             examen_medico_vencimiento = $10, licencia_conducir_vencimiento = $11
+         WHERE id = $12
          RETURNING *`,
-        [persona.nombre, persona.cuit || null, persona.telefono || null, persona.rol_funcion, persona.activo !== false, persona.usuario_id || null, id]
+        [
+          nombre,
+          cuit !== undefined ? cuit : null,
+          telefono !== undefined ? telefono : null,
+          rol_funcion,
+          tipo,
+          subtipo_chofer,
+          roles_secundarios,
+          activo,
+          usuario_id,
+          examen_medico_vencimiento,
+          licencia_conducir_vencimiento,
+          id
+        ]
       );
       return res.rows[0];
     } else {
@@ -1595,12 +1960,17 @@ export const db = {
       if (idx !== -1) {
         db.personal[idx] = {
           ...db.personal[idx],
-          nombre: persona.nombre,
-          cuit: persona.cuit || null,
-          telefono: persona.telefono || null,
-          rol_funcion: persona.rol_funcion,
-          activo: persona.activo !== false,
-          usuario_id: persona.usuario_id || null
+          nombre,
+          cuit: cuit !== undefined ? cuit : db.personal[idx].cuit,
+          telefono: telefono !== undefined ? telefono : db.personal[idx].telefono,
+          rol_funcion: rol_funcion || db.personal[idx].rol_funcion,
+          tipo: tipo || db.personal[idx].tipo || 'Fijo',
+          subtipo_chofer: subtipo_chofer !== null ? subtipo_chofer : db.personal[idx].subtipo_chofer,
+          roles_secundarios: roles_secundarios !== undefined ? roles_secundarios : db.personal[idx].roles_secundarios,
+          activo,
+          usuario_id,
+          examen_medico_vencimiento,
+          licencia_conducir_vencimiento
         };
         saveJsonDb();
         return db.personal[idx];
@@ -1638,12 +2008,30 @@ export const db = {
   },
 
   saveRecurso: async (recurso) => {
+    const nombre = (recurso.nombre || '').trim();
+    const tipo = recurso.tipo || 'Vehículo / Camión';
+    const subtipo = (recurso.subtipo || '').trim() || null;
+    const patente_identificador = (recurso.patente_identificador || recurso.patente || recurso.identificador || '').trim() || null;
+    const vtv_vencimiento = normalizeDate(recurso.vtv_vencimiento || recurso.vtv || recurso.VTV_Vencimiento || recurso.VTV);
+    const seguro_vencimiento = normalizeDate(recurso.seguro_vencimiento || recurso.seguro || recurso.Seguro_Vencimiento || recurso.Seguro);
+    const descripcion = (recurso.descripcion || '').trim() || null;
+    const activo = recurso.activo !== false;
+
     if (usePostgreSQL) {
       const res = await pool.query(
-        `INSERT INTO recursos (nombre, tipo, patente_identificador, descripcion, activo)
-         VALUES ($1, $2, $3, $4, $5)
+        `INSERT INTO recursos (nombre, tipo, subtipo, patente_identificador, vtv_vencimiento, seguro_vencimiento, descripcion, activo)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
          RETURNING *`,
-        [recurso.nombre, recurso.tipo, recurso.patente_identificador || null, recurso.descripcion || null, recurso.activo !== false]
+        [
+          nombre,
+          tipo,
+          subtipo,
+          patente_identificador,
+          vtv_vencimiento,
+          seguro_vencimiento,
+          descripcion,
+          activo
+        ]
       );
       return res.rows[0];
     } else {
@@ -1652,11 +2040,14 @@ export const db = {
       const nextId = db.recursos.length > 0 ? Math.max(...db.recursos.map(r => r.id)) + 1 : 1;
       const newRecurso = {
         id: nextId,
-        nombre: recurso.nombre,
-        tipo: recurso.tipo,
-        patente_identificador: recurso.patente_identificador || null,
-        descripcion: recurso.descripcion || null,
-        activo: recurso.activo !== false,
+        nombre,
+        tipo,
+        subtipo,
+        patente_identificador,
+        vtv_vencimiento,
+        seguro_vencimiento,
+        descripcion,
+        activo,
         fecha_creacion: new Date().toISOString()
       };
       db.recursos.push(newRecurso);
@@ -1666,13 +2057,34 @@ export const db = {
   },
 
   updateRecurso: async (id, recurso) => {
+    const nombre = (recurso.nombre || '').trim();
+    const tipo = recurso.tipo || 'Vehículo / Camión';
+    const subtipo = recurso.subtipo !== undefined ? ((recurso.subtipo || '').trim() || null) : null;
+    const patente_identificador = recurso.patente_identificador !== undefined 
+      ? ((recurso.patente_identificador || '').trim() || null) 
+      : ((recurso.patente || '').trim() || null);
+    const vtv_vencimiento = normalizeDate(recurso.vtv_vencimiento !== undefined ? recurso.vtv_vencimiento : (recurso.vtv || recurso.VTV_Vencimiento || recurso.VTV));
+    const seguro_vencimiento = normalizeDate(recurso.seguro_vencimiento !== undefined ? recurso.seguro_vencimiento : (recurso.seguro || recurso.Seguro_Vencimiento || recurso.Seguro));
+    const descripcion = recurso.descripcion !== undefined ? ((recurso.descripcion || '').trim() || null) : null;
+    const activo = recurso.activo !== false;
+
     if (usePostgreSQL) {
       const res = await pool.query(
         `UPDATE recursos
-         SET nombre = $1, tipo = $2, patente_identificador = $3, descripcion = $4, activo = $5
-         WHERE id = $6
+         SET nombre = $1, tipo = $2, subtipo = $3, patente_identificador = $4, vtv_vencimiento = $5, seguro_vencimiento = $6, descripcion = $7, activo = $8
+         WHERE id = $9
          RETURNING *`,
-        [recurso.nombre, recurso.tipo, recurso.patente_identificador || null, recurso.descripcion || null, recurso.activo !== false, id]
+        [
+          nombre,
+          tipo,
+          subtipo,
+          patente_identificador,
+          vtv_vencimiento,
+          seguro_vencimiento,
+          descripcion,
+          activo,
+          id
+        ]
       );
       return res.rows[0];
     } else {
@@ -1682,11 +2094,14 @@ export const db = {
       if (idx !== -1) {
         db.recursos[idx] = {
           ...db.recursos[idx],
-          nombre: recurso.nombre,
-          tipo: recurso.tipo,
-          patente_identificador: recurso.patente_identificador || null,
-          descripcion: recurso.descripcion || null,
-          activo: recurso.activo !== false
+          nombre,
+          tipo,
+          subtipo: subtipo !== null ? subtipo : db.recursos[idx].subtipo,
+          patente_identificador,
+          vtv_vencimiento,
+          seguro_vencimiento,
+          descripcion,
+          activo
         };
         saveJsonDb();
         return db.recursos[idx];
@@ -1734,5 +2149,694 @@ export const db = {
       saveJsonDb();
       return true;
     }
+  },
+
+  // ── MÓDULO APRENDIZAJE IA (RAG & AUTO-SKILLS) ──
+  saveDocumento: async ({ titulo, contenido, tipo }) => {
+    if (usePostgreSQL) {
+      const res = await pool.query(
+        `INSERT INTO base_conocimiento (titulo, contenido, tipo)
+         VALUES ($1, $2, $3)
+         RETURNING *`,
+        [titulo, contenido, tipo || 'general']
+      );
+      return res.rows[0];
+    } else {
+      const db = loadJsonDb();
+      if (!db.base_conocimiento) db.base_conocimiento = [];
+      const newDoc = {
+        id: db.base_conocimiento.length + 1,
+        titulo,
+        contenido,
+        tipo: tipo || 'general',
+        fecha_carga: new Date().toISOString()
+      };
+      db.base_conocimiento.push(newDoc);
+      saveJsonDb();
+      return newDoc;
+    }
+  },
+
+  getDocumentos: async () => {
+    if (usePostgreSQL) {
+      const res = await pool.query('SELECT * FROM base_conocimiento ORDER BY id DESC');
+      return res.rows;
+    } else {
+      const db = loadJsonDb();
+      return db.base_conocimiento || [];
+    }
+  },
+
+  deleteDocumento: async (id) => {
+    if (usePostgreSQL) {
+      const res = await pool.query('DELETE FROM base_conocimiento WHERE id = $1 RETURNING id', [id]);
+      return res.rowCount > 0;
+    } else {
+      const db = loadJsonDb();
+      if (!db.base_conocimiento) db.base_conocimiento = [];
+      const idx = db.base_conocimiento.findIndex(d => d.id === Number(id));
+      if (idx !== -1) {
+        db.base_conocimiento.splice(idx, 1);
+        saveJsonDb();
+        return true;
+      }
+      return false;
+    }
+  },
+
+  saveSkill: async ({ nombre, descripcion, trigger_keywords, instrucciones }) => {
+    if (usePostgreSQL) {
+      const res = await pool.query(
+        `INSERT INTO skills_agente (nombre, descripcion, trigger_keywords, instrucciones)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (nombre) DO UPDATE SET
+           descripcion = EXCLUDED.descripcion,
+           trigger_keywords = EXCLUDED.trigger_keywords,
+           instrucciones = EXCLUDED.instrucciones,
+           fecha_creacion = CURRENT_TIMESTAMP
+         RETURNING *`,
+        [nombre, descripcion || null, trigger_keywords, instrucciones]
+      );
+      return res.rows[0];
+    } else {
+      const db = loadJsonDb();
+      if (!db.skills_agente) db.skills_agente = [];
+      const idx = db.skills_agente.findIndex(s => s.nombre.toLowerCase() === nombre.toLowerCase());
+      const skill = {
+        id: idx !== -1 ? db.skills_agente[idx].id : db.skills_agente.length + 1,
+        nombre,
+        descripcion: descripcion || null,
+        trigger_keywords,
+        instrucciones,
+        fecha_creacion: new Date().toISOString()
+      };
+      if (idx !== -1) {
+        db.skills_agente[idx] = skill;
+      } else {
+        db.skills_agente.push(skill);
+      }
+      saveJsonDb();
+      return skill;
+    }
+  },
+
+  getSkills: async () => {
+    if (usePostgreSQL) {
+      const res = await pool.query('SELECT * FROM skills_agente ORDER BY id DESC');
+      return res.rows;
+    } else {
+      const db = loadJsonDb();
+      return db.skills_agente || [];
+    }
+  },
+
+  deleteSkill: async (id) => {
+    if (usePostgreSQL) {
+      const res = await pool.query('DELETE FROM skills_agente WHERE id = $1 RETURNING id', [id]);
+      return res.rowCount > 0;
+    } else {
+      const db = loadJsonDb();
+      if (!db.skills_agente) db.skills_agente = [];
+      const idx = db.skills_agente.findIndex(s => s.id === Number(id));
+      if (idx !== -1) {
+        db.skills_agente.splice(idx, 1);
+        saveJsonDb();
+        return true;
+      }
+      return false;
+    }
+  },
+
+  buscarConocimientoLocal: async (consulta) => {
+    try {
+      let docs = [];
+      if (usePostgreSQL) {
+        const res = await pool.query('SELECT titulo, contenido, tipo FROM base_conocimiento');
+        docs = res.rows;
+      } else {
+        const db = loadJsonDb();
+        docs = db.base_conocimiento || [];
+      }
+
+      if (!docs.length) return '';
+
+      // Simple keyword matching helper (minimum word length 3)
+      const queryWords = consulta.toLowerCase().split(/\s+/).filter(w => w.length > 3);
+      if (!queryWords.length) return '';
+
+      // Match documents containing query words
+      const matches = docs.filter(doc => {
+        const text = `${doc.titulo} ${doc.contenido}`.toLowerCase();
+        return queryWords.some(word => text.includes(word));
+      });
+
+      if (!matches.length) return '';
+
+      let contextText = '\n--- NORMAS, MANUALES Y DIRECTIVAS DE REFERENCIA (RAG) ---\n';
+      matches.slice(0, 3).forEach(doc => {
+        const tipoLabel = doc.tipo ? ` [Tipo: ${doc.tipo.toUpperCase()}]` : '';
+        contextText += `📄 DOCUMENTO: ${doc.titulo}${tipoLabel}\nCONTENIDO:\n${doc.contenido}\n---\n`;
+      });
+      return contextText;
+    } catch (e) {
+      console.error("Error en buscarConocimientoLocal:", e);
+      return '';
+    }
+  },
+
+  buscarSkillCoincidente: async (consulta) => {
+    try {
+      let skills = [];
+      if (usePostgreSQL) {
+        const res = await pool.query('SELECT nombre, trigger_keywords, instrucciones FROM skills_agente');
+        skills = res.rows;
+      } else {
+        const db = loadJsonDb();
+        skills = db.skills_agente || [];
+      }
+
+      const consultaLower = consulta.toLowerCase();
+      for (const skill of skills) {
+        if (!skill.trigger_keywords) continue;
+        const keywords = skill.trigger_keywords.split(',').map(kw => kw.trim().toLowerCase()).filter(Boolean);
+        if (keywords.some(kw => consultaLower.includes(kw))) {
+          return `\n⚠️ [REGLA DE COMPORTAMIENTO ACTIVA: ${skill.nombre.toUpperCase()}]\nInstrucciones especiales a seguir:\n${skill.instrucciones}\n`;
+        }
+      }
+      return '';
+    } catch (e) {
+      console.error("Error en buscarSkillCoincidente:", e);
+      return '';
+    }
+  },
+
+  // ==========================================
+  // 13. PLANIFICACIÓN OPERATIVA DIARIA & AUTO-INHERITANCE
+  // ==========================================
+  getPlanificacionDia: async (fechaRaw) => {
+    const normalizeIsoDate = (dStr) => {
+      if (!dStr) return new Date().toISOString().split('T')[0];
+      if (dStr instanceof Date) {
+        return isNaN(dStr.getTime()) ? new Date().toISOString().split('T')[0] : dStr.toISOString().split('T')[0];
+      }
+      const s = String(dStr).trim();
+      if (s.includes('/')) {
+        const parts = s.split('/');
+        if (parts.length === 3) {
+          const day = parts[0].padStart(2, '0');
+          const month = parts[1].padStart(2, '0');
+          const year = parts[2].length === 4 ? parts[2] : `20${parts[2]}`;
+          return `${year}-${month}-${day}`;
+        }
+      }
+      if (s.match(/^\d{4}-\d{2}-\d{2}/)) {
+        return s.substring(0, 10);
+      }
+      const parsed = new Date(s);
+      if (!isNaN(parsed.getTime())) {
+        return parsed.toISOString().split('T')[0];
+      }
+      return s.substring(0, 10);
+    };
+
+    const fecha = normalizeIsoDate(fechaRaw);
+    let dayRecord = null;
+    let allOts = [];
+
+    if (usePostgreSQL) {
+      const res = await pool.query('SELECT * FROM planificacion_diaria WHERE fecha = $1', [fecha]);
+      if (res.rows.length > 0) dayRecord = res.rows[0];
+      const otsRes = await pool.query('SELECT id, ot_numero, fecha_inicio, fecha_fin FROM ordenes_trabajo');
+      allOts = otsRes.rows.filter(o => o.fecha_inicio && o.fecha_fin && normalizeIsoDate(o.fecha_inicio) <= fecha && normalizeIsoDate(o.fecha_fin) >= fecha);
+    } else {
+      const db = loadJsonDb();
+      if (!db.planificacion_diaria) db.planificacion_diaria = [];
+      dayRecord = db.planificacion_diaria.find(p => p.fecha === fecha);
+      const otsList = db.ordenes_trabajo || [];
+      allOts = otsList.filter(o => o.fecha_inicio && o.fecha_fin && normalizeIsoDate(o.fecha_inicio) <= fecha && normalizeIsoDate(o.fecha_fin) >= fecha);
+    }
+
+    const currentAsignaciones = dayRecord?.asignaciones
+      ? (typeof dayRecord.asignaciones === 'string' ? JSON.parse(dayRecord.asignaciones) : dayRecord.asignaciones)
+      : { ots: {}, sectores: {}, novedades: {} };
+
+    if (!currentAsignaciones.ots) currentAsignaciones.ots = {};
+    if (!currentAsignaciones.sectores) currentAsignaciones.sectores = {};
+    if (!currentAsignaciones.novedades) currentAsignaciones.novedades = {};
+
+    // Auto-inheritance from previous days for active OTs if not yet customized today
+    for (const ot of allOts) {
+      const key = `ot_${ot.id}`;
+      const existingOtAsig = currentAsignaciones.ots[key];
+      const hasContent = existingOtAsig && ((existingOtAsig.personal && existingOtAsig.personal.length > 0) || (existingOtAsig.vehiculos && existingOtAsig.vehiculos.length > 0));
+
+      if (!hasContent) {
+        let priorAsig = null;
+        const normInicio = normalizeIsoDate(ot.fecha_inicio);
+        if (usePostgreSQL) {
+          const priorRes = await pool.query(
+            `SELECT asignaciones FROM planificacion_diaria 
+             WHERE fecha < $1 AND fecha >= $2 
+             ORDER BY fecha DESC LIMIT 15`,
+            [fecha, normInicio]
+          );
+          for (const row of priorRes.rows) {
+            const pAsig = typeof row.asignaciones === 'string' ? JSON.parse(row.asignaciones) : row.asignaciones;
+            if (pAsig?.ots?.[key] && (pAsig.ots[key].personal?.length > 0 || pAsig.ots[key].vehiculos?.length > 0)) {
+              priorAsig = pAsig.ots[key];
+              break;
+            }
+          }
+        } else {
+          const db = loadJsonDb();
+          const priorRecords = (db.planificacion_diaria || [])
+            .filter(p => p.fecha < fecha && p.fecha >= normInicio)
+            .sort((a, b) => b.fecha.localeCompare(a.fecha));
+
+          for (const rec of priorRecords) {
+            const pAsig = rec.asignaciones;
+            if (pAsig?.ots?.[key] && (pAsig.ots[key].personal?.length > 0 || pAsig.ots[key].vehiculos?.length > 0)) {
+              priorAsig = pAsig.ots[key];
+              break;
+            }
+          }
+        }
+
+        if (priorAsig) {
+          currentAsignaciones.ots[key] = { ...priorAsig };
+        }
+      }
+    }
+
+    return {
+      fecha,
+      asignaciones: currentAsignaciones,
+      publicado: true,
+      publicado_por: dayRecord?.publicado_por || null,
+      fecha_modificacion: dayRecord?.fecha_modificacion || null
+    };
+  },
+
+  savePlanificacionDia: async (fechaRaw, asignaciones, publicado = true, publicado_por = null) => {
+    const normalizeIsoDate = (dStr) => {
+      if (!dStr) return new Date().toISOString().split('T')[0];
+      if (dStr instanceof Date) {
+        return isNaN(dStr.getTime()) ? new Date().toISOString().split('T')[0] : dStr.toISOString().split('T')[0];
+      }
+      const s = String(dStr).trim();
+      if (s.includes('/')) {
+        const parts = s.split('/');
+        if (parts.length === 3) {
+          const day = parts[0].padStart(2, '0');
+          const month = parts[1].padStart(2, '0');
+          const year = parts[2].length === 4 ? parts[2] : `20${parts[2]}`;
+          return `${year}-${month}-${day}`;
+        }
+      }
+      if (s.match(/^\d{4}-\d{2}-\d{2}/)) {
+        return s.substring(0, 10);
+      }
+      const parsed = new Date(s);
+      if (!isNaN(parsed.getTime())) {
+        return parsed.toISOString().split('T')[0];
+      }
+      return s.substring(0, 10);
+    };
+
+    const fecha = normalizeIsoDate(fechaRaw);
+    const parsedAsignaciones = typeof asignaciones === 'string' ? JSON.parse(asignaciones) : (asignaciones || { ots: {}, sectores: {}, novedades: {} });
+
+    // 1. Save record for today (Instant atomic write)
+    let savedRecord = null;
+    if (usePostgreSQL) {
+      const res = await pool.query(
+        `INSERT INTO planificacion_diaria (fecha, asignaciones, publicado, publicado_por, fecha_publicacion, fecha_modificacion)
+         VALUES ($1, $2, TRUE, $3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+         ON CONFLICT (fecha) DO UPDATE
+         SET asignaciones = $2,
+             publicado = TRUE,
+             publicado_por = COALESCE($3, planificacion_diaria.publicado_por),
+             fecha_modificacion = CURRENT_TIMESTAMP
+         RETURNING *`,
+        [fecha, JSON.stringify(parsedAsignaciones), publicado_por]
+      );
+      savedRecord = res.rows[0];
+    } else {
+      const db = loadJsonDb();
+      if (!db.planificacion_diaria) db.planificacion_diaria = [];
+      const idx = db.planificacion_diaria.findIndex(p => p.fecha === fecha);
+      const record = {
+        fecha,
+        asignaciones: parsedAsignaciones,
+        publicado: true,
+        publicado_por: publicado_por || (idx !== -1 ? db.planificacion_diaria[idx].publicado_por : null),
+        fecha_publicacion: idx !== -1 && db.planificacion_diaria[idx].fecha_publicacion ? db.planificacion_diaria[idx].fecha_publicacion : new Date().toISOString(),
+        fecha_modificacion: new Date().toISOString()
+      };
+      if (idx !== -1) {
+        db.planificacion_diaria[idx] = { ...db.planificacion_diaria[idx], ...record };
+      } else {
+        db.planificacion_diaria.push(record);
+      }
+      savedRecord = record;
+
+      // 2. Cascade forward in memory for active OTs (up to 7 days) and save JSON once
+      try {
+        const otsList = (db.ordenes_trabajo || []).filter(o => o.fecha_fin && normalizeIsoDate(o.fecha_fin) >= fecha);
+        for (const ot of otsList) {
+          const key = `ot_${ot.id}`;
+          const otAsig = parsedAsignaciones?.ots?.[key];
+          if (otAsig && ot.fecha_fin) {
+            const endDateStr = normalizeIsoDate(ot.fecha_fin);
+            let cur = new Date(fecha + 'T00:00:00');
+            cur.setDate(cur.getDate() + 1);
+            const end = new Date(endDateStr + 'T00:00:00');
+
+            let steps = 0;
+            while (cur <= end && steps < 7) {
+              const nextDateStr = cur.toISOString().split('T')[0];
+              const fIdx = db.planificacion_diaria.findIndex(p => p.fecha === nextDateStr);
+              if (fIdx !== -1) {
+                const curAsig = db.planificacion_diaria[fIdx].asignaciones || { ots: {}, sectores: {}, novedades: {} };
+                if (!curAsig.ots) curAsig.ots = {};
+                curAsig.ots[key] = { ...otAsig };
+                db.planificacion_diaria[fIdx].asignaciones = curAsig;
+                db.planificacion_diaria[fIdx].fecha_modificacion = new Date().toISOString();
+              }
+              cur.setDate(cur.getDate() + 1);
+              steps++;
+            }
+          }
+        }
+      } catch (cascadeErr) {
+        console.error("[DB] Error leve en cascada:", cascadeErr);
+      }
+
+      saveJsonDb();
+    }
+
+    return savedRecord;
+  },
+
+  getPlanificacionPlanta: async (fecha) => {
+    if (usePostgreSQL) {
+      const res = await pool.query('SELECT * FROM planificacion_planta WHERE fecha = $1', [fecha]);
+      if (res.rows.length > 0) return res.rows[0];
+      return { fecha, tareas: [] };
+    } else {
+      const db = loadJsonDb();
+      if (!db.planificacion_planta) db.planificacion_planta = [];
+      const item = db.planificacion_planta.find(p => p.fecha === fecha);
+      if (item) return item;
+      return { fecha, tareas: [] };
+    }
+  },
+
+  savePlanificacionPlanta: async (fecha, tareas) => {
+    if (usePostgreSQL) {
+      const res = await pool.query(
+        `INSERT INTO planificacion_planta (fecha, tareas, fecha_modificacion)
+         VALUES ($1, $2, CURRENT_TIMESTAMP)
+         ON CONFLICT (fecha) DO UPDATE
+         SET tareas = $2, fecha_modificacion = CURRENT_TIMESTAMP
+         RETURNING *`,
+        [fecha, typeof tareas === 'string' ? tareas : JSON.stringify(tareas)]
+      );
+      return res.rows[0];
+    } else {
+      const db = loadJsonDb();
+      if (!db.planificacion_planta) db.planificacion_planta = [];
+      const idx = db.planificacion_planta.findIndex(p => p.fecha === fecha);
+      const parsedTareas = typeof tareas === 'string' ? JSON.parse(tareas) : tareas;
+      const record = {
+        fecha,
+        tareas: parsedTareas,
+        fecha_modificacion: new Date().toISOString()
+      };
+      if (idx !== -1) {
+        db.planificacion_planta[idx] = record;
+      } else {
+        db.planificacion_planta.push(record);
+      }
+      saveJsonDb();
+      return record;
+    }
+  },
+
+  // ==========================================
+  // RECORDATORIOS OPERATIVOS (VTV, SALUD, GENERAL)
+  // ==========================================
+  getRecordatorios: async (desde = null, hasta = null) => {
+
+    let manualRecords = [];
+    let recursosList = [];
+    let personalList = [];
+
+    if (usePostgreSQL) {
+      const recRes = await pool.query('SELECT * FROM recordatorios_operativos ORDER BY fecha ASC');
+      manualRecords = recRes.rows;
+      const rRes = await pool.query('SELECT * FROM recursos WHERE activo = TRUE');
+      recursosList = rRes.rows;
+      const pRes = await pool.query('SELECT * FROM personal WHERE activo = TRUE');
+      personalList = pRes.rows;
+    } else {
+      const db = loadJsonDb();
+      manualRecords = db.recordatorios_operativos || [];
+      recursosList = (db.recursos || []).filter(r => r.activo !== false);
+      personalList = (db.personal || []).filter(p => p.activo !== false);
+    }
+
+    const autoRecords = [];
+
+    const subtractDays = (dStr, days) => {
+      if (!dStr) return null;
+      const d = new Date(dStr + 'T00:00:00');
+      if (isNaN(d.getTime())) return dStr;
+      d.setDate(d.getDate() - days);
+      return d.toISOString().split('T')[0];
+    };
+
+    // 1. Recordatorios Automáticos de VTV (7 días de anticipación) y Seguro desde Tabla Maestra de Flota (Recursos)
+    for (const r of recursosList) {
+      if (r.vtv_vencimiento) {
+        const vDate = normalizeDate(r.vtv_vencimiento);
+        if (vDate) {
+          const alertDate = subtractDays(vDate, 7);
+          autoRecords.push({
+            id: `auto_vtv_${r.id}`,
+            fecha: alertDate,
+            fecha_vencimiento_real: vDate,
+            dias_anticipacion: 7,
+            titulo: `⚠️ Solicitar Turno VTV (Vence el ${vDate}) — ${r.nombre} (${r.patente_identificador || 'S/Patente'})`,
+            tipo: 'Vehículo',
+            subtipo: 'VTV',
+            entidad_id: r.id,
+            entidad_tipo: 'recurso',
+            descripcion: `Alerta generada con 7 días de anticipación para tramitar el turno previo. La VTV oficial del vehículo ${r.nombre} (${r.patente_identificador || 'S/P'}) vence el ${vDate}.`,
+            es_automatico: true,
+            origen: 'Tabla Maestra (Recursos / Flota)',
+            completado: false
+          });
+        }
+      }
+
+      if (r.seguro_vencimiento) {
+        const sDate = normalizeDate(r.seguro_vencimiento);
+        if (sDate) {
+          const alertDate = subtractDays(sDate, 7);
+          autoRecords.push({
+            id: `auto_seguro_${r.id}`,
+            fecha: alertDate,
+            fecha_vencimiento_real: sDate,
+            dias_anticipacion: 7,
+            titulo: `⚠️ Renovar Póliza Seguro (Vence el ${sDate}) — ${r.nombre} (${r.patente_identificador || 'S/Patente'})`,
+            tipo: 'Vehículo',
+            subtipo: 'Seguro',
+            entidad_id: r.id,
+            entidad_tipo: 'recurso',
+            descripcion: `Alerta con 7 días de anticipación. La póliza de seguro del vehículo ${r.nombre} (${r.patente_identificador || 'S/P'}) vence el ${sDate}.`,
+            es_automatico: true,
+            origen: 'Tabla Maestra (Recursos / Flota)',
+            completado: false
+          });
+        }
+      }
+    }
+
+    // 2. Recordatorios Automáticos de Salud y Licencias desde Tabla Maestra de Personal (7 días de anticipación)
+    for (const p of personalList) {
+      if (p.examen_medico_vencimiento) {
+        const mDate = normalizeDate(p.examen_medico_vencimiento);
+        if (mDate) {
+          const alertDate = subtractDays(mDate, 7);
+          autoRecords.push({
+            id: `auto_medico_${p.id}`,
+            fecha: alertDate,
+            fecha_vencimiento_real: mDate,
+            dias_anticipacion: 7,
+            titulo: `⚠️ Renovar Examen Médico / Libreta Sanitaria (Vence el ${mDate}) — ${p.nombre}`,
+            tipo: 'Personal',
+            subtipo: 'Salud',
+            entidad_id: p.id,
+            entidad_tipo: 'personal',
+            descripcion: `Alerta con 7 días de anticipación. El apto médico / libreta sanitaria de ${p.nombre} (${p.rol_funcion || 'Personal'}) vence el ${mDate}.`,
+            es_automatico: true,
+            origen: 'Tabla Maestra (Personal)',
+            completado: false
+          });
+        }
+      }
+
+      if (p.licencia_conducir_vencimiento) {
+        const lDate = normalizeDate(p.licencia_conducir_vencimiento);
+        if (lDate) {
+          const alertDate = subtractDays(lDate, 7);
+          autoRecords.push({
+            id: `auto_licencia_${p.id}`,
+            fecha: alertDate,
+            fecha_vencimiento_real: lDate,
+            dias_anticipacion: 7,
+            titulo: `⚠️ Renovar Registro de Conducir (Vence el ${lDate}) — ${p.nombre}`,
+            tipo: 'Personal',
+            subtipo: 'Licencia',
+            entidad_id: p.id,
+            entidad_tipo: 'personal',
+            descripcion: `Alerta con 7 días de anticipación. La licencia de conducir de ${p.nombre} (${p.rol_funcion || 'Chofer'}) vence el ${lDate}.`,
+            es_automatico: true,
+            origen: 'Tabla Maestra (Personal)',
+            completado: false
+          });
+        }
+      }
+    }
+
+    // Consolidar manuales y automáticos
+    let allRecords = [...autoRecords, ...manualRecords];
+    if (desde) allRecords = allRecords.filter(r => r.fecha >= desde);
+    if (hasta) allRecords = allRecords.filter(r => r.fecha <= hasta);
+
+    return allRecords.sort((a, b) => a.fecha.localeCompare(b.fecha));
+  },
+
+  saveRecordatorio: async (rec) => {
+    if (usePostgreSQL) {
+      const res = await pool.query(
+        `INSERT INTO recordatorios_operativos (fecha, titulo, tipo, entidad_id, entidad_tipo, descripcion, completado)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         RETURNING *`,
+        [rec.fecha, rec.titulo, rec.tipo || 'General', rec.entidad_id || null, rec.entidad_tipo || null, rec.descripcion || null, Boolean(rec.completado)]
+      );
+      return res.rows[0];
+    } else {
+      const db = loadJsonDb();
+      if (!db.recordatorios_operativos) db.recordatorios_operativos = [];
+      const nextId = db.recordatorios_operativos.length > 0 ? Math.max(...db.recordatorios_operativos.map(r => r.id)) + 1 : 1;
+      const newRec = {
+        id: nextId,
+        fecha: rec.fecha,
+        titulo: rec.titulo,
+        tipo: rec.tipo || 'General',
+        entidad_id: rec.entidad_id || null,
+        entidad_tipo: rec.entidad_tipo || null,
+        descripcion: rec.descripcion || null,
+        completado: Boolean(rec.completado),
+        fecha_creacion: new Date().toISOString()
+      };
+      db.recordatorios_operativos.push(newRec);
+      saveJsonDb();
+      return newRec;
+    }
+  },
+
+  updateRecordatorio: async (id, rec) => {
+    if (usePostgreSQL) {
+      const res = await pool.query(
+        `UPDATE recordatorios_operativos
+         SET fecha = $1, titulo = $2, tipo = $3, entidad_id = $4, entidad_tipo = $5, descripcion = $6, completado = $7
+         WHERE id = $8
+         RETURNING *`,
+        [rec.fecha, rec.titulo, rec.tipo || 'General', rec.entidad_id || null, rec.entidad_tipo || null, rec.descripcion || null, Boolean(rec.completado), id]
+      );
+      return res.rows[0];
+    } else {
+      const db = loadJsonDb();
+      if (!db.recordatorios_operativos) db.recordatorios_operativos = [];
+      const idx = db.recordatorios_operativos.findIndex(r => r.id === Number(id));
+      if (idx !== -1) {
+        db.recordatorios_operativos[idx] = { ...db.recordatorios_operativos[idx], ...rec };
+        saveJsonDb();
+        return db.recordatorios_operativos[idx];
+      }
+      return null;
+    }
+  },
+
+  deleteRecordatorio: async (id) => {
+    if (usePostgreSQL) {
+      const res = await pool.query('DELETE FROM recordatorios_operativos WHERE id = $1 RETURNING id', [id]);
+      return res.rowCount > 0;
+    } else {
+      const db = loadJsonDb();
+      if (!db.recordatorios_operativos) db.recordatorios_operativos = [];
+      const idx = db.recordatorios_operativos.findIndex(r => r.id === Number(id));
+      if (idx !== -1) {
+        db.recordatorios_operativos.splice(idx, 1);
+        saveJsonDb();
+        return true;
+      }
+      return false;
+    }
+  },
+
+  // ==========================================
+  // ACTUALIZACIÓN COMPLETA DE OT DESDE CALENDARIO
+  // ==========================================
+  updateOrdenTrabajoFull: async (id, data) => {
+    if (usePostgreSQL) {
+      const fields = [];
+      const values = [];
+      let idx = 1;
+
+      const allowed = [
+        'fecha_inicio', 'fecha_fin', 'fecha_evento', 'estado', 'observaciones',
+        'frente', 'largo', 'superficie', 'estructura_tipo', 'modelo_estructura',
+        'modulacion_config', 'adicionales', 'georef', 'panol_status', 'planta_status',
+        'fecha_traslado', 'fecha_comienzo_armado', 'fecha_comienzo_desarmado', 'fecha_retorno'
+      ];
+
+      for (const key of allowed) {
+        if (data[key] !== undefined) {
+          fields.push(`${key} = $${idx}`);
+          if (['modulacion_config', 'adicionales', 'georef', 'panol_status', 'planta_status'].includes(key) && typeof data[key] === 'object') {
+            values.push(JSON.stringify(data[key]));
+          } else {
+            values.push(data[key]);
+          }
+          idx++;
+        }
+      }
+
+      if (fields.length === 0) return null;
+
+      values.push(id);
+      const query = `UPDATE ordenes_trabajo SET ${fields.join(', ')} WHERE id = $${idx} RETURNING *`;
+      const res = await pool.query(query, values);
+      return res.rows[0];
+    } else {
+      const db = loadJsonDb();
+      if (!db.ordenes_trabajo) db.ordenes_trabajo = [];
+      const otIdx = db.ordenes_trabajo.findIndex(o => o.id === Number(id) || o.id === id);
+      if (otIdx !== -1) {
+        db.ordenes_trabajo[otIdx] = {
+          ...db.ordenes_trabajo[otIdx],
+          ...data
+        };
+        saveJsonDb();
+        return db.ordenes_trabajo[otIdx];
+      }
+      return null;
+    }
   }
 };
+
+export default db;
