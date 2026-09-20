@@ -1506,6 +1506,38 @@ app.put('/api/ots/:id/adicionales', async (req, res) => {
   }
 });
 
+// ----------------------------------------------------
+// ENCARGADOS DE SECTORES & REGISTRO DE USO ACCESORIOS
+// ----------------------------------------------------
+app.get('/api/config/encargados-sectores', async (req, res) => {
+  try {
+    const data = await db.getEncargadosSectores();
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/config/encargados-sectores', async (req, res) => {
+  try {
+    const { sectores } = req.body;
+    const data = await db.saveEncargadosSectores(sectores || []);
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/inventario-accesorios/:id/registro-uso', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await db.recordAccessoryUsage(parseInt(id), req.body);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.delete('/api/ots/:id', async (req, res) => {
   const { id } = req.params;
   const userRole = req.headers['x-user-role'];
@@ -3194,8 +3226,50 @@ app.post('/api/maestro/import/:table', express.raw({ type: '*/*', limit: '50mb' 
     // Parse with SheetJS
     const workbook = XLSX.read(req.body, { type: 'buffer' });
     const sheetName = workbook.SheetNames[0];
-    const sheet = workbook.Sheets[sheetName];
-    const rows = XLSX.utils.sheet_to_json(sheet);
+    let rows = XLSX.utils.sheet_to_json(sheet);
+
+    // Fallback: If SheetJS parsed a single column with delimiters (e.g. wrapped or semicolon CSV), re-parse lines
+    if (rows.length > 0 && Object.keys(rows[0]).length === 1 && (Object.keys(rows[0])[0].includes(',') || Object.keys(rows[0])[0].includes(';'))) {
+      try {
+        const rawText = req.body.toString('utf8');
+        const lines = rawText.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+        if (lines.length > 1) {
+          const delim = lines[0].includes(';') && !lines[0].includes(',') ? ';' : ',';
+          const parseLine = (line) => {
+            let clean = line;
+            if (clean.startsWith('"') && clean.endsWith('"') && clean.includes('""')) {
+              clean = clean.slice(1, -1).replace(/""/g, '"');
+            }
+            const result = [];
+            let cur = '';
+            let inQuotes = false;
+            for (let i = 0; i < clean.length; i++) {
+              const char = clean[i];
+              if (char === '"') inQuotes = !inQuotes;
+              else if (char === delim && !inQuotes) {
+                result.push(cur.trim());
+                cur = '';
+              } else {
+                cur += char;
+              }
+            }
+            result.push(cur.trim());
+            return result;
+          };
+          const headers = parseLine(lines[0]);
+          rows = lines.slice(1).map(line => {
+            const vals = parseLine(line);
+            const obj = {};
+            headers.forEach((h, idx) => {
+              obj[h] = vals[idx] !== undefined ? vals[idx] : '';
+            });
+            return obj;
+          });
+        }
+      } catch (e) {
+        console.warn('Fallback CSV parser error:', e);
+      }
+    }
 
     if (rows.length === 0) {
       return res.status(400).json({ error: 'No se encontraron filas de datos en el archivo' });

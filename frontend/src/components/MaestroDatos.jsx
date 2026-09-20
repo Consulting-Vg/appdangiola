@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   Users, Truck, Layers, Plus, Edit, Trash2, Upload, Download, Search,
-  FileText, X, Check, AlertCircle, RefreshCw, User, HelpCircle, CheckSquare, Square
+  FileText, X, Check, AlertCircle, RefreshCw, User, HelpCircle, CheckSquare, Square,
+  ChevronDown, ChevronRight, Filter, Scissors
 } from 'lucide-react';
 
 const formatExpiryBadge = (dateStr) => {
@@ -48,6 +49,10 @@ export default function MaestroDatos({ currentUser }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [filterComponente, setFilterComponente] = useState('');
+  const [filterModeloEstructura, setFilterModeloEstructura] = useState('');
+  const [expandedModelos, setExpandedModelos] = useState({});
+  const [viewMode, setViewMode] = useState('grouped'); // 'grouped' | 'table'
   
   // Modals state
   const [showFormModal, setShowFormModal] = useState(false);
@@ -57,6 +62,12 @@ export default function MaestroDatos({ currentUser }) {
   const [importResult, setImportResult] = useState(null);
   const [importMode, setImportMode] = useState('replace'); // 'replace' | 'append'
   const fileInputRef = useRef(null);
+
+  // Roll usage discount & notes (Item 7)
+  const [rollUsageModalItem, setRollUsageModalItem] = useState(null);
+  const [rollUsageMts, setRollUsageMts] = useState('');
+  const [rollUsageNotas, setRollUsageNotas] = useState('');
+  const [savingRollUsage, setSavingRollUsage] = useState(false);
 
   const tabs = [
     { id: 'personal', label: 'Personal', icon: Users, desc: 'Gestión de operarios, choferes y personal de la empresa' },
@@ -125,7 +136,7 @@ export default function MaestroDatos({ currentUser }) {
     }
   };
 
-  const handleOpenCreate = () => {
+  const handleOpenCreate = (initialValues = {}) => {
     setEditingItem(null);
     // Initialize default values based on activeTab
     const defaults = {};
@@ -160,7 +171,7 @@ export default function MaestroDatos({ currentUser }) {
     } else if (activeTab === 'vendedores') {
       defaults.activo = true;
     }
-    setFormData(defaults);
+    setFormData({ ...defaults, ...initialValues });
     setShowFormModal(true);
   };
 
@@ -229,6 +240,41 @@ export default function MaestroDatos({ currentUser }) {
       fetchData();
     } catch (err) {
       alert(`Error: ${err.message}`);
+    }
+  };
+
+  const handleSaveRollUsage = async (e) => {
+    e.preventDefault();
+    if (!rollUsageModalItem || !rollUsageMts || Number(rollUsageMts) <= 0) {
+      alert("Ingresa una cantidad válida de metros o unidades a descontar.");
+      return;
+    }
+    setSavingRollUsage(true);
+    try {
+      const res = await fetch(`/api/inventario-accesorios/${rollUsageModalItem.id}/registro-uso`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cantidad_descontada: Number(rollUsageMts),
+          notas: rollUsageNotas,
+          tabla: activeTab
+        })
+      });
+      if (res.ok) {
+        alert("✓ Consumo registrado y stock general actualizado con éxito.");
+        setRollUsageModalItem(null);
+        setRollUsageMts('');
+        setRollUsageNotas('');
+        fetchData();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        alert(err.error || "Error al registrar el consumo del rollo.");
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Error de conexión con el servidor.");
+    } finally {
+      setSavingRollUsage(false);
     }
   };
 
@@ -371,14 +417,27 @@ export default function MaestroDatos({ currentUser }) {
   };
 
   const getFilteredData = () => {
-    if (!searchQuery) return data;
-    const query = searchQuery.toLowerCase();
-    return data.filter(item => {
-      return Object.values(item).some(val => {
-        if (val === null || val === undefined) return false;
-        return String(val).toLowerCase().includes(query);
+    let list = data || [];
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      list = list.filter(item => {
+        return Object.values(item).some(val => {
+          if (val === null || val === undefined) return false;
+          return String(val).toLowerCase().includes(query);
+        });
       });
-    });
+    }
+    if (['arcos', 'modulos', 'fijos'].includes(activeTab)) {
+      if (filterComponente && filterComponente.trim() !== '') {
+        const compQuery = filterComponente.toLowerCase().trim();
+        list = list.filter(item => (item.producto || '').toLowerCase().includes(compQuery));
+      }
+      if (filterModeloEstructura && filterModeloEstructura.trim() !== '') {
+        const modQuery = filterModeloEstructura.toLowerCase().trim();
+        list = list.filter(item => (item.modelo_estructura || '').toLowerCase().includes(modQuery));
+      }
+    }
+    return list;
   };
 
   const activeTabConfig = tabs.find(t => t.id === activeTab);
@@ -463,6 +522,64 @@ export default function MaestroDatos({ currentUser }) {
             </div>
           </div>
 
+          {/* Column Filters & View Switcher (Items 4 & 6) */}
+          {['arcos', 'modulos', 'fijos'].includes(activeTab) && (
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-5 p-3.5 bg-slate-50 border border-slate-200/80 rounded-2xl">
+              <div className="flex flex-wrap items-center gap-2.5 flex-1">
+                <div className="flex items-center gap-1.5 text-slate-500 text-[10px] font-black uppercase tracking-wider">
+                  <Filter className="w-3.5 h-3.5 text-blue-900" />
+                  <span>Filtros:</span>
+                </div>
+                <input
+                  type="text"
+                  placeholder="Filtrar por Componente..."
+                  value={filterComponente}
+                  onChange={e => setFilterComponente(e.target.value)}
+                  className="bg-white border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-semibold text-slate-700 outline-none focus:border-blue-500 min-w-[170px]"
+                />
+                <input
+                  type="text"
+                  placeholder="Filtrar por Modelo (ej: C10-L1)..."
+                  value={filterModeloEstructura}
+                  onChange={e => setFilterModeloEstructura(e.target.value)}
+                  className="bg-white border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-semibold text-slate-700 outline-none focus:border-blue-500 min-w-[190px]"
+                />
+                {(filterComponente || filterModeloEstructura) && (
+                  <button
+                    onClick={() => { setFilterComponente(''); setFilterModeloEstructura(''); }}
+                    className="text-[10px] font-bold text-red-600 hover:text-red-800 underline uppercase cursor-pointer"
+                  >
+                    Limpiar Filtros
+                  </button>
+                )}
+              </div>
+              <div className="flex items-center bg-white border border-slate-200 rounded-xl p-1 shadow-2xs">
+                <button
+                  type="button"
+                  onClick={() => setViewMode('grouped')}
+                  className={`px-3 py-1 text-[10px] font-black uppercase rounded-lg transition cursor-pointer ${
+                    viewMode === 'grouped'
+                      ? 'bg-blue-900 text-white shadow-2xs'
+                      : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  Agrupado por Modelo
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode('table')}
+                  className={`px-3 py-1 text-[10px] font-black uppercase rounded-lg transition cursor-pointer ${
+                    viewMode === 'table'
+                      ? 'bg-blue-900 text-white shadow-2xs'
+                      : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  Tabla Plana
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Loader or Error */}
           {loading ? (
             <div className="flex-1 flex flex-col items-center justify-center py-20 text-slate-400 gap-2">
@@ -480,7 +597,117 @@ export default function MaestroDatos({ currentUser }) {
               <div className="text-sm font-bold">No hay registros</div>
               <div className="text-xs mt-1">Crea un registro manual o sube un archivo CSV/Excel para empezar.</div>
             </div>
+          ) : ['arcos', 'modulos', 'fijos'].includes(activeTab) && viewMode === 'grouped' ? (
+            /* Grouped Accordions by Structure Model (Item 4) */
+            <div className="space-y-4">
+              {Object.entries(
+                filteredData.reduce((acc, item) => {
+                  const key = item.modelo_estructura || 'General / Sin Modelo';
+                  if (!acc[key]) acc[key] = [];
+                  acc[key].push(item);
+                  return acc;
+                }, {})
+              ).map(([modelo, items]) => {
+                const isExpanded = expandedModelos[modelo] !== false; // expanded by default
+                return (
+                  <div key={modelo} className="border border-slate-200 rounded-2xl bg-white shadow-xs overflow-hidden">
+                    <div
+                      onClick={() => setExpandedModelos(prev => ({ ...prev, [modelo]: !isExpanded }))}
+                      className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 p-3.5 bg-slate-50/90 hover:bg-slate-100/80 cursor-pointer border-b border-slate-150 transition select-none"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-7 h-7 rounded-lg bg-blue-900 text-white flex items-center justify-center font-black text-xs shrink-0">
+                          {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                        </div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-black text-xs text-blue-900 uppercase tracking-wider font-mono bg-blue-100/70 border border-blue-200 px-2.5 py-0.5 rounded-lg">
+                            {modelo}
+                          </span>
+                          <span className="text-[11px] font-bold text-slate-500">
+                            ({items.length} {items.length === 1 ? 'componente' : 'componentes'})
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenCreate({ modelo_estructura: modelo })}
+                          className="bg-blue-900 hover:bg-blue-950 text-white rounded-xl px-3 py-1.5 text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5 shadow-2xs transition cursor-pointer"
+                        >
+                          <Plus className="w-3 h-3" />
+                          <span>Agregar a {modelo}</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {isExpanded && (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs text-left border-collapse whitespace-nowrap">
+                          <thead>
+                            <tr className="bg-slate-50/50 text-slate-400 font-black uppercase tracking-widest border-b border-slate-100 text-[10px]">
+                              <th className="p-3 font-mono">ID</th>
+                              <th className="p-3">Componente / Producto</th>
+                              {activeTab === 'arcos' && <th className="p-3">Arco</th>}
+                              {activeTab === 'modulos' && (
+                                <>
+                                  <th className="p-3">Módulo</th>
+                                  <th className="p-3 text-center">Modulación</th>
+                                  <th className="p-3 text-center">Stock Inicial</th>
+                                </>
+                              )}
+                              <th className="p-3">Sector</th>
+                              <th className="p-3 text-center">{activeTab === 'fijos' ? 'Cant. Fija Carpa' : 'Cant. Fija'}</th>
+                              <th className="p-3 text-center">Acciones</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100 font-semibold text-slate-700">
+                            {items.map(item => (
+                              <tr key={item.id} className="hover:bg-slate-50/60 transition-all-200">
+                                <td className="p-3 text-slate-400 font-mono font-bold text-[11px]">{item.id}</td>
+                                <td className="p-3 font-bold text-slate-800 uppercase">{item.producto}</td>
+                                {activeTab === 'arcos' && <td className="p-3 font-mono font-bold text-blue-900">{item.arco}</td>}
+                                {activeTab === 'modulos' && (
+                                  <>
+                                    <td className="p-3 font-mono font-bold text-blue-900">{item.modulo_val}</td>
+                                    <td className="p-3 text-center font-bold text-slate-600">{item.modulacion}m</td>
+                                    <td className="p-3 font-black text-center text-indigo-600">{item.stock_inicial}</td>
+                                  </>
+                                )}
+                                <td className="p-3 uppercase text-[10px] text-slate-500 font-bold">{item.sector}</td>
+                                <td className="p-3 font-black text-center text-blue-950">
+                                  {activeTab === 'arcos' ? item.qty_fija_arco : activeTab === 'fijos' ? item.qty_fija_carpa : item.qty_fija_modulo || item.qty_fija_arco || '─'}
+                                </td>
+                                <td className="p-3 text-center">
+                                  <div className="flex justify-center gap-1.5">
+                                    <button
+                                      onClick={() => handleOpenEdit(item)}
+                                      className="bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-650 rounded-lg p-1.5 cursor-pointer transition-all-200"
+                                      title="Editar componente"
+                                    >
+                                      <Edit className="w-3.5 h-3.5" />
+                                    </button>
+                                    <button
+                                      onClick={() => handleDelete(item.id)}
+                                      className="bg-red-50 hover:bg-red-100 border border-red-200 text-red-650 rounded-lg p-1.5 cursor-pointer transition-all-200"
+                                      title="Eliminar componente"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           ) : (
+            /* Flat Table View */
             <div className="overflow-x-auto border border-slate-100 rounded-2xl">
               <table className="w-full text-xs text-left border-collapse whitespace-nowrap">
                 <thead>
@@ -548,16 +775,16 @@ export default function MaestroDatos({ currentUser }) {
                     {activeTab === 'clientes' && (
                       <>
                         <th className="p-3">Cuenta</th>
-                        <th className="p-3">Nombre</th>
+                        <th className="p-3">Nombre / Razón Social</th>
                         <th className="p-3">CUIT</th>
                         <th className="p-3">Domicilio</th>
                         <th className="p-3">Localidad</th>
-                        <th className="p-3">Vendedores</th>
+                        <th className="p-3">Vendedor</th>
                       </>
                     )}
                     {activeTab === 'vendedores' && (
                       <>
-                        <th className="p-3">Nombre</th>
+                        <th className="p-3">Nombre Comercial</th>
                         <th className="p-3">Estado</th>
                       </>
                     )}
@@ -565,7 +792,7 @@ export default function MaestroDatos({ currentUser }) {
                       <>
                         <th className="p-3">Nombre</th>
                         {activeTab === 'lonas' && <th className="p-3">Tipo</th>}
-                        {activeTab === 'telas' && <th className="p-3">Tipo Cortina</th>}
+                        {activeTab === 'telas' && <th className="p-3">Tipo</th>}
                         {['lonas', 'telas', 'alfombras'].includes(activeTab) && <th className="p-3">Color</th>}
                         {['lonas', 'pisos'].includes(activeTab) && <th className="p-3">Medida</th>}
                         <th className="p-3">Estado</th>
@@ -679,6 +906,19 @@ export default function MaestroDatos({ currentUser }) {
                       )}
                       <td className="p-3 text-center">
                         <div className="flex justify-center gap-1.5">
+                          {['lonas', 'alfombras'].includes(activeTab) && (
+                            <button
+                              onClick={() => {
+                                setRollUsageModalItem(item);
+                                setRollUsageMts('');
+                                setRollUsageNotas('');
+                              }}
+                              className="bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-800 rounded-lg p-1.5 cursor-pointer transition-all-200"
+                              title="Registrar consumo / Descuento de rollo"
+                            >
+                              <Scissors className="w-3.5 h-3.5 text-amber-700" />
+                            </button>
+                          )}
                           <button
                             onClick={() => handleOpenEdit(item)}
                             className="bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-650 rounded-lg p-1.5 cursor-pointer transition-all-200"
@@ -1237,6 +1477,85 @@ export default function MaestroDatos({ currentUser }) {
                   className="px-5 py-2.5 bg-blue-900 hover:bg-blue-950 text-white rounded-xl font-black uppercase tracking-wider transition-all-300 shadow border-0 cursor-pointer"
                 >
                   {editingItem ? 'Guardar Cambios' : 'Crear Registro'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* -------------------- REGISTRO CONSUMO / DESCUENTO DE ROLLO MODAL (Item 7) -------------------- */}
+      {rollUsageModalItem && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white border border-slate-200 rounded-[2rem] w-full max-w-md p-6 shadow-2xl relative space-y-4">
+            <button
+              type="button"
+              onClick={() => setRollUsageModalItem(null)}
+              className="absolute right-5 top-5 p-1 rounded-full hover:bg-slate-100 transition-all-300"
+            >
+              <X className="w-5 h-5 text-slate-400 hover:text-slate-600" />
+            </button>
+            <div className="border-b border-slate-100 pb-3">
+              <span className="text-[10px] font-black uppercase tracking-widest text-amber-700 font-mono">Control de Stock General</span>
+              <h3 className="text-sm font-black uppercase text-blue-900 tracking-wider Poppins mt-0.5">
+                Registrar Consumo / Descuento de Rollo
+              </h3>
+            </div>
+
+            <div className="bg-slate-50 p-3 rounded-2xl border border-slate-150 space-y-1">
+              <div className="text-xs font-black text-slate-800 uppercase">{rollUsageModalItem.nombre}</div>
+              <div className="text-[11px] text-slate-500 font-semibold flex items-center gap-2">
+                <span>Color: <strong className="text-blue-900">{rollUsageModalItem.color || '─'}</strong></span>
+                <span>•</span>
+                <span>Stock Actual: <strong className="text-emerald-700">{rollUsageModalItem.stock_total}</strong></span>
+              </div>
+            </div>
+
+            <form onSubmit={handleSaveRollUsage} className="space-y-4">
+              <div>
+                <label className="text-[9px] uppercase tracking-widest font-black text-slate-400 block mb-1">
+                  Cantidad a Descontar (Metros / Unidades) *
+                </label>
+                <input
+                  type="number"
+                  step="0.1"
+                  min="0.1"
+                  max={rollUsageModalItem.stock_total || 99999}
+                  required
+                  value={rollUsageMts}
+                  onChange={e => setRollUsageMts(e.target.value)}
+                  placeholder="Ej: 15.5"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs font-bold focus:bg-white focus:border-blue-500 focus:outline-none transition"
+                />
+              </div>
+
+              <div>
+                <label className="text-[9px] uppercase tracking-widest font-black text-slate-400 block mb-1">
+                  Notas / Motivo de Uso (ej. OT N° o Confección)
+                </label>
+                <textarea
+                  rows="3"
+                  value={rollUsageNotas}
+                  onChange={e => setRollUsageNotas(e.target.value)}
+                  placeholder="Ej: Utilizado en OT 1042 / Confección de paños de cortina..."
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs font-semibold focus:bg-white focus:border-blue-500 focus:outline-none transition resize-none"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setRollUsageModalItem(null)}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold uppercase text-xs transition cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingRollUsage}
+                  className="px-5 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-black uppercase text-xs tracking-wider transition shadow-sm cursor-pointer disabled:opacity-50"
+                >
+                  {savingRollUsage ? 'Asentando...' : 'Asentar Consumo'}
                 </button>
               </div>
             </form>

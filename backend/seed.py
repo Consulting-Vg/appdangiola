@@ -119,12 +119,24 @@ if os.path.exists(arcos_path):
         sql = f"INSERT INTO base_arco (id, producto, arco, modelo_estructura, sector, qty_fija_arco) VALUES ({arco['id']}, {clean_sql_str(arco['producto'])}, {clean_sql_str(arco['arco'])}, {clean_sql_str(arco['modelo_estructura'])}, {clean_sql_str(arco['sector'])}, {arco['qty_fija_arco']});"
         sql_statements.append(sql)
 
-# 4. Parse modulos.xlsx
-mod_path = os.path.join(workspace_dir, "modulos.xlsx")
-if os.path.exists(mod_path):
-    print("Parsing Base Modulo...")
-    df = pd.read_excel(mod_path, sheet_name="MODULOS")
-    for idx, row in df.iterrows():
+# 4. Parse modulos.csv (with fallback to modulos.xlsx)
+mod_csv_path = os.path.join(workspace_dir, "modulos.csv")
+mod_xlsx_path = os.path.join(workspace_dir, "modulos.xlsx")
+
+df_mod = None
+if os.path.exists(mod_csv_path):
+    print("Parsing Base Modulo from modulos.csv...")
+    try:
+        df_mod = pd.read_csv(mod_csv_path)
+    except Exception as e:
+        print(f"Error reading modulos.csv with pd.read_csv: {e}")
+
+if df_mod is None and os.path.exists(mod_xlsx_path):
+    print("Parsing Base Modulo from modulos.xlsx...")
+    df_mod = pd.read_excel(mod_xlsx_path, sheet_name="MODULOS")
+
+if df_mod is not None:
+    for idx, row in df_mod.iterrows():
         prod = clean_val(row.get("Producto"))
         if not prod:
             continue
@@ -146,7 +158,7 @@ if os.path.exists(mod_path):
             base_model = base_model.replace("-", "_")
 
         # Support both Qty_fija_modulo and Qty-fija-modulo
-        qty_fija = clean_val(row.get("Qty_fija_modulo") if "Qty_fija_modulo" in df.columns else row.get("Qty-fija-modulo"), 10)
+        qty_fija = clean_val(row.get("Qty_fija_modulo") if "Qty_fija_modulo" in df_mod.columns else row.get("Qty-fija-modulo"), 10)
 
         mod = {
             "id": idx + 1,

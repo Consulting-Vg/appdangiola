@@ -6,6 +6,13 @@ import {
 
 const renderDateBadge = (dateStr) => {
   if (!dateStr) return <span className="text-slate-350 font-mono text-[11px]">-</span>;
+  if (dateStr === 'No aplica' || dateStr === 'NO_APLICA' || dateStr === 'N/A') {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md bg-slate-100 text-slate-500 border border-slate-200">
+        No aplica
+      </span>
+    );
+  }
   const cleanDateStr = String(dateStr).includes('T') ? String(dateStr).split('T')[0] : String(dateStr).trim();
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -50,9 +57,41 @@ export default function PersonalRecursos({
   onDeleteRecurso,
   userRole
 }) {
-  const [activeSubTab, setActiveSubTab] = useState('personal'); // 'personal' | 'recursos'
+  const [activeSubTab, setActiveSubTab] = useState('personal'); // 'personal' | 'recursos' | 'encargados'
   const [personalSearch, setPersonalSearch] = useState('');
   const [recursosSearch, setRecursosSearch] = useState('');
+
+  // Encargados Fijos por Sector (Item 20)
+  const [encargadosSectores, setEncargadosSectores] = useState({});
+  const [savingEncargados, setSavingEncargados] = useState(false);
+
+  React.useEffect(() => {
+    fetch('/api/config/encargados-sectores')
+      .then(r => r.json())
+      .then(data => setEncargadosSectores(data || {}))
+      .catch(err => console.error("Error al cargar encargados de sectores:", err));
+  }, []);
+
+  const handleSaveEncargados = async () => {
+    setSavingEncargados(true);
+    try {
+      const res = await fetch('/api/config/encargados-sectores', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(encargadosSectores)
+      });
+      if (res.ok) {
+        alert("✓ Encargados fijos por sector actualizados correctamente.");
+      } else {
+        alert("Error al guardar encargados por sector.");
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Error de conexión al guardar.");
+    } finally {
+      setSavingEncargados(false);
+    }
+  };
 
   // Modals / Editor States
   const [showPersonalModal, setShowPersonalModal] = useState(false);
@@ -269,6 +308,15 @@ export default function PersonalRecursos({
         >
           <Truck className="w-4 h-4" />
           Recursos / Flota ({recursosList.length})
+        </button>
+        <button
+          onClick={() => setActiveSubTab('encargados')}
+          className={`px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all-300 cursor-pointer flex items-center gap-2 ${
+            activeSubTab === 'encargados' ? 'bg-blue-900 text-white shadow' : 'text-slate-650 hover:bg-slate-200/50'
+          }`}
+        >
+          <UserCheck className="w-4 h-4" />
+          Encargados Fijos por Sector
         </button>
       </div>
 
@@ -520,6 +568,78 @@ export default function PersonalRecursos({
         </div>
       )}
 
+      {/* Sub Tab Panel: ENCARGADOS FIJOS POR SECTOR (Item 20) */}
+      {activeSubTab === 'encargados' && (
+        <div className="glass-panel rounded-[2rem] p-6 space-y-6">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b border-slate-150 pb-4">
+            <div>
+              <h3 className="text-sm font-black uppercase tracking-wider text-blue-900 Poppins">
+                Configuración de Encargados Fijos por Sector
+              </h3>
+              <p className="text-xs text-slate-500 font-semibold mt-0.5">
+                Define los encargados fijos de cada sector operativo para asignarlos automáticamente en los checklists y procesos.
+              </p>
+            </div>
+            {canEdit && (
+              <button
+                type="button"
+                disabled={savingEncargados}
+                onClick={handleSaveEncargados}
+                className="bg-blue-900 hover:bg-blue-950 disabled:opacity-50 text-white rounded-xl px-5 py-2.5 text-xs font-black uppercase tracking-wider transition-all-300 shadow-sm cursor-pointer flex items-center gap-2 shrink-0"
+              >
+                <ShieldCheck className="w-4 h-4 text-blue-300" />
+                <span>{savingEncargados ? 'Guardando...' : 'Guardar Encargados'}</span>
+              </button>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {[
+              { id: 'Lonas', name: 'Lonas', emoji: '⛺', desc: 'Lavado, confección y plegado' },
+              { id: 'Planta', name: 'Planta / Taller', emoji: '🏭', desc: 'Estructuras y módulos pesados' },
+              { id: 'Pañol', name: 'Pañol', emoji: '📦', desc: 'Bulonería, cables y herramientas' },
+              { id: 'Pisos', name: 'Pisos', emoji: '🪵', desc: 'Placas fenólicas y caños de soporte' },
+              { id: 'Alfombras', name: 'Alfombras', emoji: '🟥', desc: 'Corte, preparación y empaque' },
+              { id: 'Telas', name: 'Telas', emoji: '🧵', desc: 'Cielorrasos y cortinas decorativas' },
+              { id: 'Herrería', name: 'Herrería', emoji: '🛠️', desc: 'Fabricación y reparación estructural' },
+              { id: 'Limpieza', name: 'Limpieza / Logística', emoji: '🧹', desc: 'Acondicionamiento general' }
+            ].map(sec => {
+              const currentLeader = encargadosSectores[sec.id] || '';
+              return (
+                <div key={sec.id} className="bg-white border border-slate-200/90 rounded-2xl p-4 space-y-3 shadow-xs">
+                  <div className="flex items-center gap-2.5">
+                    <span className="text-xl">{sec.emoji}</span>
+                    <div>
+                      <h4 className="text-xs font-black text-slate-800 uppercase tracking-wide">{sec.name}</h4>
+                      <span className="text-[10px] text-slate-400 font-semibold">{sec.desc}</span>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-[9px] uppercase font-black tracking-widest text-slate-400 block mb-1">
+                      Encargado Asignado
+                    </label>
+                    <select
+                      disabled={!canEdit}
+                      value={currentLeader}
+                      onChange={e => setEncargadosSectores({ ...encargadosSectores, [sec.id]: e.target.value })}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2 text-xs font-bold text-slate-800 focus:bg-white focus:border-blue-500 focus:outline-none transition cursor-pointer"
+                    >
+                      <option value="">— Seleccionar Encargado —</option>
+                      {personalList.filter(p => p.activo !== false).map(p => (
+                        <option key={p.id} value={p.nombre}>
+                          {p.nombre} ({p.rol_funcion || 'Personal'})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* -------------------- PERSONAL EDITOR MODAL -------------------- */}
       {showPersonalModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
@@ -635,13 +755,35 @@ export default function PersonalRecursos({
                   />
                 </div>
                 <div>
-                  <label className="text-[9px] uppercase tracking-widest font-black text-blue-900 block mb-1">Vencimiento Licencia de Conducir</label>
-                  <input
-                    type="date"
-                    value={personaForm.licencia_conducir_vencimiento || ''}
-                    onChange={(e) => setPersonaForm({ ...personaForm, licencia_conducir_vencimiento: e.target.value })}
-                    className="w-full bg-blue-50/40 border border-blue-200 rounded-xl p-2.5 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all-300 font-mono"
-                  />
+                  <div className="flex justify-between items-center mb-1">
+                    <label className="text-[9px] uppercase tracking-widest font-black text-blue-900 block">Vencimiento Licencia de Conducir</label>
+                    <label className="text-[9px] font-bold text-slate-500 flex items-center gap-1 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={personaForm.licencia_conducir_vencimiento === 'No aplica'}
+                        onChange={(e) => {
+                          setPersonaForm({
+                            ...personaForm,
+                            licencia_conducir_vencimiento: e.target.checked ? 'No aplica' : ''
+                          });
+                        }}
+                        className="rounded border-slate-300 text-blue-900 focus:ring-blue-500 w-3 h-3"
+                      />
+                      <span>No aplica</span>
+                    </label>
+                  </div>
+                  {personaForm.licencia_conducir_vencimiento === 'No aplica' ? (
+                    <div className="w-full bg-slate-100 border border-slate-200 rounded-xl p-2.5 text-xs font-bold text-slate-500 italic">
+                      No aplica (No conduce)
+                    </div>
+                  ) : (
+                    <input
+                      type="date"
+                      value={personaForm.licencia_conducir_vencimiento || ''}
+                      onChange={(e) => setPersonaForm({ ...personaForm, licencia_conducir_vencimiento: e.target.value })}
+                      className="w-full bg-blue-50/40 border border-blue-200 rounded-xl p-2.5 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all-300 font-mono"
+                    />
+                  )}
                 </div>
               </div>
 

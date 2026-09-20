@@ -143,6 +143,36 @@ const saveJsonDb = () => {
   }
 };
 
+// Ensure essential default users always exist in PostgreSQL
+const ensureDefaultUsers = async (p) => {
+  try {
+    const defaultUsers = [
+      { username: 'admin', nombre: 'Super Administrador', password: 'admin', rol: 'SuperAdmin', modulos: '["Comercial", "Operaciones", "Almacen"]' },
+      { username: 'mariana', nombre: 'Mariana D´Angiola', password: 'comercial', rol: 'Comercial', modulos: '["Comercial"]' },
+      { username: 'luis', nombre: 'Luis Navarro', password: 'operaciones', rol: 'Operaciones', modulos: '["Operaciones"]' },
+      { username: 'operaciones', nombre: 'Operaciones', password: 'operaciones', rol: 'Operaciones', modulos: '["Operaciones"]' },
+      { username: 'gomez', nombre: 'Gómez (Planta)', password: 'planta', rol: 'Operario', modulos: '["Almacen"]' },
+      { username: 'fabian', nombre: 'Fabián (Pañol)', password: 'panol', rol: 'Operario', modulos: '["Almacen"]' },
+      { username: 'lonas', nombre: 'Lonas Staff', password: 'lonas', rol: 'Operario', modulos: '["Almacen"]' },
+      { username: 'pisos', nombre: 'Pisos Staff', password: 'pisos', rol: 'Operario', modulos: '["Almacen"]' },
+      { username: 'telas', nombre: 'Telas Staff', password: 'telas', rol: 'Operario', modulos: '["Almacen"]' },
+      { username: 'chofer', nombre: 'Chofer de Despacho', password: 'chofer', rol: 'Chofer', modulos: '["Chofer"]' }
+    ];
+
+    for (const u of defaultUsers) {
+      await p.query(`
+        INSERT INTO usuarios (username, nombre, password, rol, modulos)
+        VALUES ($1, $2, $3, $4, $5)
+        ON CONFLICT (username) DO UPDATE 
+        SET password = EXCLUDED.password, rol = EXCLUDED.rol, modulos = EXCLUDED.modulos
+      `, [u.username, u.nombre, u.password, u.rol, u.modulos]);
+    }
+    console.log('[DB] Usuarios del sistema verificados y asegurados.');
+  } catch (err) {
+    console.error('[DB] Error asegurando usuarios por defecto:', err.message);
+  }
+};
+
 // Seed helper for PostgreSQL
 const seedPostgresData = async (data, skipTruncate = false) => {
   const client = await pool.connect();
@@ -381,6 +411,9 @@ const initDb = async () => {
         }
       }
 
+      // Guarantee default users exist regardless of seed status
+      await ensureDefaultUsers(pool);
+
       // Safe seeding: only seed if ALL key tables are completely empty
       // This prevents accidental overwrite of real production data
       const counts = await pool.query(`
@@ -400,6 +433,9 @@ const initDb = async () => {
       } else {
         console.log(`[DB] Base de datos con datos existentes (${row.usuarios} usuarios, ${row.clientes} clientes, ${row.ordenes_trabajo} OTs). Omitiendo seed.`);
       }
+
+      // Re-verify default users after full seed
+      await ensureDefaultUsers(pool);
 
       // Ensure Master Data (estructuras_maestras, base_arco, base_modulo, base_fijo) is always complete
       const masterCheck = await pool.query('SELECT COUNT(*) FROM base_arco');
@@ -562,18 +598,19 @@ export const db = {
   },
 
   saveClient: async (client) => {
+    const cuenta = client.cuenta && client.cuenta.trim() !== '' ? client.cuenta.trim() : `CLI-${Date.now().toString().slice(-6)}`;
     if (usePostgreSQL) {
       const res = await pool.query(
         `INSERT INTO clientes (cuenta, nombre, actividad, estado, observacion, domicilio, localidad, provincia, pais, telefono, email, cuit, vendedores, responsables, latitud, longitud)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
          RETURNING *`,
-        [client.cuenta, client.nombre, client.actividad, client.estado, client.observacion, client.domicilio, client.localidad, client.provincia, client.pais, client.telefono, client.email, client.cuit, client.vendedores, client.responsables, client.latitud, client.longitud]
+        [cuenta, client.nombre, client.actividad || 'General', client.estado || 'Activo', client.observacion || null, client.domicilio || null, client.localidad || null, client.provincia || null, client.pais || 'ARGENTINA', client.telefono || null, client.email || null, client.cuit || null, client.vendedores || null, client.responsables || null, client.latitud || null, client.longitud || null]
       );
       return res.rows[0];
     } else {
       const db = loadJsonDb();
       const nextId = db.clientes.length > 0 ? Math.max(...db.clientes.map(c => c.id)) + 1 : 1;
-      const newClient = { id: nextId, ...client };
+      const newClient = { id: nextId, ...client, cuenta };
       db.clientes.push(newClient);
       saveJsonDb();
       return newClient;
@@ -2859,6 +2896,106 @@ export const db = {
         return db.ordenes_trabajo[otIdx];
       }
       return null;
+    }
+  },
+
+  // ==========================================
+  // ENCARGADOS DE SECTORES
+  // ==========================================
+  getEncargadosSectores: async () => {
+    if (usePostgreSQL) {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS encargados_sectores (
+          id SERIAL PRIMARY KEY,
+          sector VARCHAR(100) UNIQUE NOT NULL,
+          encargado_nombre VARCHAR(255),
+          encargado_id INTEGER,
+          contacto VARCHAR(100),
+          actualizado_el TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      const res = await pool.query('SELECT * FROM encargados_sectores ORDER BY sector');
+      return res.rows;
+    } else {
+      const db = loadJsonDb();
+      return db.encargados_sectores || [];
+    }
+  },
+
+  saveEncargadosSectores: async (sectoresArray) => {
+    if (usePostgreSQL) {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS encargados_sectores (
+          id SERIAL PRIMARY KEY,
+          sector VARCHAR(100) UNIQUE NOT NULL,
+          encargado_nombre VARCHAR(255),
+          encargado_id INTEGER,
+          contacto VARCHAR(100),
+          actualizado_el TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      for (const s of sectoresArray) {
+        await pool.query(`
+          INSERT INTO encargados_sectores (sector, encargado_nombre, encargado_id, contacto, actualizado_el)
+          VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
+          ON CONFLICT (sector) DO UPDATE
+          SET encargado_nombre = EXCLUDED.encargado_nombre,
+              encargado_id = EXCLUDED.encargado_id,
+              contacto = EXCLUDED.contacto,
+              actualizado_el = CURRENT_TIMESTAMP
+        `, [s.sector, s.encargado_nombre, s.encargado_id || null, s.contacto || null]);
+      }
+      const res = await pool.query('SELECT * FROM encargados_sectores ORDER BY sector');
+      return res.rows;
+    } else {
+      const db = loadJsonDb();
+      db.encargados_sectores = sectoresArray;
+      saveJsonDb();
+      return db.encargados_sectores;
+    }
+  },
+
+  // ==========================================
+  // REGISTRO DE USO DE ACCESORIOS (ROLLOS / CONSUMOS)
+  // ==========================================
+  recordAccessoryUsage: async (id, { usuario, cantidad_usada, destino_obs }) => {
+    if (usePostgreSQL) {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS registro_usos_accesorios (
+          id SERIAL PRIMARY KEY,
+          accesorio_id INTEGER REFERENCES inventario_accesorios(id) ON DELETE CASCADE,
+          usuario VARCHAR(255),
+          cantidad NUMERIC,
+          destino_obs TEXT,
+          fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await pool.query(
+        'INSERT INTO registro_usos_accesorios (accesorio_id, usuario, cantidad, destino_obs) VALUES ($1, $2, $3, $4)',
+        [id, usuario || 'Sector', cantidad_usada || 0, destino_obs || '']
+      );
+      // Retrieve accessory and its usage history
+      const acc = await pool.query('SELECT * FROM inventario_accesorios WHERE id = $1', [id]);
+      const usos = await pool.query('SELECT * FROM registro_usos_accesorios WHERE accesorio_id = $1 ORDER BY fecha DESC', [id]);
+      return { ...(acc.rows[0] || {}), historial_usos: usos.rows };
+    } else {
+      const db = loadJsonDb();
+      if (!db.registro_usos_accesorios) db.registro_usos_accesorios = [];
+      const newRecord = {
+        id: Date.now(),
+        accesorio_id: id,
+        usuario: usuario || 'Sector',
+        cantidad: cantidad_usada || 0,
+        destino_obs: destino_obs || '',
+        fecha: new Date().toISOString()
+      };
+      db.registro_usos_accesorios.push(newRecord);
+      saveJsonDb();
+      const item = db.inventario_accesorios.find(a => a.id === id);
+      return {
+        ...(item || {}),
+        historial_usos: db.registro_usos_accesorios.filter(u => u.accesorio_id === id)
+      };
     }
   }
 };

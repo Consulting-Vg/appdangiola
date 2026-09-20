@@ -142,6 +142,7 @@ export default function App() {
   const [formLargo, setFormLargo] = useState(15);
   const [formModConfig, setFormModConfig] = useState({ tipo: 'simple', modulos: [{ largo: 5, qty: 3 }] });
   const [formGeo, setFormGeo] = useState({ direccion: '', lat: -34.6037, lng: -58.3816 });
+  const [isSubmittingOT, setIsSubmittingOT] = useState(false);
 
   // Adicionales
   const [formPisos, setFormPisos] = useState(false);
@@ -149,10 +150,25 @@ export default function App() {
   const [formPisosObs, setFormPisosObs] = useState('');
   const [formAlfombras, setFormAlfombras] = useState(false);
   const [formAlfombrasColor, setFormAlfombrasColor] = useState('Gris');
+  const [formAlfombrasColoresList, setFormAlfombrasColoresList] = useState(['Gris']);
   const [formAlfombrasObs, setFormAlfombrasObs] = useState('');
   const [formLonas, setFormLonas] = useState(true);
   const [formLonasColor, setFormLonasColor] = useState('Blanco');
   const [formLonasObs, setFormLonasObs] = useState('');
+
+  // Quick Client Modal States (Item 1)
+  const [showQuickClientModal, setShowQuickClientModal] = useState(false);
+  const [quickClientForm, setQuickClientForm] = useState({
+    nombre: '',
+    cuit: '',
+    domicilio: '',
+    localidad: '',
+    provincia: 'Buenos Aires',
+    telefono: '',
+    email: '',
+    actividad: 'Corporativo'
+  });
+  const [isSavingQuickClient, setIsSavingQuickClient] = useState(false);
 
   // Dissociated Telas States
   const [formTelasCielorraso, setFormTelasCielorraso] = useState(false);
@@ -1042,6 +1058,7 @@ export default function App() {
     setFormPisosObs('');
     setFormAlfombras(false);
     setFormAlfombrasColor('Gris');
+    setFormAlfombrasColoresList(['Gris']);
     setFormAlfombrasObs('');
     setFormLonas(true);
     setFormLonasColor('Blanco');
@@ -1063,108 +1080,205 @@ export default function App() {
     setShowCreateModal(true);
   };
 
-  // Submit Work Order Form
-  const handleSubmitOT = async (e) => {
-    e.preventDefault();
-    if (!formClient || !formFechaInicio || !formFechaFin || !formFechaEvento || !formGeo.direccion) {
-      alert("Faltan campos obligatorios: Cliente, Fechas (Inicio, Evento, Fin) y Geolocalización.");
+  const handleSaveQuickClient = async (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    if (!quickClientForm.nombre.trim()) {
+      alert("⚠️ Por favor ingrese el Nombre / Razón Social del cliente.");
       return;
     }
-
-    // Resolve structure model matching Frente and Material
-    let resolvedModelo = formModeloEst;
-    let targetAvailability = availabilityResults.find(r => r.modelo_estructura === formModeloEst);
-
-    if (!resolvedModelo || !targetAvailability) {
-      // Find the first model that has enough arches
-      const bestAvailable = availabilityResults.find(r => r.suficiente || r.arcos_disponibles >= archesNeeded);
-      if (bestAvailable) {
-        resolvedModelo = bestAvailable.modelo_estructura;
-        targetAvailability = bestAvailable;
-      } else {
-        const matchingStructure = structures.find(s =>
-          parseFloat(s.frente) === parseFloat(formFrente) &&
-          s.estructura_tipo.toLowerCase() === formTipoEst.toLowerCase()
-        );
-        resolvedModelo = matchingStructure ? matchingStructure.modelo_estructura : (structures[0]?.modelo_estructura || 'C10-L1');
-      }
-    }
-
-    // Integrity Check: sum of modules length must equal total length
-    let sumModulesLength = 0;
-    formModConfig.modulos.forEach(m => sumModulesLength += (m.largo * m.qty));
-    if (sumModulesLength !== parseInt(formLargo)) {
-      alert(`Error de Integridad: El largo de la carpa (${formLargo}m) no coincide con la sumatoria de las modulaciones físicas seleccionadas (${sumModulesLength}m).`);
-      return;
-    }
-
-    // Resolve arches to reserve strictly from the chosen structure model
-    let selectedArches = [];
-    if (targetAvailability && Array.isArray(targetAvailability.arcos_disponibles_list) && targetAvailability.arcos_disponibles_list.length >= archesNeeded) {
-      selectedArches = targetAvailability.arcos_disponibles_list.slice(0, archesNeeded);
-    } else {
-      selectedArches = Array.from({ length: archesNeeded }, (_, i) => `${resolvedModelo}_A${i + 1}`);
-    }
-
-    // Trigger materials explosion to save checklist items
+    setIsSavingQuickClient(true);
     try {
-      const expRes = await fetch('/api/estructuras/explode', {
+      const res = await fetch('/api/clientes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          modelo_estructura: resolvedModelo,
-          frente: formFrente,
-          largo: formLargo,
-          modulacion_config: formModConfig,
-          arcos_reservados: selectedArches,
-          adicionales: {
-            pisos: { si: formPisos, tipo: formPisosTipo, obs: formPisosObs },
-            alfombras: { si: formAlfombras, color: formAlfombrasColor, obs: formAlfombrasObs },
-            lonas: { si: formLonas, color: formLonasColor, obs: formLonasObs },
-            telas_cielorraso: { si: formTelasCielorraso, color: formTelasCielorrasoColor, obs: formTelasCielorrasoObs },
-            telas_cortinas: { si: formTelasCortinas, color: formTelasCortinasColor, tipo: formTelasCortinasTipo, obs: formTelasCortinasObs },
-            arcos_reservados: selectedArches
-          }
-        })
+        body: JSON.stringify(quickClientForm)
       });
-      const expData = await expRes.json();
-
-      // Create checklist format for Pañol and Planta sectors
-      const panolItems = [];
-      const plantaItems = [];
-
-      // Destructure explosion
-      expData.explosion.arcos.forEach(i => {
-        const item = { producto: i.producto, qty: i.qty, sector: i.sector || 'Planta', checked: false };
-        if (item.sector === 'Planta') plantaItems.push(item);
-        else panolItems.push(item);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Error al guardar cliente');
+      }
+      const createdClient = await res.json();
+      setClients(prev => [...prev, createdClient]);
+      setFormClient(String(createdClient.id));
+      const dirParts = [
+        createdClient.domicilio,
+        createdClient.localidad,
+        createdClient.provincia
+      ].filter(Boolean).join(', ');
+      setFormGeo({
+        direccion: dirParts || 'No especificada',
+        lat: parseFloat(createdClient.latitud) || -34.6037,
+        lng: parseFloat(createdClient.longitud) || -58.3816
       });
-      expData.explosion.modulos.forEach(i => {
-        const item = { producto: i.producto, qty: i.qty, sector: i.sector || 'Planta', checked: false };
-        if (item.sector === 'Planta') plantaItems.push(item);
-        else panolItems.push(item);
+      setShowQuickClientModal(false);
+      setQuickClientForm({
+        nombre: '',
+        cuit: '',
+        domicilio: '',
+        localidad: '',
+        provincia: 'Buenos Aires',
+        telefono: '',
+        email: '',
+        actividad: 'Corporativo'
       });
-      expData.explosion.fijos.forEach(i => {
-        const item = { producto: i.producto, qty: i.qty, sector: i.sector || 'Planta', checked: false };
-        if (item.sector === 'Planta') plantaItems.push(item);
-        else panolItems.push(item);
-      });
+      alert(`✓ ¡Cliente "${createdClient.nombre}" creado y seleccionado para la OT!`);
+    } catch (err) {
+      alert("Error al crear cliente: " + err.message);
+    } finally {
+      setIsSavingQuickClient(false);
+    }
+  };
 
-      // Accessories
-      expData.explosion.accesorios.forEach(i => {
-        let sec = 'Pañol';
-        if (i.categoria === 'lona') sec = 'Lonas';
-        else if (i.categoria === 'piso') sec = 'Pisos';
-        else if (i.categoria === 'alfombra') sec = 'Alfombras';
-        else if (i.categoria === 'tela') sec = 'Telas';
+  // Submit Work Order Form
+  const handleSubmitOT = async (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    if (isSubmittingOT) return;
 
-        const item = { producto: i.producto, qty: i.qty, sector: sec, checked: false };
-        if (sec === 'Lonas' || sec === 'Pisos' || sec === 'Alfombras' || sec === 'Planta') {
-          plantaItems.push(item);
+    if (!formClient) {
+      alert("⚠️ Falta seleccionar el Cliente / Razón Social.");
+      return;
+    }
+    if (!formFechaInicio) {
+      alert("⚠️ Falta ingresar la Fecha de Inicio de Montaje.");
+      return;
+    }
+    if (!formFechaEvento) {
+      alert("⚠️ Falta ingresar la Fecha de Evento.");
+      return;
+    }
+    if (!formFechaFin) {
+      alert("⚠️ Falta ingresar la Fecha de Comienzo de Desarmado.");
+      return;
+    }
+    if (!formGeo || !formGeo.direccion || formGeo.direccion.trim() === '') {
+      alert("⚠️ Falta especificar o geolocalizar la Dirección de Montaje.");
+      return;
+    }
+
+    setIsSubmittingOT(true);
+
+    try {
+      // Resolve structure model matching Frente and Material
+      let resolvedModelo = formModeloEst;
+      let targetAvailability = (availabilityResults || []).find(r => r.modelo_estructura === formModeloEst);
+
+      if (!resolvedModelo || !targetAvailability) {
+        const bestAvailable = (availabilityResults || []).find(r => r.suficiente || r.arcos_disponibles >= archesNeeded);
+        if (bestAvailable) {
+          resolvedModelo = bestAvailable.modelo_estructura;
+          targetAvailability = bestAvailable;
         } else {
-          panolItems.push(item);
+          const matchingStructure = (structures || []).find(s =>
+            parseFloat(s.frente) === parseFloat(formFrente) &&
+            s.estructura_tipo?.toLowerCase() === formTipoEst?.toLowerCase()
+          );
+          resolvedModelo = matchingStructure ? matchingStructure.modelo_estructura : (structures?.[0]?.modelo_estructura || 'C10-L1');
         }
-      });
+      }
+
+      // Automatically guarantee modular configuration matches formLargo
+      const targetLargo = parseInt(formLargo) || 10;
+      let currentModConfig = formModConfig;
+      let sumModulesLength = 0;
+      (currentModConfig?.modulos || []).forEach(m => sumModulesLength += (m.largo * m.qty));
+
+      if (sumModulesLength !== targetLargo) {
+        if (targetLargo % 5 === 0) {
+          currentModConfig = { tipo: 'simple', modulos: [{ largo: 5, qty: targetLargo / 5 }] };
+        } else if (targetLargo % 4 === 0) {
+          currentModConfig = { tipo: 'simple', modulos: [{ largo: 4, qty: targetLargo / 4 }] };
+        } else {
+          const qty5 = Math.floor(targetLargo / 5);
+          const rem = targetLargo % 5;
+          if (rem % 2 === 0) {
+            currentModConfig = {
+              tipo: 'compuesta',
+              modulos: [
+                { largo: 5, qty: qty5 },
+                { largo: 2, qty: rem / 2 }
+              ]
+            };
+          } else {
+            currentModConfig = {
+              tipo: 'compuesta',
+              modulos: [
+                { largo: 5, qty: Math.max(0, qty5 - 1) },
+                { largo: 2, qty: Math.floor((rem + 5) / 2) }
+              ]
+            };
+          }
+        }
+      }
+
+      const totalCalculatedArches = (currentModConfig?.modulos || []).reduce((acc, m) => acc + (m.qty || 0), 0) + 1;
+      let selectedArches = [];
+      if (targetAvailability && Array.isArray(targetAvailability.arcos_disponibles_list) && targetAvailability.arcos_disponibles_list.length >= totalCalculatedArches) {
+        selectedArches = targetAvailability.arcos_disponibles_list.slice(0, totalCalculatedArches);
+      } else {
+        selectedArches = Array.from({ length: totalCalculatedArches }, (_, i) => `${resolvedModelo}_A${i + 1}`);
+      }
+
+      // Trigger materials explosion to save checklist items
+      let panolItems = [];
+      let plantaItems = [];
+
+      try {
+        const expRes = await fetch('/api/estructuras/explode', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            modelo_estructura: resolvedModelo,
+            frente: formFrente,
+            largo: formLargo,
+            modulacion_config: currentModConfig,
+            arcos_reservados: selectedArches,
+            adicionales: {
+              pisos: { si: formPisos, tipo: formPisosTipo, obs: formPisosObs },
+              alfombras: { si: formAlfombras, color: formAlfombrasColor, obs: formAlfombrasObs },
+              lonas: { si: formLonas, color: formLonasColor, obs: formLonasObs },
+              telas_cielorraso: { si: formTelasCielorraso, color: formTelasCielorrasoColor, obs: formTelasCielorrasoObs },
+              telas_cortinas: { si: formTelasCortinas, color: formTelasCortinasColor, tipo: formTelasCortinasTipo, obs: formTelasCortinasObs },
+              arcos_reservados: selectedArches
+            }
+          })
+        });
+        if (expRes.ok) {
+          const expData = await expRes.json();
+          if (expData?.explosion) {
+            (expData.explosion.arcos || []).forEach(i => {
+              const item = { producto: i.producto, qty: i.qty, sector: i.sector || 'Planta', checked: false };
+              if (item.sector === 'Planta') plantaItems.push(item);
+              else panolItems.push(item);
+            });
+            (expData.explosion.modulos || []).forEach(i => {
+              const item = { producto: i.producto, qty: i.qty, sector: i.sector || 'Planta', checked: false };
+              if (item.sector === 'Planta') plantaItems.push(item);
+              else panolItems.push(item);
+            });
+            (expData.explosion.fijos || []).forEach(i => {
+              const item = { producto: i.producto, qty: i.qty, sector: i.sector || 'Planta', checked: false };
+              if (item.sector === 'Planta') plantaItems.push(item);
+              else panolItems.push(item);
+            });
+            (expData.explosion.accesorios || []).forEach(i => {
+              let sec = 'Pañol';
+              if (i.categoria === 'lona') sec = 'Lonas';
+              else if (i.categoria === 'piso') sec = 'Pisos';
+              else if (i.categoria === 'alfombra') sec = 'Alfombras';
+              else if (i.categoria === 'tela') sec = 'Telas';
+
+              const item = { producto: i.producto, qty: i.qty, sector: sec, checked: false };
+              if (sec === 'Lonas' || sec === 'Pisos' || sec === 'Alfombras' || sec === 'Planta') {
+                plantaItems.push(item);
+              } else {
+                panolItems.push(item);
+              }
+            });
+          }
+        }
+      } catch (eExp) {
+        console.warn("Explosion warning:", eExp);
+      }
 
       const otData = {
         ot_numero: `OT-${Date.now().toString().slice(-6)}`,
@@ -1179,7 +1293,7 @@ export default function App() {
         frente: parseFloat(formFrente),
         largo: parseFloat(formLargo),
         superficie: parseFloat(formFrente * formLargo),
-        modulacion_config: formModConfig,
+        modulacion_config: currentModConfig,
         adicionales: {
           fechas_iniciales: {
             fecha_inicio: formFechaInicio,
@@ -1188,53 +1302,40 @@ export default function App() {
             fecha_comienzo_desarmado: formFechaFin
           },
           pisos: { si: formPisos, tipo: formPisosTipo, obs: formPisosObs },
-          alfombras: { si: formAlfombras, color: formAlfombrasColor, obs: formAlfombrasObs },
+          alfombras: { si: formAlfombras, color: formAlfombrasColor, colores: formAlfombrasColoresList, obs: formAlfombrasObs },
           lonas: { si: formLonas, color: formLonasColor, obs: formLonasObs },
           telas_cielorraso: { si: formTelasCielorraso, color: formTelasCielorrasoColor, obs: formTelasCielorrasoObs },
           telas_cortinas: { si: formTelasCortinas, color: formTelasCortinasColor, tipo: formTelasCortinasTipo, obs: formTelasCortinasObs },
-          arcos_reservados: selectedArches
+          arcos_reservados: []
         },
         georef: formGeo,
-        estado: 'Pendiente', // Initial status
+        estado: 'Pendiente',
         panol_status: { items: panolItems },
         planta_status: { items: plantaItems },
         creado_por: userName
       };
- 
+
       const res = await fetch('/api/ots', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(otData)
       });
- 
+
       if (res.ok) {
         confetti({ particleCount: 150, spread: 80, origin: { y: 0.6 } });
         setShowCreateModal(false);
         fetchData();
-        // Reset form
-        setFormClient('');
-        setFormFechaInicio('');
-        setFormFechaFin('');
-        setFormFechaEvento('');
-        setFormObservaciones('');
-        setFormModeloEst('');
-        setFormPisos(false);
-        setFormAlfombras(false);
-        setFormLonas(true);
-        setFormLonasColor('Blanco');
-        setFormTelasCielorraso(false);
-        setFormTelasCielorrasoColor('Blanco');
-        setFormTelasCortinas(false);
-        setFormTelasCortinasColor('Blanco');
-        setFormTelasCortinasTipo('4 Mts');
-        setStockCheckStatus('unchecked');
-        setStockCheckMsg('');
+        resetOTForm();
+        alert("✓ ¡Orden de Trabajo creada exitosamente!");
       } else {
-        alert("Error al guardar la orden de trabajo.");
+        const errJson = await res.json().catch(() => ({}));
+        alert(errJson.error || "Error al guardar la orden de trabajo.");
       }
     } catch (err) {
-      console.error(err);
-      alert("Error al procesar la explosión de materiales.");
+      console.error("Error creating OT:", err);
+      alert("Error al procesar la orden de trabajo: " + err.message);
+    } finally {
+      setIsSubmittingOT(false);
     }
   };
 
@@ -1785,6 +1886,27 @@ export default function App() {
     });
     // --- End Step 5 ---
 
+    // Consolidate / Sum identical components in checklists (Item 15)
+    const consolidateItems = (rawItems) => {
+      const map = {};
+      rawItems.forEach(item => {
+        const key = `${item.producto}___${item.sector || ''}`;
+        if (!map[key]) {
+          map[key] = { ...item, qty: 0 };
+        }
+        const num = Number(item.qty);
+        if (!isNaN(num)) {
+          map[key].qty += num;
+        } else {
+          map[key].qty = item.qty;
+        }
+      });
+      return Object.values(map);
+    };
+
+    const finalPanolItems = consolidateItems(panolItems);
+    const finalPlantaItems = consolidateItems(plantaItems);
+
     const groups = {};
     conformanceSelectedModulesList.forEach(m => {
       if (!groups[m]) groups[m] = 0;
@@ -1814,8 +1936,8 @@ export default function App() {
         body: JSON.stringify({
           modulacion_config: modConfig,
           arcos_reservados: conformanceSelectedArches,
-          panol_status: { items: panolItems },
-          planta_status: { items: plantaItems },
+          panol_status: { items: finalPanolItems },
+          planta_status: { items: finalPlantaItems },
           fijo_modelo_estructura: conformanceSelectedFijoModel,
           conformed_modulos_list: conformedList,
           usuario: currentUser?.nombre || userName,
@@ -3559,13 +3681,22 @@ export default function App() {
 
             <h2 className="text-lg font-black uppercase text-blue-900 tracking-wider Poppins mb-6">Nueva Orden de Trabajo Comercial</h2>
 
-            <form onSubmit={handleSubmitOT} className="space-y-6">
+            <form onSubmit={handleSubmitOT} noValidate className="space-y-6">
               {/* Client & Date Selector */}
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <div>
-                  <label className="text-[10px] uppercase tracking-widest font-black text-slate-400 block mb-1">Cliente / Razón Social *</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-[10px] uppercase tracking-widest font-black text-slate-400 block">Cliente / Razón Social *</label>
+                    <button
+                      type="button"
+                      onClick={() => setShowQuickClientModal(true)}
+                      className="text-[10px] text-blue-600 hover:text-blue-800 font-bold uppercase tracking-wider underline flex items-center gap-1 cursor-pointer"
+                    >
+                      <Plus className="w-3 h-3" /> + Nuevo
+                    </button>
+                  </div>
                   <select
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all-300"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all-300 cursor-pointer"
                     value={formClient}
                     onChange={(e) => {
                       const val = e.target.value;
@@ -3590,7 +3721,7 @@ export default function App() {
                   >
                     <option value="">Buscar Cliente...</option>
                     {clients.map(c => (
-                      <option key={c.id} value={c.id}>{c.nombre} (CUIT: {c.cuit})</option>
+                      <option key={c.id} value={c.id}>{c.nombre} (CUIT: {c.cuit || 'S/D'})</option>
                     ))}
                   </select>
                 </div>
@@ -3598,8 +3729,9 @@ export default function App() {
                   <label className="text-[10px] uppercase tracking-widest font-black text-slate-400 block mb-1">Fecha Inicio Montaje *</label>
                   <input
                     type="date"
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all-300"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all-300 cursor-pointer"
                     value={formFechaInicio}
+                    onClick={(e) => { try { e.target.showPicker && e.target.showPicker(); } catch (err) { } }}
                     onChange={(e) => setFormFechaInicio(e.target.value)}
                     required
                   />
@@ -3608,8 +3740,9 @@ export default function App() {
                   <label className="text-[10px] uppercase tracking-widest font-black text-slate-400 block mb-1">Fecha de Evento *</label>
                   <input
                     type="date"
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all-300"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all-300 cursor-pointer"
                     value={formFechaEvento}
+                    onClick={(e) => { try { e.target.showPicker && e.target.showPicker(); } catch (err) { } }}
                     onChange={(e) => setFormFechaEvento(e.target.value)}
                     required
                   />
@@ -3618,8 +3751,9 @@ export default function App() {
                   <label className="text-[10px] uppercase tracking-widest font-black text-slate-400 block mb-1">Comienzo de Desarmado *</label>
                   <input
                     type="date"
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all-300"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all-300 cursor-pointer"
                     value={formFechaFin}
+                    onClick={(e) => { try { e.target.showPicker && e.target.showPicker(); } catch (err) { } }}
                     onChange={(e) => setFormFechaFin(e.target.value)}
                     required
                   />
@@ -3645,7 +3779,7 @@ export default function App() {
                   <div>
                     <label className="text-[10px] uppercase tracking-widest font-black text-slate-400 block mb-1">Frente (Ancho Mts) *</label>
                     <select
-                      className="w-full bg-white border border-slate-200 rounded-xl p-2.5 text-xs font-semibold focus:outline-none"
+                      className="w-full bg-white border border-slate-200 rounded-xl p-2.5 text-xs font-semibold focus:outline-none cursor-pointer"
                       value={formFrente}
                       onChange={(e) => setFormFrente(parseFloat(e.target.value))}
                       required
@@ -3654,7 +3788,7 @@ export default function App() {
                         ? [...new Set(structures.map(s => parseFloat(s.frente)))].sort((a, b) => a - b)
                         : [10, 20]
                       ).map(f => (
-                        <option key={f} value={f}>{f} Mts</option>
+                        <option key={f} value={f}>{f}</option>
                       ))}
                     </select>
                   </div>
@@ -3814,17 +3948,47 @@ export default function App() {
                   </div>
 
                   {/* Alfombra */}
-                  <div className="flex items-center justify-between p-3 bg-white border border-slate-100 rounded-xl shadow-xs">
-                    <div className="flex items-center gap-3">
-                      <input type="checkbox" id="alfombras" className="w-4.5 h-4.5 text-blue-600 focus:ring-blue-500 rounded" checked={formAlfombras} onChange={(e) => setFormAlfombras(e.target.checked)} />
-                      <label htmlFor="alfombras" className="text-xs font-extrabold text-slate-700 uppercase">Alfombra de Evento</label>
+                  <div className="flex flex-col justify-between p-3 bg-white border border-slate-100 rounded-xl shadow-xs">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <input type="checkbox" id="alfombras" className="w-4.5 h-4.5 text-blue-600 focus:ring-blue-500 rounded cursor-pointer" checked={formAlfombras} onChange={(e) => setFormAlfombras(e.target.checked)} />
+                        <label htmlFor="alfombras" className="text-xs font-extrabold text-slate-700 uppercase cursor-pointer">Alfombra de Evento</label>
+                      </div>
                     </div>
                     {formAlfombras && (
-                      <select className="bg-slate-50 border border-slate-200 rounded-lg p-1.5 text-[10px] font-bold focus:outline-none" value={formAlfombrasColor} onChange={(e) => setFormAlfombrasColor(e.target.value)}>
-                        <option value="Gris">Gris Gris</option>
-                        <option value="Negro">Negro Noche</option>
-                        <option value="Beige">Beige Arena</option>
-                      </select>
+                      <div className="mt-2 pt-2 border-t border-slate-100 space-y-1.5">
+                        <span className="text-[9px] uppercase font-black tracking-wider text-slate-400 block">Colores Requeridos:</span>
+                        <div className="flex flex-wrap gap-1.5">
+                          {['Gris', 'Negro', 'Rojo', 'Azul', 'Beige', 'Verde', 'Blanco'].map(col => {
+                            const isSelected = (formAlfombrasColoresList || []).includes(col);
+                            return (
+                              <button
+                                key={col}
+                                type="button"
+                                onClick={() => {
+                                  const current = formAlfombrasColoresList || [];
+                                  let next;
+                                  if (isSelected) {
+                                    next = current.filter(c => c !== col);
+                                    if (next.length === 0) next = [col];
+                                  } else {
+                                    next = [...current, col];
+                                  }
+                                  setFormAlfombrasColoresList(next);
+                                  setFormAlfombrasColor(next[0] || 'Gris');
+                                }}
+                                className={`px-2 py-0.5 rounded-md text-[10px] font-bold border transition cursor-pointer ${
+                                  isSelected
+                                    ? 'bg-blue-900 text-white border-blue-900 shadow-xs'
+                                    : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                                }`}
+                              >
+                                {col} {isSelected ? '✓' : ''}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
                     )}
                   </div>
 
@@ -3899,9 +4063,17 @@ export default function App() {
                 </button>
                 <button
                   type="submit"
-                  className="bg-blue-900 hover:bg-blue-950 text-white rounded-xl px-6 py-3 text-xs font-black uppercase tracking-widest shadow-md hover:-translate-y-0.5 transition-all-300"
+                  disabled={isSubmittingOT}
+                  className={`bg-blue-900 hover:bg-blue-950 text-white rounded-xl px-6 py-3 text-xs font-black uppercase tracking-widest shadow-md transition-all-300 flex items-center gap-2 ${isSubmittingOT ? 'opacity-70 cursor-not-allowed' : 'hover:-translate-y-0.5 cursor-pointer'}`}
                 >
-                  Generar Contrato OT
+                  {isSubmittingOT ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>Generando Contrato...</span>
+                    </>
+                  ) : (
+                    <span>Generar Contrato OT</span>
+                  )}
                 </button>
               </div>
             </form>
@@ -3972,6 +4144,76 @@ export default function App() {
               </div>
 
             </div>
+
+            {/* Resumen Estructural, Arcos y Observaciones Comerciales (Item 12) */}
+            {(() => {
+              const ad = typeof selectedOT.adicionales === 'string' ? safeJsonParse(selectedOT.adicionales) : selectedOT.adicionales || {};
+              const arcosRes = ad.arcos_reservados || [];
+              const alf = ad.alfombras || {};
+              const pis = ad.pisos || {};
+              const lon = ad.lonas || {};
+              const telC = ad.telas_cielorraso || {};
+              const telK = ad.telas_cortinas || {};
+
+              return (
+                <div className="bg-slate-50/80 border border-slate-200/90 rounded-2xl p-4.5 space-y-3">
+                  <div className="flex items-center justify-between border-b border-slate-200/60 pb-2">
+                    <span className="text-[10px] font-black uppercase tracking-widest text-blue-900 Poppins">
+                      Detalle del Contrato Comercial & Especificaciones Técnicas
+                    </span>
+                    <span className="text-[10px] font-bold text-slate-500">
+                      Superficie: <strong className="text-slate-800">{selectedOT.superficie || (selectedOT.frente * selectedOT.largo)} m²</strong> ({selectedOT.frente}m Frente x {selectedOT.largo}m Largo)
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+                    {/* Estructura y Arcos */}
+                    <div className="bg-white p-3 rounded-xl border border-slate-150 space-y-1">
+                      <span className="text-[9px] uppercase font-black text-slate-400 block tracking-wider">Estructura & Arcos</span>
+                      <div className="font-extrabold text-slate-800 flex items-center gap-1.5">
+                        <span className="badge-carpa">{selectedOT.modelo_estructura || 'A Confirmar'}</span>
+                        <span className="text-[10px] text-slate-500 uppercase">{selectedOT.estructura_tipo}</span>
+                      </div>
+                      <div className="pt-1 text-[11px]">
+                        <span className="text-slate-400 font-bold">Arcos: </span>
+                        {arcosRes.length > 0 ? (
+                          <span className="font-mono font-bold text-blue-900">{arcosRes.join(', ')}</span>
+                        ) : (
+                          <span className="text-amber-700 italic font-semibold">Pendientes de asignación en modulación</span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Adicionales */}
+                    <div className="bg-white p-3 rounded-xl border border-slate-150 space-y-1">
+                      <span className="text-[9px] uppercase font-black text-slate-400 block tracking-wider">Adicionales Requeridos</span>
+                      <div className="flex flex-wrap gap-1 text-[10px]">
+                        {pis.si && <span className="bg-blue-50 text-blue-800 border border-blue-200 px-1.5 py-0.5 rounded font-bold">Piso: {pis.tipo || 'Fenólico'}</span>}
+                        {alf.si && (
+                          <span className="bg-emerald-50 text-emerald-800 border border-emerald-200 px-1.5 py-0.5 rounded font-bold">
+                            Alfombra: {Array.isArray(alf.colores) && alf.colores.length > 0 ? alf.colores.join(', ') : alf.color || 'Gris'}
+                          </span>
+                        )}
+                        {lon.si && <span className="bg-indigo-50 text-indigo-800 border border-indigo-200 px-1.5 py-0.5 rounded font-bold">Lona: {lon.color || 'Blanco'}</span>}
+                        {telC.si && <span className="bg-purple-50 text-purple-800 border border-purple-200 px-1.5 py-0.5 rounded font-bold">Cielorraso: {telC.color || 'Blanco'}</span>}
+                        {telK.si && <span className="bg-fuchsia-50 text-fuchsia-800 border border-fuchsia-200 px-1.5 py-0.5 rounded font-bold">Cortinas: {telK.color || 'Blanco'}</span>}
+                        {!pis.si && !alf.si && !lon.si && !telC.si && !telK.si && (
+                          <span className="text-slate-400 italic">Sin adicionales especiales</span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Observaciones y Notas */}
+                    <div className="bg-white p-3 rounded-xl border border-slate-150 space-y-1">
+                      <span className="text-[9px] uppercase font-black text-slate-400 block tracking-wider">Notas Comerciales / Terreno</span>
+                      <p className="text-[11px] text-slate-700 font-semibold italic line-clamp-3 leading-relaxed">
+                        {selectedOT.observaciones && selectedOT.observaciones.trim() !== '' ? selectedOT.observaciones : 'Sin observaciones cargadas.'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
 
             {(() => {
               if (['Cancelada', 'Rechazada', 'Pendiente', 'Desarmada', 'Retornada'].includes(selectedOT.estado)) return null;
@@ -4388,6 +4630,52 @@ export default function App() {
                               })()}
                             </div>
                           )}
+
+                          {/* Diagrama Visual de Tramos Modulares (Item 11) */}
+                          {(() => {
+                            const spans = [];
+                            if (conformanceModType === 'simple') {
+                              const qty = Math.floor(selectedOT.largo / conformanceSimpleLen);
+                              for (let i = 0; i < qty; i++) spans.push(conformanceSimpleLen);
+                            } else {
+                              [5, 4, 3, 2].forEach(len => {
+                                const qty = conformanceCompoundModulos[len] || 0;
+                                for (let i = 0; i < qty; i++) spans.push(len);
+                              });
+                            }
+                            const totalSpansLen = spans.reduce((a, b) => a + b, 0);
+
+                            return (
+                              <div className="bg-slate-900 text-white rounded-2xl p-4 space-y-2.5 shadow-sm">
+                                <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-wider text-slate-400">
+                                  <span>Esquema Físico de Tramos & Arcos</span>
+                                  <span className="font-mono text-emerald-400 font-bold">
+                                    {totalSpansLen}m / {selectedOT.largo}m {totalSpansLen === selectedOT.largo ? '✓' : ''}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-1 overflow-x-auto py-2">
+                                  {spans.map((s, idx) => (
+                                    <React.Fragment key={idx}>
+                                      <div className="flex flex-col items-center shrink-0">
+                                        <div className="w-2 h-9 bg-amber-400 rounded-full shadow-xs" title={`Pórtico / Arco ${idx + 1}`} />
+                                        <span className="text-[8px] font-mono font-bold text-amber-300 mt-1">A{idx + 1}</span>
+                                      </div>
+                                      <div className="flex-1 min-w-[55px] bg-blue-900/80 border border-blue-500/50 rounded-xl h-9 flex flex-col items-center justify-center px-1.5 shadow-inner">
+                                        <span className="text-[11px] font-black text-white font-mono">{s}m</span>
+                                        <span className="text-[7.5px] uppercase font-bold text-blue-200">Módulo {idx + 1}</span>
+                                      </div>
+                                    </React.Fragment>
+                                  ))}
+                                  {spans.length > 0 && (
+                                    <div className="flex flex-col items-center shrink-0">
+                                      <div className="w-2 h-9 bg-amber-400 rounded-full shadow-xs" title={`Pórtico / Arco ${spans.length + 1}`} />
+                                      <span className="text-[8px] font-mono font-bold text-amber-300 mt-1">A{spans.length + 1}</span>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })()}
 
                           {/* VERIFICAR TEMPORAL DE ARCOS BUTTON AND RESULTS PANEL FOR WIZARD STEP 1 */}
                           <div className="pt-2 border-t border-slate-100 space-y-3">
@@ -6945,6 +7233,118 @@ export default function App() {
                 Confirmar Ingreso y Cerrar OT
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* -------------------- MODAL ALTA RÁPIDA DE CLIENTE (COMERCIAL) -------------------- */}
+      {showQuickClientModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
+          <div className="bg-white border border-slate-200 rounded-[2rem] w-full max-w-lg p-6 shadow-2xl relative">
+            <button
+              onClick={() => setShowQuickClientModal(false)}
+              className="absolute right-5 top-5 p-1.5 rounded-full hover:bg-slate-100 transition cursor-pointer"
+            >
+              <X className="w-4 h-4 text-slate-500" />
+            </button>
+
+            <div className="flex items-center gap-3 mb-5 border-b border-slate-100 pb-3">
+              <div className="w-9 h-9 rounded-xl bg-blue-50 text-blue-900 flex items-center justify-center font-black">
+                <Plus className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-sm font-black uppercase text-blue-900 tracking-wider Poppins">Nuevo Cliente Comercial</h3>
+                <p className="text-[10px] text-slate-400 font-semibold">Cargar nuevo cliente y seleccionarlo automáticamente para la OT.</p>
+              </div>
+            </div>
+
+            <form onSubmit={handleSaveQuickClient} className="space-y-4">
+              <div>
+                <label className="text-[10px] uppercase tracking-widest font-black text-slate-400 block mb-1">Nombre / Razón Social *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ej: Eventos del Sur S.A."
+                  value={quickClientForm.nombre}
+                  onChange={e => setQuickClientForm({ ...quickClientForm, nombre: e.target.value })}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-900"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] uppercase tracking-widest font-black text-slate-400 block mb-1">CUIT / DNI</label>
+                  <input
+                    type="text"
+                    placeholder="30-12345678-9"
+                    value={quickClientForm.cuit}
+                    onChange={e => setQuickClientForm({ ...quickClientForm, cuit: e.target.value })}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs font-semibold focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] uppercase tracking-widest font-black text-slate-400 block mb-1">Teléfono</label>
+                  <input
+                    type="text"
+                    placeholder="11-2345-6789"
+                    value={quickClientForm.telefono}
+                    onChange={e => setQuickClientForm({ ...quickClientForm, telefono: e.target.value })}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs font-semibold focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[10px] uppercase tracking-widest font-black text-slate-400 block mb-1">Email de Contacto</label>
+                <input
+                  type="email"
+                  placeholder="contacto@cliente.com"
+                  value={quickClientForm.email}
+                  onChange={e => setQuickClientForm({ ...quickClientForm, email: e.target.value })}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs font-semibold focus:outline-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] uppercase tracking-widest font-black text-slate-400 block mb-1">Domicilio / Dirección</label>
+                  <input
+                    type="text"
+                    placeholder="Av. Libertador 1234"
+                    value={quickClientForm.domicilio}
+                    onChange={e => setQuickClientForm({ ...quickClientForm, domicilio: e.target.value })}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs font-semibold focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] uppercase tracking-widest font-black text-slate-400 block mb-1">Localidad</label>
+                  <input
+                    type="text"
+                    placeholder="San Isidro"
+                    value={quickClientForm.localidad}
+                    onChange={e => setQuickClientForm({ ...quickClientForm, localidad: e.target.value })}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs font-semibold focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-4 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setShowQuickClientModal(false)}
+                  className="bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-700 rounded-xl px-4 py-2.5 text-xs font-bold transition cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingQuickClient}
+                  className="bg-blue-900 hover:bg-blue-950 text-white rounded-xl px-5 py-2.5 text-xs font-black uppercase tracking-wider shadow-sm transition cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+                >
+                  {isSavingQuickClient ? 'Guardando...' : 'Guardar y Usar en OT'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

@@ -23,6 +23,20 @@ CREATE TABLE IF NOT EXISTS usuarios (
     fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+INSERT INTO usuarios (username, nombre, password, rol, modulos)
+VALUES 
+  ('admin', 'Super Administrador', 'admin', 'SuperAdmin', '["Comercial", "Operaciones", "Almacen"]'),
+  ('mariana', 'Mariana D´Angiola', 'comercial', 'Comercial', '["Comercial"]'),
+  ('luis', 'Luis Navarro', 'operaciones', 'Operaciones', '["Operaciones"]'),
+  ('operaciones', 'Operaciones', 'operaciones', 'Operaciones', '["Operaciones"]'),
+  ('gomez', 'Gómez (Planta)', 'planta', 'Operario', '["Almacen"]'),
+  ('fabian', 'Fabián (Pañol)', 'panol', 'Operario', '["Almacen"]'),
+  ('lonas', 'Lonas Staff', 'lonas', 'Operario', '["Almacen"]'),
+  ('pisos', 'Pisos Staff', 'pisos', 'Operario', '["Almacen"]'),
+  ('telas', 'Telas Staff', 'telas', 'Operario', '["Almacen"]'),
+  ('chofer', 'Chofer de Despacho', 'chofer', 'Chofer', '["Chofer"]')
+ON CONFLICT (username) DO NOTHING;
+
 -- 1. Clientes
 CREATE TABLE IF NOT EXISTS clientes (
     id SERIAL PRIMARY KEY,

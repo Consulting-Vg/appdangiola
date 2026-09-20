@@ -5,7 +5,7 @@ import {
   Layers, CheckCircle2, ChevronRight, User, Calendar, Trash2,
   HelpCircle, AlertOctagon, AlertTriangle, RefreshCw,
   BarChart3, ShieldCheck, TrendingUp, Package, Eye, Truck,
-  Shuffle, Warehouse, Printer, ArrowRight, Sun
+  Shuffle, Warehouse, Printer, ArrowRight, Sun, Boxes
 } from 'lucide-react';
 import PDFReplicator from './PDFReplicator';
 
@@ -262,6 +262,7 @@ export default function RoleDashboard({
   const [activeTab, setActiveTab] = useState('all');
   const [operacionesSubTab, setOperacionesSubTab] = useState('ots'); // 'ots', 'stock'
   const [gerenciaSubTab, setGerenciaSubTab] = useState('ots'); // 'ots', 'stock'
+  const [comercialSubTab, setComercialSubTab] = useState('ots'); // 'ots', 'stock'
   const [borrowItem, setBorrowItem] = useState({ item: '', sourceEst: '', qty: 1 });
   const [borrowOTId, setBorrowOTId] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -2006,19 +2007,61 @@ export default function RoleDashboard({
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white/40 p-5 rounded-3xl border border-slate-200 shadow-sm backdrop-blur-md">
             <div>
               <h2 className="text-lg font-black uppercase text-blue-900 tracking-wider Poppins">Portal Comercial</h2>
-              <p className="text-xs text-slate-500 font-semibold">Genera cotizaciones, accede a Realidad Aumentada para visualizar carpas y controla tus operaciones.</p>
+              <p className="text-xs text-slate-500 font-semibold">Genera cotizaciones, consulta disponibilidad de carpas y controla tus operaciones.</p>
             </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                type="button"
+                onClick={() => setComercialSubTab(comercialSubTab === 'ots' ? 'stock' : 'ots')}
+                className={`rounded-2xl px-4 py-3 text-xs font-black uppercase tracking-wider shadow-sm transition-all-300 flex items-center gap-2 cursor-pointer border ${
+                  comercialSubTab === 'stock'
+                    ? 'bg-blue-100 text-blue-900 border-blue-300'
+                    : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                }`}
+              >
+                <Boxes className="w-4 h-4 text-blue-800" />
+                <span>{comercialSubTab === 'stock' ? 'Ver mis OTs' : 'Chequear Disponibilidad'}</span>
+              </button>
+
+              <button
+                onClick={onCreateOTClick}
+                className="bg-blue-900 text-white rounded-2xl px-5 py-3 text-xs font-black uppercase tracking-widest shadow-md hover:bg-blue-950 hover:-translate-y-0.5 transition-all-300 flex items-center gap-2 cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Generar Nueva OT</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Subtabs Switcher */}
+          <div className="flex gap-2 border-b border-slate-200/80 pb-2">
             <button
-              onClick={onCreateOTClick}
-              className="bg-blue-900 text-white rounded-2xl px-5 py-3 text-xs font-black uppercase tracking-widest shadow-md hover:bg-blue-950 hover:-translate-y-0.5 transition-all-300 flex items-center gap-2 cursor-pointer"
+              onClick={() => setComercialSubTab('ots')}
+              className={`px-4 py-2 text-xs font-black uppercase tracking-widest border-b-2 transition-all-300 cursor-pointer ${
+                comercialSubTab === 'ots'
+                  ? 'border-blue-900 text-blue-900'
+                  : 'border-transparent text-slate-400 hover:text-slate-700'
+              }`}
             >
-              <Plus className="w-4 h-4" />
-              <span>Generar Nueva OT</span>
+              Historial de Contratos OT
+            </button>
+            <button
+              onClick={() => setComercialSubTab('stock')}
+              className={`px-4 py-2 text-xs font-black uppercase tracking-widest border-b-2 transition-all-300 cursor-pointer ${
+                comercialSubTab === 'stock'
+                  ? 'border-blue-900 text-blue-900'
+                  : 'border-transparent text-slate-400 hover:text-slate-700'
+              }`}
+            >
+              Chequeo de Disponibilidad de Carpas / Stock
             </button>
           </div>
 
-          <div className="glass-panel rounded-[2rem] p-6">
-            <h3 className="text-xs uppercase tracking-widest font-black text-slate-400 mb-4 Poppins">Historial de Contratos OT</h3>
+          {comercialSubTab === 'stock' ? (
+            renderStockInventory()
+          ) : (
+            <div className="glass-panel rounded-[2rem] p-6">
+              <h3 className="text-xs uppercase tracking-widest font-black text-slate-400 mb-4 Poppins">Historial de Contratos OT</h3>
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
@@ -2073,8 +2116,9 @@ export default function RoleDashboard({
               </table>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
+    )}
 
       {/* -------------------- OPERATIONS / GERENCIA DASHBOARD -------------------- */}
       {activeModule === 'Operaciones' && (

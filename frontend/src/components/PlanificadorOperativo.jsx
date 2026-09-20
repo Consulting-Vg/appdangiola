@@ -1429,32 +1429,24 @@ export default function PlanificadorOperativo({
             >
               Cronograma Diario
             </button>
-            <button
-              onClick={() => setActiveTab('proyeccion_planta')}
-              className={`px-3 py-1.5 text-xs font-bold rounded-xl transition cursor-pointer ${
-                activeTab === 'proyeccion_planta' 
-                  ? isNightMode ? 'bg-sky-400 text-sky-950 font-black shadow-xs' : 'bg-blue-900 text-white shadow-sm' 
-                  : isNightMode ? 'text-sky-200 hover:text-white' : 'text-slate-600 hover:text-blue-900'
-              }`}
-            >
-              Proyección Planta
-            </button>
-            <button
-              onClick={() => setActiveTab('recordatorios')}
-              className={`relative flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-xl transition cursor-pointer ${
-                activeTab === 'recordatorios' 
-                  ? isNightMode ? 'bg-sky-400 text-sky-950 font-black shadow-xs' : 'bg-blue-900 text-white shadow-sm' 
-                  : isNightMode ? 'text-sky-200 hover:text-white' : 'text-slate-600 hover:text-blue-900'
-              }`}
-            >
-              <Bell className="w-3 h-3" />
-              Alertas ({recordatorios.length})
-              {totalAlertas > 0 && (
-                <span className="absolute -top-1.5 -right-1.5 inline-flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full text-[9px] font-black bg-rose-500 text-white leading-none shadow-sm">
-                  {totalAlertas > 9 ? '9+' : totalAlertas}
-                </span>
-              )}
-            </button>
+            {['Operaciones', 'SuperAdmin'].includes(userRole) && (
+              <button
+                onClick={() => setActiveTab('recordatorios')}
+                className={`relative flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-xl transition cursor-pointer ${
+                  activeTab === 'recordatorios' 
+                    ? isNightMode ? 'bg-sky-400 text-sky-950 font-black shadow-xs' : 'bg-blue-900 text-white shadow-sm' 
+                    : isNightMode ? 'text-sky-200 hover:text-white' : 'text-slate-600 hover:text-blue-900'
+                }`}
+              >
+                <Bell className="w-3 h-3" />
+                Alertas ({recordatorios.length})
+                {totalAlertas > 0 && (
+                  <span className="absolute -top-1.5 -right-1.5 inline-flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full text-[9px] font-black bg-rose-500 text-white leading-none shadow-sm">
+                    {totalAlertas > 9 ? '9+' : totalAlertas}
+                  </span>
+                )}
+              </button>
+            )}
           </div>
 
           {/* Botón de Chat en Vivo de OTs */}
@@ -2865,6 +2857,11 @@ export default function PlanificadorOperativo({
                         {(() => {
                           const rawTerms = newItemName.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().split(/\s+/).filter(Boolean);
                           const suggestions = stockInventoryList.filter(item => {
+                            const itemSec = (item.sector || item.detectedSector || '').toLowerCase();
+                            const targetSec = (newItemSector || activeSectorTab || '').toLowerCase();
+                            if (targetSec && targetSec !== 'todos' && itemSec && itemSec !== targetSec) {
+                              return false;
+                            }
                             const fullStr = `${item.nombre || ''} ${item.producto || ''} ${item.modelo_estructura || ''} ${item.sector || ''} ${item.categoria || ''}`
                               .toLowerCase()
                               .normalize("NFD")
